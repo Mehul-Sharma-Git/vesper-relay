@@ -20,16 +20,36 @@ run on loopback. The pilot uses synthetic data.
   resume, checks process-group cleanup, and tests provider switching with CLI
   stand-ins.
 
+## Browser acceptance
+
+The separate `stockroom-browser` CI job runs the shipped app in headless
+Chromium with a fresh loopback server and temporary SQLite database per test.
+It checks the form and list at a 320 px phone viewport, keyboard navigation and
+focus after updates, a lost create response followed by an exact retry, and
+recovery from a stale purchase update in a second tab. Run it locally with
+Python 3.11+ and Node.js 22:
+
+```sh
+cd examples/stockroom-browser
+npm install --ignore-scripts --no-package-lock
+npx playwright install --only-shell chromium
+npm test
+```
+
+On Ubuntu, add `--with-deps` to install Chromium's system libraries if needed.
+These dependencies are only for the browser check; the coordinator still uses
+the Python standard library.
+
 ## Gaps found
 
 - Planning is a portable interactive brief and a review packet. We have yet to
   test the quality of discovery, wireframes, and second-round questions on an
-  actual user-led idea.
+  actual user-led idea in a local VS Code assistant session.
 - Live provider completion was not verified here. Automatic review blocked the
   live Codex action because it could send local pilot source and task context to
   an unverified external endpoint. Claude was verified with a CLI stand-in only.
-- Browser layout and real keyboard behavior remain to be checked. The available
-  browser binary could not be installed in this environment.
+- Browser acceptance is configured for CI. This workspace's Chromium download
+  returned a truncated archive, so no browser run was verified here.
 - A sandbox launcher is an interface, not a bundled sandbox. Before trusting
   unattended work on private code, validate a real launcher with worker and
   gate confinement on the target machine.

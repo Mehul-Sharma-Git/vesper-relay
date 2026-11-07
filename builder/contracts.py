@@ -151,6 +151,9 @@ def review_bundle(root):
                 f"Missing plan artifact: {name}")
     contract = reviewed_contract(root / "plan", plans, checks)
     bundle = {"plan": plans, "checks": checks, "seed": seed}
+    if "team" in contract:
+        from .team import freeze_team
+        bundle["team"] = freeze_team(contract)
     if (root / ".vesper.json").is_file():
         managed = read_json(root / ".vesper.json")
         require(isinstance(managed, dict) and isinstance(managed.get("intake"), dict),
@@ -158,6 +161,8 @@ def review_bundle(root):
         require("intake.json" in plans, "Missing managed plan intake")
         intake = json.loads(reviewed_text(root / "plan", "intake.json", plans))
         require(intake == managed["intake"], "Managed intake metadata changed")
+        require(not intake.get("team_contract") or "team" in bundle,
+                "This run requires a team contract and independent candidate review")
         if intake["repository"]:
             require(managed.get("seed_digest") == fingerprint(seed), "Managed baseline changed after intake")
             require("repository.json" in plans and
@@ -166,6 +171,22 @@ def review_bundle(root):
         if intake["mode"] == "maintenance":
             validate_maintenance(root, contract, checks, seed)
         bundle["intake"] = intake
+    if "team" in bundle:
+        from .team import validate_design
+        design_required = contract.get("design_required", False)
+        require(type(design_required) is bool, "design_required must be a boolean")
+        mode = bundle.get("intake", {}).get("mode")
+        if design_required or mode in ("build", "design") and any(
+                job["role"] == "frontend" for job in contract["jobs"]):
+            require("design.json" in plans, "Visual work needs plan/design.json with distinct design directions")
+            validate_design(json.loads(reviewed_text(root / "plan", "design.json", plans)))
+            bundle["design_review"] = True
+    if "repair.json" in plans:
+        from .repair import validate_repair
+        require(bundle.get("intake", {}).get("mode") == "maintenance", "Repair needs a managed Vesper baseline")
+        packet = json.loads(reviewed_text(root / "plan", "repair.json", plans))
+        validate_repair(contract, packet)
+        bundle["repair"] = packet
     return contract, bundle
 
 

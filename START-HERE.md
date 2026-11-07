@@ -57,6 +57,8 @@ python3 -B build_local.py --project ~/my-product status
 Repeat until complete. Only the runner publishes snapshots. Submit executes
 the approved checks on the host by default, so use this mode with trusted
 code and trusted checks, or supply the isolation launcher below.
+Managed team jobs pause at `awaiting_review`. Follow the separate review step
+in [the RC1 guide](docs/RC1.md) before preparing the next job.
 
 ### Automatic mode
 
@@ -81,6 +83,8 @@ The launcher is a user-configured executable. Its interface is:
 |---|---|---|
 | `launcher worker codex` or `launcher worker claude` | CWD is the disposable work copy. The job brief arrives on stdin. | Give the provider the candidate as its writable project. Limit other mounts and network access to those needed for the selected provider. |
 | `launcher check /path/to/gate.py /path/to/candidate` | CWD is a temporary gate directory. Gate inputs are in the script's parent directory. | Run Python with the gate package and candidate mounted read-only. Give it separate temporary space. Permit loopback inside the isolated environment for checks that start a server. |
+| `launcher reviewer codex` or `launcher reviewer claude` | CWD contains the baseline, candidate, frozen plan, diff, and check evidence. The review prompt arrives on stdin. | Mount the review copy read-only. Return the JSON verdict on stdout. Exclude the writer workspace and accepted snapshots. |
+| `launcher consult codex` or `launcher consult claude` | CWD is a copy of the baseline. The specialist brief and requested handoff arrive on stdin. | Mount the baseline read-only and return the handoff on stdout. |
 
 A launcher returns the provider or gate exit status. Launchers and their OS
 isolation are supplied and validated by the operator. A launcher can also

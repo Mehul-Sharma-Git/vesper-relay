@@ -57,11 +57,11 @@ def replay(destination):
         (plan / f"{name}.md").write_text(content + "\n")
     shutil.copy2(ROOT / "examples" / "stockroom" / "checks" / "api.py", project / "checks" / "api.py")
     (plan / "contract.json").write_text(json.dumps({
-        "title": "Fix Stockroom status filter", "delivery": "Reviewed Git patch",
+        "team": 1, "title": "Fix Stockroom status filter", "delivery": "Reviewed Git patch",
         "requirements": [{"id": "R1", "description": "Needed excludes bought items", "checks": ["G_API"]}],
         "checks": [{"id": "G_API", "script": "api.py"}],
-        "jobs": [{"id": "J_API", "role": "backend engineer", "goal": "Restore status filtering",
-                  "paths": ["server.py"], "depends_on": [], "checks": ["G_API"]}],
+        "jobs": [{"id": "J_API", "role": "backend", "goal": "Restore status filtering",
+                  "paths": ["server.py"], "depends_on": [], "checks": ["G_API"], "skills": ["sqlite"]}],
     }))
     run("approve", "--digest", run("review")["digest"])
     initial = run("prepare")
@@ -69,7 +69,31 @@ def replay(destination):
     assert rejected["checks"][0]["exit_code"] != 0
     fix = run("prepare")
     (Path(fix["workspace"]) / "server.py").write_text(correct)
-    assert run("submit", fix["id"])["outcome"] == "accepted"
+    staged = run("submit", fix["id"])
+    assert staged["outcome"] == "awaiting_review"
+    # The reproducible pilot uses a deterministic reviewer fixture, like its worker fixture.
+    reviewer = destination / "reviewer"
+    reviewer.write_text(f"#!{sys.executable}\n" + '''import json
+from pathlib import Path
+import sys
+
+assert sys.argv[1] == "reviewer"
+base = Path("base/server.py").read_text()
+candidate = Path("candidate/server.py").read_text()
+assert candidate == base.replace('if key in filters and key != "status":', 'if key in filters:', 1)
+packet = json.loads(Path("review.json").read_text())
+report = {key: packet[key] for key in ("attempt_id", "base_digest", "candidate_digest")}
+report.update(verdict="approve", summary="The candidate restores the existing parameterized filter.", findings=[],
+              evidence={"requirements": "Bought items are excluded by the status predicate.",
+                        "correctness": "Other filter predicates retain the same behavior.",
+                        "scope": "The complete server file differs only at the status guard.",
+                        "tests": "The approved HTTP regression ran on the staged candidate.",
+                        "maintainability": "Status uses the existing filter loop.",
+                        "security": "SQL parameters use the existing binding path."})
+print(json.dumps(report))
+''')
+    reviewer.chmod(0o700)
+    assert run("review-candidate", "--provider", "codex", "--launcher", str(reviewer))["outcome"] == "accepted"
     review = run("review-change")
     assert review["files"] == ["server.py"]
     assert server.read_text() == broken
@@ -77,7 +101,7 @@ def replay(destination):
     assert server.read_text() == correct and notes.read_text() == "Unrelated local edits.\n"
     assert call(["git", "diff", "--cached", "--name-only"]) == ""
     assert vesper("learn")["signals"] == {"reproduce-first": 1}
-    print("Repo pilot passed: HTTP bug reproduced, verified one-file patch applied, unrelated edit preserved.")
+    print("Repo pilot passed: HTTP bug reproduced, candidate reviewed, one-file patch applied, unrelated edit preserved.")
 
 
 if __name__ == "__main__":

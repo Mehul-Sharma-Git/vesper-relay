@@ -8,12 +8,14 @@
 | design | Existing state, proposed wireframe, responsive and error states | Product designer then frontend engineer, visual and functional checks |
 | frontend | Screen, components, states, and API expectations | Frontend engineer, interaction and narrow-screen checks |
 | backend | Existing callers, storage and API behavior, migration impact | Backend engineer, API and persistence tests |
-| maintenance | Vesper evidence and the proposed behavior change | Maintainer with independent baseline regression |
+| maintenance | Vesper evidence and the proposed behavior change | Backend specialist with independent baseline regression |
 
 The planner owns the conversation and acceptance agreement. The product designer
 owns layout and states. The backend engineer proposes APIs and data invariants,
 the frontend reviews the API as a consumer, and QA describes how success is proven.
 Assign separate roles where the work needs them. A small bug can use one writing job.
+New managed runs use the [RC1 team contract](RC1.md) and each tested candidate
+must pass independent review before it advances the snapshot.
 
 Use the packet shape in [PLANNER.md](PLANNER.md). For a targeted bug, one paragraph
 per plan artifact is often sufficient. Record the command, inputs, and observed

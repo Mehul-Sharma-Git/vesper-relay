@@ -16,19 +16,22 @@ def check_launcher(launcher):
     return launcher
 
 
-def provider_command(name, launcher, trust_host):
+def provider_command(name, launcher, trust_host, *, operation="worker", response=None):
     require(launcher or trust_host, "Select --launcher PATH or explicitly opt into --trust-host")
     if launcher:
-        return [check_launcher(launcher), "worker", name]
+        return [check_launcher(launcher), operation, name]
     binary = shutil.which(name)
     require(binary, f"Provider executable not found: {name}")
     if name == "codex":
+        mode = "workspace-write" if operation == "worker" else "read-only"
+        output = ["--output-last-message", str(response)] if response else []
         return [binary, "exec", "-c", 'approval_policy="never"', "--skip-git-repo-check",
-                "--sandbox", "workspace-write", "--ignore-user-config", "-"]
-    tools = "Read,Edit,Write,Glob,Grep"
+                "--sandbox", mode, "--ignore-user-config", *output, "-"]
+    tools = "Read,Edit,Write,Glob,Grep" if operation == "worker" else "Read,Glob,Grep"
+    output = ["--output-format", "json"] if operation == "reviewer" else []
     return [binary, "--restricted", "-p", "--strict-mcp-config", "--mcp-config",
             '{"mcpServers":{}}', "--permission-mode", "dontAsk", "--tools", tools,
-            "--allowedTools", tools, "--max-turns", "20"]
+            "--allowedTools", tools, "--max-turns", "20", *output]
 
 
 def provider_environment(name, launcher):
@@ -40,7 +43,7 @@ def provider_environment(name, launcher):
     return {key: value for key, value in os.environ.items() if key in keys}
 
 
-def worker_prompt(contract, job, plans, manifest, failure, intake=None):
+def worker_prompt(contract, job, plans, manifest, failure, intake=None, specialist=None):
     ids = set(job["checks"])
     requirements = [item for item in contract["requirements"] if ids.intersection(item["checks"])]
     sections = [
@@ -54,6 +57,9 @@ def worker_prompt(contract, job, plans, manifest, failure, intake=None):
             "writable_paths": job["paths"], "gates": job["checks"],
         }, indent=2),
     ]
+    if specialist:
+        from .team import render
+        sections.append(render(specialist))
     for name in ("product.md", "design.md", "architecture.md", "decisions.md"):
         sections.append(f"Approved {name}\n" + reviewed_text(plans, name, manifest))
     if intake:

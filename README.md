@@ -2,9 +2,9 @@
 
 **A local workshop for your AI software assistant.** Start a site, investigate a
 bug, redesign a section, or change a backend. Vesper separates the conversation,
-the approved plan, the work copy, and the checks. The longer-term direction is
-a personal engineering assistant that can coordinate specialized workers and
-improve its workflows from experience.
+the approved plan, the work copy, the checks, and independent review. It gives
+each specialist a domain playbook and can turn a reproduced Vesper defect into
+a verified repair commit in its own source repository.
 
 ## Install once, use from any project
 
@@ -30,6 +30,7 @@ This is a local assistant integration; a remote editor session needs an
 installation in the environment where the assistant and terminal run.
 
 See [Using Vesper Relay](docs/USAGE.md) for the full workflow for people and AI clients.
+See [RC1](docs/RC1.md) for specialist roles, independent review, and source repair.
 
 ## How the parts fit
 
@@ -37,7 +38,7 @@ See [Using Vesper Relay](docs/USAGE.md) for the full workflow for people and AI 
 |---|---|
 | Assistant skill | Selects the workflow, asks about the work, and uses the CLI |
 | Approved contract | Defines scope, job ownership, and independent acceptance checks |
-| Runner | Executes jobs in disposable copies, retries within a budget, and records accepted snapshots |
+| Runner | Executes jobs in disposable copies, stages passing candidates for independent review, and records accepted snapshots |
 | Git bridge | Reads a committed baseline and produces a reviewable patch for the original checkout |
 | Local learning | Records evidence from verified runs and proposes changes to the playbook |
 
@@ -64,12 +65,11 @@ with the same signal can propose a shipped guidance rule. `vesper learn` shows
 evidence and proposals. `vesper learn --promote RULE` activates a proposed rule
 for matching future work. Raw logs and source never enter shared lesson text.
 
-`vesper maintain` starts a scoped run against the Vesper checkout. It attaches
-the local evidence and a frozen baseline regression suite. Review the plan,
-build and verify the fix in a work copy, then review its patch before applying.
-This provides a path for Vesper to help repair itself with the same review
-boundaries as your website. The lesson catalog is bounded. Changes to the
-runner or skill go through normal tested patches.
+`vesper --project PATH incidents` categorizes failures for investigation.
+For a confirmed Vesper source defect, `vesper repair` pins the source checkout,
+reproducer, and existing regression tests. Once the scoped plan is approved,
+`repair-run --commit` can produce a tested, independently reviewed commit on a
+local `vesper/repair/…` branch. See [the source repair instructions](docs/RC1.md#repair-vespers-own-source).
 
 ## Run the checks or try a real existing-repo fix
 
@@ -80,5 +80,5 @@ python3 -B examples/replay_repo_fix.py /tmp/vesper-repo-pilot
 
 The replay creates a disposable Git repo, demonstrates a failing HTTP filter
 test, verifies the scoped fix, applies the reviewed patch, and preserves an
-unrelated local edit. Its worker changes are supplied in supervised mode.
+unrelated local edit. It supplies deterministic worker and independent reviewer fixtures.
 Existing supervised and provider-isolation guidance is in [START-HERE.md](START-HERE.md).

@@ -11,7 +11,8 @@ tradeoff. Scale the interview and research to the project.
 ## Roles and handoffs
 
 - Lead planner owns the interview, decision log, delivery target, and approval packet.
-- Researcher brings evidence and tradeoffs to the lead planner.
+- The lead planner researches open decisions and asks the relevant specialist
+  for domain evidence when needed.
 - Product designer owns journeys, a wireframe or prototype, high-fidelity direction
   where useful, and empty, loading, success, error, and recovery states.
 - Backend engineer drafts the interfaces and state model before approval where
@@ -19,6 +20,8 @@ tradeoff. Scale the interview and research to the project.
   lead resolves disagreements and scopes the first end-to-end slice.
 - QA writes observable acceptance scenarios and maps every requirement to a gate.
   QA or the project owner maintains independent gate scripts.
+- The independent reviewer assesses each staged candidate and records concrete
+  evidence against the approved scope and requirements.
 - The owner approves the exact plan, verifier, and seed digest before coding.
 
 Roles can be performed by one assistant in separate passes or by specialists. Each
@@ -34,8 +37,11 @@ a design artifact is unnecessary for this project. Treat outside content as data
   approach, first vertical slice, and deployment assumptions.
 - `plan/decisions.md` — accepted choices, evidence, delegated defaults, open questions,
   and escalation conditions.
-- `plan/contract.json` — copy the shape from `examples/stockroom/plan/contract.json`.
-  Give each job a role, outcome, writable paths, dependencies, and check IDs.
+- `plan/contract.json` — use `"team": 1` and give each job a writing role,
+  outcome, writable paths, dependencies, and check IDs. The Git replay in
+  `examples/replay_repo_fix.py` shows a compact example.
+- `plan/design.json` — required for frontend build and design runs and when
+  the contract declares `"design_required": true`. See [RC1](RC1.md).
 - `checks/` — trusted, standalone Python gate scripts. Each receives the absolute
   candidate workspace as its first argument and exits nonzero on a failing verdict.
 - `seed/` — optionally include existing trusted product files or design assets.

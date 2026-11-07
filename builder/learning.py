@@ -28,9 +28,12 @@ def memory():
 
 def summary(data):
     signals = Counter(rule for rules in data["runs"].values() for rule in rules)
-    return {"signals": dict(signals),
-            "proposals": [rule for rule in RULES if signals[rule] >= 2 and rule not in data["active"]],
-            "active": list(data["active"])}
+    result = {"signals": dict(signals),
+              "proposals": [rule for rule in RULES if signals[rule] >= 2 and rule not in data["active"]],
+              "active": list(data["active"])}
+    if data.get("repairs"):
+        result["repairs"] = list(data["repairs"].values())
+    return result
 
 
 def guidance(mode):
@@ -72,3 +75,11 @@ def promote(rule):
         data["active"].append(rule)
         atomic_json(path, data)
         return summary(data)
+
+
+def record_repair(approval_id, result):
+    with memory_lock() as (path, data):
+        data.setdefault("repairs", {})[approval_id] = {
+            key: result[key] for key in ("base", "branch", "commit", "digest")
+        }
+        atomic_json(path, data)

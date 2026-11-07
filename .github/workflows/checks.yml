@@ -15,3 +15,20 @@ jobs:
           python-version: '3.11'
       - run: python -B -m unittest discover -s tests -v
       - run: python -B examples/replay_repo_fix.py "$RUNNER_TEMP/vesper-repo-pilot"
+  stockroom-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: examples/stockroom-browser
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts --no-package-lock
+      - run: npx playwright install --with-deps --only-shell chromium
+      - run: npm test

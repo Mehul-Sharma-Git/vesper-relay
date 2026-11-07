@@ -31,10 +31,11 @@ has its own directory for the plan, approved checks, work copies, and evidence.
    expected behavior, file scope, and a regression check. For a new site,
    expect a wider planning conversation and the product and design decisions
    needed to approve the build.
-4. Approve the plan digest once the scope and checks look right. The assistant
-   can run supervised jobs in the disposable work copy. After verification,
-   review the Git diff and its digest before approving application to your
-   checkout. New sites can be exported to a new directory.
+4. Approve the plan digest once the scope and checks look right. A specialist
+   implements each job in a disposable copy. An independent reviewer inspects
+   the tested candidate before the runner accepts it. Review the delivered Git
+   diff and its digest before approving application to your checkout. New sites
+   can be exported to a new directory.
 
 Vesper uses committed HEAD as the baseline for an existing repository. It can
 preserve unrelated local edits, but those edits are absent from the baseline
@@ -51,7 +52,7 @@ reviewing the applied change, using your normal Git workflow.
 | Vesper entry skill | `integrations/vesper-relay/SKILL.md` | Selects the workflow, guides approvals, and calls the CLI |
 | Workflow and planner guides | [WORKFLOWS.md](WORKFLOWS.md) and [PLANNER.md](PLANNER.md) | Describe the planning packet, role responsibilities, and evidence |
 | Runner and Git bridge | `vesper.py`, `build_local.py`, and `builder/` | Execute scoped jobs, run checks, recover, and produce the reviewable patch |
-| Agent-specific expertise | The client and the context supplied for each job | Provides engineering or design judgment within the approved role and scope |
+| Specialist roles and skills | `team/roles/` and `team/skills/` | Supplies domain playbooks, role boundaries, handoffs, and review criteria |
 
 The installer copies the **same included skill** to Codex's
 `~/.agents/skills/vesper-relay/` and Claude Code's personal skills directory
@@ -59,11 +60,11 @@ The installer copies the **same included skill** to Codex's
 `~/.local/bin/vesper`. People do not need to write or download extra skills
 to start. Open a new assistant session if the installed entry point is absent.
 
-The current release has one bundled entry skill. Planner, designer, frontend,
-backend, and QA are responsibilities described in the workflow and job brief.
-They can be handled by a client in separate passes. Dedicated role definitions,
-role-specific skill packs, and an independent reviewer agent are future work.
-The runner already enforces the approved file scope and automated gates.
+The installer gives you one entry skill. The CLI supplies specialized role and
+skill context as each job needs it. Provider mode starts separate processes for
+writers and reviewers. Supervised mode can use the editor assistant for writing
+and a separate session for review. See [the RC1 guide](RC1.md) for the role map,
+the visual planning gate, and the source repair workflow.
 
 Clients that can use a terminal can follow the same workflow by reading the
 bundled skill and invoking the CLI, even if they use a different skill format.
@@ -81,16 +82,17 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `vesper --project PATH approve --digest DIGEST` only after authorization.
 - **Execute.** Run `vesper --project PATH prepare`, read the returned job brief,
   and edit only its work copy within the assigned scope. Run
-  `vesper --project PATH submit ATTEMPT_ID` to verify it. Repeat for ready jobs.
-  Resume with `status` and the existing run.
+  `vesper --project PATH submit ATTEMPT_ID` to run the approved checks, then
+  `review-candidate` with a reviewer provider or an attested independent report.
+  Repeat for ready jobs. Resume with `status` and the existing run.
 - **Deliver.** For a Git run, use `review-change` and `patch` to show the final
   diff and digest. Use `apply --digest DIGEST` only after approval. For a new
   site, use `export NEW_DIRECTORY`. Report evidence that passed and any
   behaviors still needing verification.
 - **Learn.** Verified Vesper runs record typed local signals automatically.
-  Use `vesper learn` to see proposals. Promotion changes the guidance for future
-  matching work. Code changes to Vesper itself use `vesper maintain` and the
-  reviewed patch flow.
+  Use `vesper learn` to see proposals and `vesper --project PATH incidents` to
+  triage failures. Use `vesper repair` for a confirmed Vesper source defect and
+  `vesper maintain` for other planned changes to Vesper.
 
 Supervised mode uses the current assistant and the local runner. Unattended
 mode uses a separately authenticated provider CLI and the operator's approved
@@ -109,4 +111,5 @@ python3 -B examples/replay_stockroom.py /tmp/vesper-build-pilot
 ```
 
 Use a fresh destination for each replay. Both demos use supervised job outputs.
+The existing-repo demo also launches a deterministic reviewer fixture.
 See [PILOT.md](PILOT.md) for the remaining browser, provider, and planning gaps.

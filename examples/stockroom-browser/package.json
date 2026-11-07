@@ -1,0 +1,10 @@
+{
+  "name": "stockroom-browser-check",
+  "private": true,
+  "scripts": {
+    "test": "playwright test --workers=1"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

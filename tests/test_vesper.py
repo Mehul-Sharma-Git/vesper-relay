@@ -41,10 +41,10 @@ class VesperTests(unittest.TestCase):
         command = lambda *args, **kwargs: self.cli("--project", project, *args, **kwargs)
         for name in ("product", "design", "architecture", "decisions"):
             (project / "plan" / f"{name}.md").write_text("Spinner stops on failure.\n")
-        contract = {"title": "Fix spinner", "delivery": "Git patch",
+        contract = {"team": 1, "title": "Fix spinner", "delivery": "Git patch",
                     "requirements": [{"id": "R1", "description": "Spinner stops on failure", "checks": ["G1"]}],
                     "checks": [{"id": "G1", "script": "gate.py"}],
-                    "jobs": [{"id": "J1", "role": "frontend engineer", "goal": "Fix the spinner",
+                    "jobs": [{"id": "J1", "role": "frontend", "goal": "Fix the spinner",
                               "paths": ["app.js"], "depends_on": [], "checks": ["G1"]}]}
         (project / "plan" / "contract.json").write_text(json.dumps(contract))
         (project / "checks" / "gate.py").write_text(
@@ -55,7 +55,15 @@ class VesperTests(unittest.TestCase):
         command("submit", attempt["id"], code=1)
         attempt = command("prepare")
         (Path(attempt["workspace"]) / "app.js").write_text("export const loading = false;\n")
-        command("submit", attempt["id"])
+        candidate = command("submit", attempt["id"])
+        packet = candidate["review"]
+        report = {key: packet[key] for key in ("attempt_id", "base_digest", "candidate_digest")}
+        report.update(verdict="approve", summary="Verified delivery fixture.", findings=[],
+                      evidence={area: "Verified delivery fixture." for area in
+                                ("requirements", "correctness", "scope", "tests", "maintainability", "security")})
+        report_path = project / "review-fixture.json"
+        report_path.write_text(json.dumps(report))
+        command("review-candidate", "--report", report_path, "--attest-independent")
         return project, command
 
     def test_existing_repo_preserves_unrelated_work_and_requires_reviewed_patch(self):

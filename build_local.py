@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 
-from builder.contracts import BuilderError
+from builder.contracts import BuilderError, read_json, require
 from builder.providers import check_launcher, provider_command
 from builder.runner import Runner
 from builder.learning import record
@@ -33,12 +33,21 @@ def main():
     submit = commands.add_parser("submit")
     submit.add_argument("attempt")
     submit.add_argument("--launcher")
+    review_candidate = commands.add_parser("review-candidate")
+    reviewer_input = review_candidate.add_mutually_exclusive_group(required=True)
+    reviewer_input.add_argument("--report", type=Path)
+    reviewer_input.add_argument("--provider", choices=("codex", "claude"))
+    review_candidate.add_argument("--attest-independent", action="store_true")
+    review_boundary = review_candidate.add_mutually_exclusive_group()
+    review_boundary.add_argument("--launcher")
+    review_boundary.add_argument("--trust-host", action="store_true")
     commands.add_parser("abandon").add_argument("attempt")
     commands.add_parser("retry").add_argument("--reason", required=True)
     commands.add_parser("status")
     commands.add_parser("export").add_argument("destination", type=Path)
     run = commands.add_parser("run")
     run.add_argument("--provider", required=True, choices=("codex", "claude"))
+    run.add_argument("--reviewer-provider", choices=("codex", "claude"))
     trust = run.add_mutually_exclusive_group()
     trust.add_argument("--launcher")
     trust.add_argument("--trust-host", action="store_true")
@@ -60,6 +69,13 @@ def main():
                     result = engine.approve(args.digest)
                 elif args.command == "submit":
                     result = engine.submit(args.attempt, check_launcher(args.launcher))
+                elif args.command == "review-candidate":
+                    if args.report:
+                        require(args.report.stat().st_size <= 256_000, "Review report exceeds the size limit")
+                        result = engine.review_candidate(read_json(args.report), external_attested=args.attest_independent)
+                    else:
+                        result = engine.review_candidate(provider=args.provider, launcher=check_launcher(args.launcher),
+                                                         trust_host=args.trust_host)
                 elif args.command == "abandon":
                     result = engine.abandon(args.attempt)
                 elif args.command == "retry":
@@ -68,10 +84,11 @@ def main():
                     result = engine.export(args.destination.resolve())
                 elif args.command == "run":
                     command = provider_command(args.provider, args.launcher, args.trust_host)
-                    result = engine.run(args.provider, command, args.launcher)
+                    result = engine.run(args.provider, command, args.launcher,
+                                        reviewer=args.reviewer_provider, trust_host=args.trust_host)
                 else:
                     result = engine.prepare()
-                if args.command in {"submit", "run"} and (
+                if args.command in {"submit", "run", "review-candidate"} and (
                     result.get("status") == "complete" or result.get("outcome") == "accepted"
                 ):
                     state = engine.state()

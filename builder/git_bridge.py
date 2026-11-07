@@ -10,10 +10,12 @@ import tempfile
 from .contracts import BuilderError, inventory, require, safe_path
 
 
-def git(cwd, *args, data=None, valid=(0,)):
+def git(cwd, *args, data=None, valid=(0,), index_file=None):
     overrides = {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
                  "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
     env = {key: value for key, value in os.environ.items() if key not in overrides}
+    if index_file is not None:
+        env["GIT_INDEX_FILE"] = str(index_file)
     try:
         result = subprocess.run(["git", "--literal-pathspecs", "-C", str(cwd), *args],
                                 input=data, capture_output=True, timeout=120, env=env)
@@ -32,9 +34,8 @@ def repository(path):
     return {"path": str(root), "commit": commit}
 
 
-def seed_repository(meta, destination):
-    repo = Path(meta["path"])
-    output = git(repo, "ls-tree", "-r", "-z", meta["commit"])
+def tree_entries(repo, revision):
+    output = git(repo, "ls-tree", "-r", "-z", revision)
     entries = []
     for entry in output.split(b"\0"):
         if not entry:
@@ -45,7 +46,17 @@ def seed_repository(meta, destination):
         require(kind == "blob" and mode in {"100644", "100755"},
                 f"Repository baseline has a symlink, submodule, or unsupported file: {path}")
         entries.append((path, object_id, mode))
-    for path, object_id, mode in entries:
+    return entries
+
+
+def git_file_entries(repo, revision):
+    return {path: (sha256(git(repo, "cat-file", "blob", object_id)).hexdigest(), mode == "100755")
+            for path, object_id, mode in tree_entries(repo, revision)}
+
+
+def seed_repository(meta, destination):
+    repo = Path(meta["path"])
+    for path, object_id, mode in tree_entries(repo, meta["commit"]):
         target = destination / path
         target.parent.mkdir(parents=True, exist_ok=True)
         require(not target.exists(), f"Git path collides on the local filesystem: {path}")
