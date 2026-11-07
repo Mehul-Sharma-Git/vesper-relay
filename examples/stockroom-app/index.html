@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stockroom · Move-in supplies</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><p class="eyebrow">HOME INVENTORY</p><h1>Stockroom</h1><p>Keep track of what you still need for the move.</p></header>
+    <section class="panel" aria-labelledby="add-title">
+      <h2 id="add-title">Add a supply</h2>
+      <form id="add">
+        <div><label for="name">Item name</label><input id="name" required maxlength="80" placeholder="Storage bins"></div>
+        <div><label for="room">Room</label><select id="room"><option>Kitchen</option><option>Bedroom</option><option>Bath</option><option>General</option></select></div>
+        <div><label for="quantity">Quantity</label><input id="quantity" type="number" min="1" max="99" step="1" required value="1"></div>
+        <button id="save">Add item</button>
+      </form>
+    </section>
+    <section class="panel" aria-labelledby="list-title">
+      <h2 id="list-title">Supplies</h2>
+      <div class="filters">
+        <div><label for="room-filter">Filter by room</label><select id="room-filter"><option value="">All rooms</option><option>Kitchen</option><option>Bedroom</option><option>Bath</option><option>General</option></select></div>
+        <div><label for="status-filter">Filter by status</label><select id="status-filter"><option value="">All statuses</option><option value="needed">Needed</option><option value="bought">Bought</option></select></div>
+      </div>
+      <p role="status" id="feedback">Loading supplies…</p>
+      <ul id="items" aria-label="Supplies"></ul>
+    </section>
+  </main>
+</body>
+</html>

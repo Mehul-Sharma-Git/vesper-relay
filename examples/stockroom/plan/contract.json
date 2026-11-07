@@ -1,0 +1,18 @@
+{
+  "title": "Stockroom",
+  "delivery": "Local move-in supplies tracker with persistent storage and a browser interface",
+  "requirements": [
+    {"id":"R1","description":"Create and validate supplies, with duplicate-safe retries","checks":["G_API"]},
+    {"id":"R2","description":"Filter supplies, mark them bought, and reject stale changes","checks":["G_API"]},
+    {"id":"R3","description":"Retain purchases after a server restart","checks":["G_API"]},
+    {"id":"R4","description":"Serve a labeled browser form, filters, status region, and local assets","checks":["G_UI"]}
+  ],
+  "checks": [
+    {"id":"G_API","script":"api.py"},
+    {"id":"G_UI","script":"ui.py"}
+  ],
+  "jobs": [
+    {"id":"J_API","role":"backend engineer","goal":"Implement the SQLite-backed Python server and public API in server.py. At this stage the UI assets may be absent. Include the documented launch flags, readiness message, and routes.","paths":["server.py"],"depends_on":[],"checks":["G_API"],"timeout":240,"max_attempts":2},
+    {"id":"J_UI","role":"frontend engineer","goal":"Build and connect the browser app using only index.html, styles.css, and app.js. Match the approved design and API. Include a form with name, room, quantity; room and status filters; a status region; and the task list.","paths":["index.html","styles.css","app.js"],"depends_on":["J_API"],"checks":["G_UI"],"timeout":240,"max_attempts":2}
+  ]
+}
