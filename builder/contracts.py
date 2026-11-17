@@ -112,6 +112,9 @@ def validate(data, checks_inventory):
     for item in checks.values():
         script = safe_path(item.get("script"))
         require(script.endswith(".py") and script in checks_inventory, f"Check script missing: {script}")
+        if "timeout" in item:
+            require(type(item["timeout"]) is int and 1 <= item["timeout"] <= 1800,
+                    f"Invalid timeout for check {item['id']}: use whole seconds, 1 to 1800")
     gate_ids = set(checks)
     for item in requirements.values():
         require(nonempty(item.get("description")), f"Missing description for {item['id']}")
