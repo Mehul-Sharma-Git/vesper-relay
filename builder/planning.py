@@ -109,11 +109,36 @@ def attach_critique(root, bundle):
     bundle["plan_critique"] = data
 
 
+def plan_report_schema(digest, identity):
+    """JSON Schema for a plan critique; mirrors validate_critique for strict-output providers."""
+    from .review_gate import text_schema
+
+    areas = ["requirements", "architecture", "checks"]
+    finding = ["severity", "path", "scenario", "consequence", "evidence", "recommendation"]
+    return {
+        "type": "object",
+        "required": ["phase", "packet_digest", "reviewer", "verdict", "summary", "evidence", "findings"],
+        "properties": {
+            "phase": {"type": "string", "const": "plan"},
+            "packet_digest": {"type": "string", "const": digest},
+            "reviewer": {"type": "string", "const": identity},
+            "verdict": {"type": "string", "enum": ["approve", "request_changes"]},
+            "summary": text_schema(),
+            "evidence": {"type": "object", "required": areas,
+                         "properties": {area: text_schema() for area in areas}},
+            "findings": {"type": "array", "maxItems": 50, "items": {
+                "type": "object", "required": finding,
+                "properties": {key: text_schema() for key in finding} | {
+                    "severity": {"type": "string", "enum": ["blocking", "advisory"]}}}},
+        },
+    }
+
+
 def review_plan(runner, report=None, *, external_attested=False, provider=None, launcher=None, trust_host=False):
     from .contracts import review_bundle
     from .process import run_process
     from .providers import provider_command, provider_environment
-    from .review_gate import decode_provider_report
+    from .review_gate import STRICT_ENDING, decode_provider_report
     from .runner import atomic_json, copy_tree
 
     require(not runner.state_file.exists(), "An approved plan cannot be replaced; start a new run")
@@ -153,10 +178,13 @@ def review_plan(runner, report=None, *, external_attested=False, provider=None, 
                     "evidence": {"requirements": "cite artifact", "architecture": "cite artifact", "checks": "cite artifact"},
                     "findings": [{"severity": "blocking or advisory", "path": "plan/architecture.md",
                         "scenario": "concrete trigger", "consequence": "effect", "evidence": "exact artifact",
-                        "recommendation": "smallest correction"}]}))
+                        "recommendation": "smallest correction"}]}) + "\n" + STRICT_ENDING)
+            schema = plan_report_schema(digest, identity)
+            (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
             before = inventory(view)
             response, log = session / "response.json", session / "review.log"
-            command = provider_command(provider, launcher, trust_host, operation="reviewer", response=response)
+            command = provider_command(provider, launcher, trust_host, operation="reviewer", response=response,
+                                       schema=schema)
             code = run_process(command, cwd=view, input_text=prompt,
                                env=provider_environment(provider, launcher), log=log, timeout=180)
             require(code == 0, "Plan reviewer failed; no approval recorded")

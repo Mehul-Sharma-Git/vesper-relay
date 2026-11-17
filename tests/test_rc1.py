@@ -157,6 +157,9 @@ elif operation == 'reviewer':
     assert 'loading = false' in Path('candidate/app.js').read_text()
     assert 'loading = true' in Path('base/app.js').read_text()
     packet = json.loads(Path('review.json').read_text())
+    schema = json.loads(Path('review.schema.json').read_text())
+    assert all(schema['properties'][key]['const'] == packet[key]
+               for key in ('attempt_id', 'base_digest', 'candidate_digest'))
     report = {key: packet[key] for key in ('attempt_id', 'base_digest', 'candidate_digest')}
     report.update(verdict='approve', summary='Independently verified the candidate.', findings=[],
                   evidence={k:'Read the diff and verification result.'

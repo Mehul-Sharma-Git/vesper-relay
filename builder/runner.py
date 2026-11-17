@@ -15,7 +15,8 @@ from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract)
 from .process import run_process
 from .providers import provider_command, provider_environment, worker_prompt
-from .review_gate import decode_provider_report, needs_security, prompt as review_prompt, validate_report, write_diff
+from .review_gate import (decode_provider_report, needs_security, prompt as review_prompt, report_schema,
+                          validate_report, write_diff)
 
 
 def stamp():
@@ -387,6 +388,7 @@ class Runner:
                 "Review copy changed during preparation")
         write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"])
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
+        (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
         (workspace / "review.md").write_text(review_prompt(profile, packet), encoding="utf-8")
         # Native adapters request read-only access. A user-supplied launcher must
         # enforce its own sandbox; the review copy can never be promoted.
@@ -435,10 +437,13 @@ class Runner:
                 (view / "review.json").write_text(json.dumps({key: value for key, value in packet.items()
                                                            if key not in ("workspace", "directory")}, indent=2))
                 write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"])
+                schema = report_schema(packet)
+                (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
                 (view / "review.md").write_text(review_prompt(profile, packet))
                 view_digest = fingerprint(inventory(view))
                 response = session / "response.json"
-                command = provider_command(provider, launcher, trust_host, operation="reviewer", response=response)
+                command = provider_command(provider, launcher, trust_host, operation="reviewer", response=response,
+                                           schema=schema)
                 log = directory / ("reviewer-" + uuid4().hex + ".log")
                 code = run_process(command, cwd=view, input_text=review_prompt(profile, packet),
                                    env=provider_environment(provider, launcher), log=log, timeout=180)

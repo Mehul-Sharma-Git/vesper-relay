@@ -34,6 +34,8 @@ for name in ('preamble-fence.json', 'preamble-fence-2.json'):
     assert report['verdict'] == 'approve', name"
 check "provider_command builds reviewer commands in builder/providers.py" "P1-T2, P1-T8" \
     grep -q "def provider_command" builder/providers.py
+check "reviewers get a JSON Schema (review.schema.json, Claude --json-schema; P1-T2)" "P1-T8" \
+    sh -c 'grep -q "json-schema" builder/providers.py && grep -q "review.schema.json" builder/runner.py && grep -q "review.schema.json" builder/planning.py && grep -q "structured_output" builder/review_gate.py'
 check "gate timeout is hardcoded (45; 300 for VESPER_REGRESSION)" "P1-T3" \
     grep -q "else 45)" builder/runner.py
 check "reviewer timeout is hardcoded (180)" "P1-T3" \

@@ -8,6 +8,7 @@ from .contracts import BuilderError, nonempty, require, safe_path
 
 AREAS = ("requirements", "correctness", "scope", "tests", "maintainability", "security")
 BINDING = ("attempt_id", "base_digest", "candidate_digest")
+STRICT_ENDING = "Return only the JSON object. No text before or after it."
 SECURITY_PATH = re.compile(r"(^|[/_.-])(auth\w*|acl|permissions?|secrets?|tokens?|crypto\w*|tenants?|workflows)([/_.-]|$)", re.I)
 
 
@@ -90,10 +91,39 @@ def decode_provider_report(text):
     if not isinstance(data, dict):
         raise BuilderError("Reviewer did not return a valid JSON report")
     if data.get("type") == "result":
-        require(not data.get("is_error") and data.get("subtype", "success") == "success"
-                and isinstance(data.get("result"), str), "Reviewer provider returned an error")
+        require(not data.get("is_error") and data.get("subtype", "success") == "success",
+                "Reviewer provider returned an error")
+        # With --json-schema, Claude Code returns the report here and leaves "result" empty.
+        if isinstance(data.get("structured_output"), dict):
+            return data["structured_output"]
+        require(isinstance(data.get("result"), str), "Reviewer provider returned an error")
         return decode_provider_report(data["result"])
     return data
+
+
+def text_schema():
+    return {"type": "string", "minLength": 1}
+
+
+def report_schema(packet):
+    """JSON Schema for a candidate review; mirrors validate_report for strict-output providers."""
+    areas = list(evidence_areas(packet))
+    finding = ("severity", "path", "evidence", "recommendation")
+    return {
+        "type": "object",
+        "required": [*BINDING, "verdict", "summary", "evidence", "findings"],
+        "properties": {
+            **{key: {"type": "string", "const": packet[key]} for key in BINDING},
+            "verdict": {"type": "string", "enum": ["approve", "request_changes"]},
+            "summary": text_schema(),
+            "evidence": {"type": "object", "required": areas,
+                         "properties": {area: text_schema() for area in areas}},
+            "findings": {"type": "array", "maxItems": 50, "items": {
+                "type": "object", "required": list(finding),
+                "properties": {key: text_schema() for key in finding} | {
+                    "severity": {"type": "string", "enum": ["blocking", "advisory"]}}}},
+        },
+    }
 
 
 def write_diff(destination, before, after, paths):
@@ -136,4 +166,5 @@ def prompt(role, packet):
         + json.dumps({**{key: packet[key] for key in BINDING},
                       "verdict": "approve", "summary": "Explain what was reviewed.",
                       "evidence": dict.fromkeys(evidence_areas(packet), "Replace with actual evidence."), "findings": []}, indent=2)
+        + "\n" + STRICT_ENDING
     )

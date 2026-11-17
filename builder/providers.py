@@ -16,7 +16,8 @@ def check_launcher(launcher):
     return launcher
 
 
-def provider_command(name, launcher, trust_host, *, operation="worker", response=None):
+def provider_command(name, launcher, trust_host, *, operation="worker", response=None, schema=None):
+    # A launcher finds the schema as review.schema.json in its CWD and passes it on itself.
     require(launcher or trust_host, "Select --launcher PATH or explicitly opt into --trust-host")
     if launcher:
         return [check_launcher(launcher), operation, name]
@@ -29,6 +30,8 @@ def provider_command(name, launcher, trust_host, *, operation="worker", response
                 "--sandbox", mode, "--ignore-user-config", *output, "-"]
     tools = "Read,Edit,Write,Glob,Grep" if operation == "worker" else "Read,Glob,Grep"
     output = ["--output-format", "json"] if operation == "reviewer" else []
+    if operation == "reviewer" and schema is not None:
+        output += ["--json-schema", json.dumps(schema, separators=(",", ":"))]
     return [binary, "--restricted", "-p", "--strict-mcp-config", "--mcp-config",
             '{"mcpServers":{}}', "--permission-mode", "dontAsk", "--tools", tools,
             "--allowedTools", tools, "--max-turns", "20", *output]
