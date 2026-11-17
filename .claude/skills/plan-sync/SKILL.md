@@ -14,17 +14,23 @@ follows README "Branches, PRs and merging".
 
 1. `git switch dev && git pull --ff-only`, then `sh scripts/dev-setup.sh --check` (run
    `sh scripts/dev-setup.sh` if it fails).
-2. Read the "Last plan sync" commit in `docs/plan/README.md` (call it `LAST`).
-3. List the candidate commits: `git log --reverse --format='%h %s' LAST..origin/dev`, plus
-   any commits on `main` that `dev` lacks: `git log --no-merges origin/dev..origin/main`.
-4. Drop the plan's own work: squash merges of PRs whose head branch starts with `plan/`
-   (`gh pr list --base dev --state merged --limit 200 --json number,headRefName,mergeCommit`).
+2. Read the "Last plan sync" commit in `docs/plan/README.md` (call it `LAST`; it is
+   always a commit on `dev`). Note `TIP=$(git rev-parse --short origin/dev)`.
+3. List the candidate commits:
+   - what landed on `dev`: `git log --first-parent --reverse --format='%h %s' LAST..TIP`
+     (each squash or merge into `dev` is one entry; the commits inside a merged branch are
+     not listed separately);
+   - plus commits on `main` that `dev` lacks: `git log --no-merges origin/dev..origin/main`.
+4. Drop the plan's own work: entries on `dev` that are the merge commit of a PR whose head
+   branch starts with `plan/`, whether squashed or merged
+   (`gh pr list --base dev --state merged --limit 200 --json headRefName,mergeCommit`).
    What remains is outside the plan. If nothing remains, update only the "Last plan sync"
    line and still ship it (step 4).
 
 ## 2. Analyse
 
-For every remaining commit, read its message and full diff. Map it to plan effects: tasks
+For every remaining commit, read its message and full diff (for a merge commit,
+`git diff <c>^1 <c>` plus its branch's commit messages). Map it to plan effects: tasks
 it completes, shrinks, changes or makes obsolete; facts in `verify-facts.sh`; fixtures;
 owner decisions in `00-context.md`; new gaps.
 
@@ -42,8 +48,7 @@ written effect, even "none".
    "Acceptance". Note the commit in either case.
 3. In `appendix-b-test-run-evidence.md`, add a section like section 4: one row per commit
    and its effect on the plan.
-4. Set "Last plan sync" in `docs/plan/README.md` to the newest analysed commit and today's
-   date.
+4. Set "Last plan sync" in `docs/plan/README.md` to `TIP` and today's date.
 5. Re-run `sh docs/plan/verify-facts.sh`. Done when it reports no DRIFT, other than DRIFT
    on `done` tasks.
 
@@ -54,5 +59,9 @@ unclear, stop and ask the owner which wins.
 
 1. Write the owner a summary: each commit, what changed in the plan, and why.
 2. PR into `dev` with that summary and the step-6 outputs, then CI, independent review
-   (the synced commits and this summary are the spec), and merge, as README says.
+   (the synced commits and this summary are the spec), and merge, as README says. If this
+   branch merged `origin/main`, merge the PR with `gh pr merge <n> --merge --delete-branch`
+   instead of `--squash`. Those `main` commits then sit behind the merge's second parent:
+   `origin/dev..origin/main` no longer lists them, and the `--first-parent` listing shows
+   only the merge, which step 1.4 drops as plan work.
 3. End with the summary and the PR link.

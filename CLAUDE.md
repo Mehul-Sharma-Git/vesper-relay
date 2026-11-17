@@ -44,7 +44,8 @@ Update the status board in the same change. If a task is unclear or conflicts wi
   2. the PR's CI is green (`gh pr checks <n> --watch`);
   3. an independent review passes (below).
 
-  Then run `gh pr merge <n> --squash --delete-branch`.
+  Then run `gh pr merge <n> --squash --delete-branch` (`--merge` only for a `/plan-sync`
+  PR that merged `main` in; see that skill).
 - **Independent review:** launch a fresh-context subagent (not a fork of this session)
   that reads only the PR diff (`gh pr diff <n>`), the task's section in its phase file,
   and `docs/plan/00-context.md`, and reports blockers with evidence (file, line, and the

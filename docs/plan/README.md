@@ -72,7 +72,8 @@ and only the owner merges into it.
   2. the PR's CI is green (`gh pr checks <n> --watch`);
   3. an independent review passes.
 
-  Then run `gh pr merge <n> --squash --delete-branch`.
+  Then run `gh pr merge <n> --squash --delete-branch` (`--merge` only for a `/plan-sync`
+  PR that merged `main` in; see that skill).
 - **Independent review:** launch a fresh-context subagent (not a fork of the working
   session) that reads only the PR diff (`gh pr diff <n>`), the task's section in its phase
   file, and `00-context.md`, and reports blockers with evidence (file, line, and the
@@ -116,9 +117,10 @@ this way:
    section 3 or a new task on the board, so the plan keeps matching reality. For several
    such commits, run `/plan-sync`.
 
-**Last plan sync:** `b7da4d1` (2026-11-17). `/plan-sync` analyses commits after this one,
-skipping squash merges of PRs whose head branch starts with `plan/` (the plan's own work),
-and updates this line when it finishes.
+**Last plan sync:** `b7da4d1` (2026-11-17). Always a commit on `dev`. `/plan-sync` analyses
+what landed on `dev` after it (first-parent), plus `main` commits `dev` lacks, skipping
+merges of PRs whose head branch starts with `plan/` (the plan's own work). It sets this
+line to the `dev` tip it analysed.
 
 ## Using Superpowers
 
