@@ -72,7 +72,8 @@ and only the owner merges into it.
   2. the PR's CI is green (`gh pr checks <n> --watch`);
   3. an independent review passes.
 
-  Then run `gh pr merge <n> --squash --delete-branch`.
+  Then run `gh pr merge <n> --squash --delete-branch` (`--merge` only for a `/plan-sync`
+  PR that merged `main` in; see that skill).
 - **Independent review:** launch a fresh-context subagent (not a fork of the working
   session) that reads only the PR diff (`gh pr diff <n>`), the task's section in its phase
   file, and `00-context.md`, and reports blockers with evidence (file, line, and the

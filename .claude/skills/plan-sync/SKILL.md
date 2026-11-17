@@ -54,5 +54,8 @@ unclear, stop and ask the owner which wins.
 
 1. Write the owner a summary: each commit, what changed in the plan, and why.
 2. PR into `dev` with that summary and the step-6 outputs, then CI, independent review
-   (the synced commits and this summary are the spec), and merge, as README says.
+   (the synced commits and this summary are the spec), and merge, as README says. If this
+   branch merged `origin/main`, merge the PR with `gh pr merge <n> --merge --delete-branch`
+   instead of `--squash`, so those `main` commits become part of `dev`'s history and the
+   next sync doesn't list them again.
 3. End with the summary and the PR link.
