@@ -25,16 +25,13 @@ check() {  # check "<label>" "<task ids>" <command...>
 
 check "decode_provider_report lives in builder/review_gate.py" "P1-T1" \
     grep -q "def decode_provider_report" builder/review_gate.py
-check "fixture reviewer replies are still rejected (bug present)" "P1-T1" \
+check "fixture reviewer replies decode (prose + fence, fixed in P1-T1)" "P1-T1, P1-T2" \
     "$PYTHON" -B -c "
 import sys; sys.path.insert(0, '.')
 from builder.review_gate import decode_provider_report
-from builder.contracts import BuilderError
-try:
-    decode_provider_report(open('$PLAN_DIR/fixtures/pocket-todo/reviewer-replies/preamble-fence.json').read())
-except BuilderError:
-    sys.exit(0)
-sys.exit(1)"
+for name in ('preamble-fence.json', 'preamble-fence-2.json'):
+    report = decode_provider_report(open('$PLAN_DIR/fixtures/pocket-todo/reviewer-replies/' + name).read())
+    assert report['verdict'] == 'approve', name"
 check "provider_command builds reviewer commands in builder/providers.py" "P1-T2, P1-T8" \
     grep -q "def provider_command" builder/providers.py
 check "gate timeout is hardcoded (45; 300 for VESPER_REGRESSION)" "P1-T3" \

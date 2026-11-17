@@ -44,24 +44,52 @@ def validate_report(data, packet):
     return blockers
 
 
-def decode_provider_report(text):
-    text = text.strip()
-    if text.startswith("```json\n") and text.endswith("\n```"):
-        text = text.removeprefix("```json\n").removesuffix("\n```")
+FENCE = re.compile(r"```(?:json)?[ \t]*\n(.*?)```", re.S)
+# A report is an object with keys, so only these "{" positions can start one. Each failed
+# start costs time in proportion to its position, so a reply with more failed starts than
+# any real one has is treated as holding no report; this keeps hostile replies linear.
+OBJECT_START = re.compile(r'\{\s*"')
+MAX_FAILED_STARTS = 200
+
+
+def _json_object(text):
     try:
         data = json.loads(text)
-    except ValueError:
-        # Launcher output may contain a progress line before the one-line report.
-        for line in reversed(text.splitlines()):
-            if line.startswith("{") and line.endswith("}"):
-                try:
-                    data = json.loads(line)
-                    break
-                except ValueError:
-                    continue
-        else:
-            raise BuilderError("Reviewer did not return a valid JSON report")
-    if isinstance(data, dict) and data.get("type") == "result":
+    except (ValueError, RecursionError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _find_report_object(text):
+    # Replies may wrap the report in prose and fences; try fences last to first.
+    for block in reversed(FENCE.findall(text)):
+        data = _json_object(block)
+        if data is not None:
+            return data
+    # Otherwise take the last top-level {...}. Scanning forward and skipping each parsed
+    # object keeps nested objects from being mistaken for the report.
+    decoder, found, failed = json.JSONDecoder(), None, 0
+    match = OBJECT_START.search(text)
+    while match and failed < MAX_FAILED_STARTS:
+        try:
+            found, end = decoder.raw_decode(text, match.start())
+        except (ValueError, RecursionError):
+            failed += 1
+            match = OBJECT_START.search(text, match.start() + 1)
+            continue
+        match = OBJECT_START.search(text, end)
+    return None if failed >= MAX_FAILED_STARTS else found
+
+
+def decode_provider_report(text):
+    text = text.strip()
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):
+        data = _find_report_object(text)
+    if not isinstance(data, dict):
+        raise BuilderError("Reviewer did not return a valid JSON report")
+    if data.get("type") == "result":
         require(not data.get("is_error") and data.get("subtype", "success") == "success"
                 and isinstance(data.get("result"), str), "Reviewer provider returned an error")
         return decode_provider_report(data["result"])

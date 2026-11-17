@@ -32,6 +32,7 @@ reported about $1.26 at list price (informational; the owner's plans are fixed-f
 | 13 | Design artifacts were text only; `validate_design` accepts a direction with one sentence | P4-T2 |
 | 14 | Adding wireframe files to `plan/` changed the digest as expected: approval binds the pictures the owner saw | Keep |
 | 15 | Free hosting (Render, Vercel) would lose the app's SQLite data | P4-T7 hosting pack |
+| 16 | While fixing #1: a hostile reviewer reply (deep nesting, or 256 KB of `{"`) made the decoder raise `RecursionError` or scan for 10+ s. The brace scan now tries only keyed-object starts, catches `RecursionError`, and gives up after 200 failed starts | P1-T1 |
 
 What worked and must be kept: plan digests, scope enforcement, the final full-gate rerun,
 export, the Claude adapter flags, and reviewers that traced every fetch against the
