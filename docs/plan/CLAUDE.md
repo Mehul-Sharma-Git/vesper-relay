@@ -41,7 +41,8 @@ Update the status board in the same change. If a task is unclear or conflicts wi
   every PR into `dev`.
 - Merge into `dev` yourself only when all three are true:
   1. every README step-6 check passes locally;
-  2. the PR's CI is green (`gh pr checks <n> --watch`);
+  2. the PR's CI is green (`gh pr checks <n>`); `verify (macos-latest)` counts only when
+     it actually ran (README, "CI and macOS");
   3. an independent review passes (below).
 
   Then run `gh pr merge <n> --squash --delete-branch` (`--merge` only for a `/plan-sync`
