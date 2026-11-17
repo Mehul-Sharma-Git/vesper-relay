@@ -2,6 +2,10 @@
 
 @AGENTS.md
 
+## Environment
+
+At the start of every session, if .venv/bin/python3 is missing or sh scripts/dev-setup.sh --check fails, run sh scripts/dev-setup.sh before anything else.
+
 ## Current work: the upgrade plan
 
 The ordered upgrade plan lives in `docs/plan/`. Start every session with:
@@ -20,10 +24,10 @@ Update the status board in the same change. If a task is unclear or conflicts wi
 ## Commands
 
 ```sh
-python3 -B -m unittest discover -s tests -v
-python3 -B examples/replay_repo_fix.py "$(mktemp -d)/repo-pilot"
-python3 -B examples/replay_stockroom.py "$(mktemp -d)/build-pilot"
-python3 -B examples/replay_repair.py "$(mktemp -d)/repair-pilot"
+.venv/bin/python3 -B -m unittest discover -s tests -v
+.venv/bin/python3 -B examples/replay_repo_fix.py "$(mktemp -d)/repo-pilot"
+.venv/bin/python3 -B examples/replay_stockroom.py "$(mktemp -d)/build-pilot"
+.venv/bin/python3 -B examples/replay_repair.py "$(mktemp -d)/repair-pilot"
 ```
 
 ## Hard rules

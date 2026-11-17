@@ -3,8 +3,8 @@
 Read README.md for install and use, docs/WORKFLOWS.md for workflow routing,
 and integrations/vesper-relay/SKILL.md for the shared assistant entry point.
 
-Run `python3 -B -m unittest discover -s tests -v` and
-`python3 -B examples/replay_repo_fix.py PATH_TO_NEW_DIRECTORY` before shipping.
+Run `.venv/bin/python3 -B -m unittest discover -s tests -v` and
+`.venv/bin/python3 -B examples/replay_repo_fix.py PATH_TO_NEW_DIRECTORY` before shipping.
 The coordinator has no third-party Python dependencies.
 
 Keep worker code separate from accepted snapshots, local learning, and gate

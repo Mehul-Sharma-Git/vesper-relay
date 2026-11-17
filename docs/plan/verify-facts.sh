@@ -5,6 +5,12 @@
 # written (baseline commit b7da4d1, 2026-11-17): re-read the affected task and adapt it.
 
 PLAN_DIR=$(dirname "$0")
+# Use the project venv (Python 3.11+, see scripts/dev-setup.sh); set PYTHON to override.
+# Falls back to python3 only when the venv doesn't exist.
+if [ -z "${PYTHON:-}" ] && [ ! -e .venv/bin/python3 ]; then
+    PYTHON=python3
+fi
+PYTHON=${PYTHON:-.venv/bin/python3}
 fail=0
 
 check() {  # check "<label>" "<task ids>" <command...>
@@ -20,7 +26,7 @@ check() {  # check "<label>" "<task ids>" <command...>
 check "decode_provider_report lives in builder/review_gate.py" "P1-T1" \
     grep -q "def decode_provider_report" builder/review_gate.py
 check "fixture reviewer replies are still rejected (bug present)" "P1-T1" \
-    python3 -B -c "
+    "$PYTHON" -B -c "
 import sys; sys.path.insert(0, '.')
 from builder.review_gate import decode_provider_report
 from builder.contracts import BuilderError
@@ -74,7 +80,7 @@ check "review-plan --provider choices are claude/codex" "P1-T8" \
 check "specialist evals call Codex CLI directly" "P1-T8, P5-T4" \
     grep -q "\['codex', 'exec'" examples/specialist_evals/run_evals.py
 check "fixture architecture revision matches the technical-lead role" "P1-G, P4-T7" \
-    python3 -B -c "
+    "$PYTHON" -B -c "
 import json, sys; sys.path.insert(0, '.')
 from builder.team import profile
 plan = json.load(open('$PLAN_DIR/fixtures/pocket-todo/plan/planning.json'))
