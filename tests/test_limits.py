@@ -177,6 +177,7 @@ class ReviewCandidateLimitTests(unittest.TestCase):
     def test_run_rejects_out_of_range_limits_before_work(self):
         _, command = self.plan()
         self.approve(command)
+        self.fake_claude(self.root / "unused.json")  # run resolves the worker binary first
         run = ("run", "--provider", "claude", "--trust-host")
         self.assertIn("Review max turns", command(*run, "--review-max-turns", "0", code=2))
         self.assertIn("Review timeout", command(*run, "--review-timeout", "0", code=2))
