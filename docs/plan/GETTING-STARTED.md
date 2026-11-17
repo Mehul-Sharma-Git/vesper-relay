@@ -82,9 +82,9 @@ A stopped phase gate or plan sync resumes with its own command, `/phase-gate` or
 
 ## Checking limits
 
-Run `/usage` in Claude Code to see your current session and weekly usage. Size L tasks may
-need most of a session (S fits easily, M fills one; see the board), so start those when
-the session meter is low. If a limit hits mid-task, nothing is lost: the work is pushed
+Run `/usage` in Claude Code to see your current session and weekly usage. The board sizes
+each task: S fits easily in one session, M fills one, and L may need two. Start M and L
+tasks with a fresh session. If a limit hits mid-task, nothing is lost: the work is pushed
 on its branch, and `/next-task` resumes it after the reset.
 
 ## How main gets updated

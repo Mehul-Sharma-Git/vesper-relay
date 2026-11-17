@@ -13,7 +13,12 @@ hand `main` to the owner. Merging into `dev` follows README "Branches, PRs and m
 ## 1. Sync and pick the gate
 
 1. If a `plan/<gate-id>-gate` branch or open PR exists, resume it. Otherwise
-   `git switch dev && git pull --ff-only`.
+   `git switch dev && git pull --ff-only`, then check for a gate that stopped before
+   handing over `main`: a `-G` row that is `done` or `blocked (...)` whose gate PR merged
+   into `dev` after the newest `dev` → `main` PR was opened. Compare
+   `gh pr list --base dev --state merged --search "head:plan/<gate-id>-gate" --json mergedAt`
+   with `gh pr list --base main --head dev --state all --json createdAt`. If you find one,
+   go straight to section 4.
 2. `sh scripts/dev-setup.sh --check` (run `sh scripts/dev-setup.sh` if it fails), then
    `sh docs/plan/verify-facts.sh`.
 3. The gate is the first `-G` row that isn't `done`. Check every task it depends on is
