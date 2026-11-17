@@ -7,10 +7,14 @@ with no access to the conversations that produced it. Everything needed is in th
 Drop this folder into the repository as `docs/plan/` and copy `CLAUDE.md` to the
 repository root (merge it with an existing `CLAUDE.md` if there is one).
 
+**Owner:** start with [GETTING-STARTED.md](GETTING-STARTED.md). The daily loop is `/clear`,
+then `/next-task`.
+
 ## Files, in reading order
 
 | File | What it holds | Read when |
 | --- | --- | --- |
+| `GETTING-STARTED.md` | The owner's guide: setup, `/next-task`, `/phase-gate`, `/plan-sync`, when you're needed | Owner, first |
 | `README.md` | How to work through the plan, drift handling, rules, status board | Every session |
 | `verify-facts.sh` | Checks the code facts the tasks rely on are still true | Every session |
 | `superpowers/` | The same tasks as Superpowers `executing-plans` files, one per phase | When using Superpowers |
@@ -35,7 +39,8 @@ repository root (merge it with an existing `CLAUDE.md` if there is one).
    Run the drift check below first.
 2. **Read before writing.** Read `00-context.md`, the task, and every file the task
    lists under "Read first".
-3. **Branch per task.** `git switch -c plan/<task-id>-<short-name>` from `main`.
+3. **Branch per task.** From an up-to-date `dev` (`git switch dev && git pull`):
+   `git switch -c plan/<task-id>-<short-name>`. Set the task to `doing` on the board.
 4. **Tests first.** Write the failing test named in "Acceptance", watch it fail,
    then implement.
 5. **Stay in scope.** Change only the files the task names, plus tests. If another file
@@ -50,9 +55,43 @@ repository root (merge it with an existing `CLAUDE.md` if there is one).
    plus any extra command in the task's "Acceptance".
 7. **Update this board.** Set the task to `done` (or `blocked` with a reason) in the
    same PR. Add any new finding to `appendix-b-test-run-evidence.md`.
-8. **Stop and ask** when a task is ambiguous, when a decision in `00-context.md` seems
+8. **PR and merge into `dev`.** Open the PR into `dev` with the step-6 results, then merge
+   it yourself only as "Branches, PRs and merging" below allows.
+9. **Stop and ask** when a task is ambiguous, when a decision in `00-context.md` seems
    wrong, or when finishing would need more than the task allows. Never guess on
    security, licensing, or anything the owner decided.
+
+## Branches, PRs and merging
+
+`dev` is the default branch and holds all plan work. `main` changes only at phase gates,
+and only the owner merges into it.
+
+- Branch every task from an up-to-date `dev`, and open every PR into `dev`.
+- Merge into `dev` yourself only when all three are true:
+  1. every step-6 check passes locally;
+  2. the PR's CI is green (`gh pr checks <n> --watch`);
+  3. an independent review passes.
+
+  Then run `gh pr merge <n> --squash --delete-branch`.
+- **Independent review:** launch a fresh-context subagent (not a fork of the working
+  session) that reads only the PR diff (`gh pr diff <n>`), the task's section in its phase
+  file, and `00-context.md`, and reports blockers with evidence (file, line, and the
+  failing input or broken rule). Fix the blockers and re-review, at most 2 rounds. If it
+  is still blocked, stop and ask the owner. For a PR with no board task (`/plan-sync`,
+  housekeeping), the reviewer gets the written request or the synced commits in place of
+  the task section. Reviewer prompt:
+
+  > You are reviewing PR #N in this repository. Read only: `gh pr diff N`, the section
+  > `<task id>` in `docs/plan/<phase file>`, and `docs/plan/00-context.md`. Report only
+  > blockers: a bug, an unmet "Change" or "Acceptance" item, a "Do not" broken, or an
+  > owner decision in `00-context.md` contradicted. For each, give file:line and the
+  > evidence (the input that fails, or the rule quoted). End with `VERDICT: APPROVE` if
+  > there are none, else `VERDICT: BLOCK`.
+
+  The review passes on `VERDICT: APPROVE`. Record each round's verdict in the PR as a
+  comment.
+- Never push to or merge into `main`. At each phase gate, `/phase-gate` opens a
+  `dev` → `main` PR with the gate results; only the owner merges it.
 
 ## When the code has changed
 
@@ -74,7 +113,12 @@ this way:
    safety check or hard-wires one AI vendor): stop and ask the owner. Never silently
    follow either the plan or the code.
 6. **A manual change outside the plan:** add a line to `appendix-b-test-run-evidence.md`
-   section 3 or a new task on the board, so the plan keeps matching reality.
+   section 3 or a new task on the board, so the plan keeps matching reality. For several
+   such commits, run `/plan-sync`.
+
+**Last plan sync:** `b7da4d1` (2026-11-17). `/plan-sync` analyses commits after this one,
+skipping squash merges of PRs whose head branch starts with `plan/` (the plan's own work),
+and updates this line when it finishes.
 
 ## Using Superpowers
 
@@ -91,6 +135,8 @@ Without Superpowers, follow "How to work through the plan" above; the result is 
 - The runner (`vesper.py`, `build_local.py`, `builder/`) stays **Python 3.11+ standard
   library only**. Projects Vesper *builds* may use Go, Node, React and so on; Vesper
   itself does not import third-party packages.
+- Never push to or merge into `main`; merge into `dev` only as "Branches, PRs and
+  merging" allows.
 - Never weaken an existing safety property: plan digests, scope checks, read-only
   review copies, the Git bridge preserving unrelated edits, independent review.
 - Keep `AGENTS.md` rules: worker code stays separate from accepted snapshots,
