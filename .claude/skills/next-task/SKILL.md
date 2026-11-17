@@ -22,10 +22,15 @@ Done when the environment is ready and every DRIFT line is explained or handled.
 
 ## 2. Pick the task
 
-1. **Resume first.** A task is in progress if it has a `plan/<id>-*` branch (local or
-   `git branch -r --list 'origin/plan/*'`) or an open PR into `dev`
-   (`gh pr list --base dev --state open`), or is `doing` on the board. Continue that task
-   from where it stopped: read its commits, PR, CI and review comments before acting.
+1. **Look for work in progress:** `plan/*` branches (local and
+   `git branch -r --list 'origin/plan/*'`), open PRs into `dev`
+   (`gh pr list --base dev --state open`), and `doing` rows on the board.
+   - A phase gate (`plan/<id>-g-gate`, or a `-G` row that is `doing`): stop and tell the
+     owner to run `/phase-gate`, which resumes it.
+   - A plan sync (`plan/sync-*`): stop and tell the owner to run `/plan-sync`, which
+     resumes it.
+   - A board task (`plan/<id>-<slug>`, ID without `-G`): continue it from where it
+     stopped. Read its commits, PR, CI and review comments before acting.
 2. Otherwise pick the first `todo` task whose dependencies are all `done`.
 3. If that task is a phase gate (ID ends in `-G`), stop and tell the owner to run
    `/phase-gate`.

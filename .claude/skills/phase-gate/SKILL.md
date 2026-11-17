@@ -47,10 +47,12 @@ Done when every pass criterion has a measured result: pass or fail, with evidenc
 
 ## 4. Hand over main
 
-If the gate passed:
-`gh pr create --base main --head dev --title "Phase <n> gate: <one line>"`, with the gate
-report from appendix B as the body. Don't merge it.
+Whatever the result:
+`gh pr create --base main --head dev --title "Phase <n> gate: PASSED|FAILED — <one line>"`,
+with the gate report from appendix B as the body and the result stated in its first
+line. Don't merge it.
 
 End by telling the owner: the gate result, the `dev` → `main` PR link, and to review and
 merge it with "Create a merge commit" (see `docs/plan/GETTING-STARTED.md`). If the gate
-failed, give the failed criteria and the recommended next step instead.
+failed, also give the failed criteria and the recommended next step. Whether to merge a
+failed gate is the owner's call.

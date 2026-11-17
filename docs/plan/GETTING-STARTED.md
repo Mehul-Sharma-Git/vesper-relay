@@ -68,7 +68,7 @@ Claude does everything it can first, then stops with exact instructions.
 | Owner-OK decisions | Next.js or other stack exceptions, tech-lead prototypes (P4-T7), repair plans (P5-T3), release criteria and promotion (P5-T6) | Answer the question it asks |
 | Plan conflicts | A task contradicts a decision in `00-context.md`, or is ambiguous | Decide which wins; it records your answer |
 | Review stuck | The independent review still blocks after 2 fix rounds | Read the blockers in the PR and decide |
-| Phase gate PR | End of every passing `/phase-gate` | Review and merge `dev` → `main` (below) |
+| Phase gate PR | End of every `/phase-gate` (marked PASSED or FAILED) | Review it and merge `dev` → `main` (below); for a failed gate, decide whether to merge or fix first |
 
 ## Resuming a stopped task
 
@@ -77,7 +77,8 @@ and continues where it stopped: a session limit, a closed window, or a step that
 for you. If it stopped for you, do that step first. You can also reply in the same session
 with the result.
 
-The same applies to `/phase-gate`.
+A stopped phase gate or plan sync resumes with its own command, `/phase-gate` or
+`/plan-sync`. If you run `/next-task` instead, it tells you which one to use.
 
 ## Checking limits
 
