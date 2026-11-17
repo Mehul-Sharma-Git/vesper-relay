@@ -1,0 +1,24 @@
+{
+  "audience": "One person managing personal todos on a phone browser and a laptop browser",
+  "primary_task": "Switch to a list, add a todo, and tick it done",
+  "representative_content": "Lists Inbox (Buy milk, Call bank - done), Work (Send report), Home (empty)",
+  "directions": [
+    {"name": "Tabs on top", "composition": "Horizontal list tabs above filter, add form and todos", "benefit": "One tap to switch lists, everything visible", "tradeoff": "Crowded beyond 6-8 lists"},
+    {"name": "List picker", "composition": "Menu button opens a list panel on phone; persistent sidebar on laptop", "benefit": "Scales to many lists and keeps the main column focused", "tradeoff": "Switching lists on phone takes an extra tap"},
+    {"name": "Grouped page", "composition": "Single scrolling page with a collapsible section per list", "benefit": "Overview of everything at once", "tradeoff": "Long scroll with many todos"}
+  ],
+  "chosen": "List picker",
+  "reason": "Owner selected B; it scales as the owner adds lists and keeps the phone screen focused on one list",
+  "avoid": "Hidden gestures, icon-only controls without labels, modal dialogs for adding todos",
+  "narrow": "Below 720px the panel is a toggled menu under the top bar; content is one column with no horizontal scroll at 320px",
+  "wide": "At 720px and above the panel is a fixed left sidebar and the toggle is hidden",
+  "focus": "Menu toggle sets aria-expanded; Escape closes and returns focus; focus stays on the add input after adding",
+  "motion": "None required; respect prefers-reduced-motion for any panel transition",
+  "browser_evidence": "G_BROWSER drives Chromium at 375px and 1280px: picker, add, complete, filter, list create/rename/delete",
+  "states": {
+    "empty": "Nothing here yet",
+    "error": "Status region shows the problem and the draft stays in the input",
+    "saving": "Add button disabled while saving",
+    "confirm": "Deleting a list asks for confirmation naming its todo count"
+  }
+}

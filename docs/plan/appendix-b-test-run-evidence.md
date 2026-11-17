@@ -1,0 +1,74 @@
+# Appendix B — Test-run evidence and unscheduled gaps
+
+## 1. The Pocket Todo run (9 Nov 2026)
+
+Setup: Vesper installed into a throwaway home; `vesper start --mode build`; plan written
+by the assistant acting as planner, designer, tech lead and QA; owner approved the digest;
+`run --provider claude --trust-host` (no sandbox launcher existed). Claude Code 2.1.321.
+The full plan, checks, wireframes, reviewer replies and the exported app are in
+`fixtures/pocket-todo/`.
+
+Result: `complete`. J_API and J_UI each accepted on the first worker attempt; the three
+gates (API, page, real browser) passed, including the final full rerun; the export
+worked at 320, 375 and 1280 px. About 8 minutes of runtime. The three reviewer calls
+reported about $1.26 at list price (informational; the owner's plans are fixed-fee).
+
+## 2. Numbered findings (referenced by task files)
+
+| # | Finding | Fixed by |
+| --- | --- | --- |
+| 1 | Reviewer verdicts with a sentence before a fenced JSON block were rejected by `decode_provider_report`; 2 of 3 calls; run stopped and needed a supervised `review-candidate --report` | P1-T1, P1-T2 |
+| 2 | Workers had Read/Edit/Write only and could not run code; both said nothing was run | P1-T10 |
+| 3 | The review copy had only one-line gate summaries; the reviewer said logs were missing | P2-T1 |
+| 4 | Gate env stripped to PATH/HOME/TMPDIR/LANG; a Playwright gate needed a hardcoded browser path; gate timeout fixed at 45 s | P1-T3, P1-T4 |
+| 5 | The reviewer found that any website could change the owner's todos (no CSRF/Origin check) but filed it as advisory; it shipped | P2-T7, P4-T5 |
+| 6 | The UI matched the wireframe's layout but had a generic default look; nothing asked for or checked design quality | P4-T1 to P4-T4 |
+| 7 | The planner never asked about language/stack or system design; nothing enforces options, risks or assumptions | P2-T5, P4-T6 |
+| 8 | Reviewer timeout fixed at 180 s and 20 turns | P1-T3 |
+| 9 | Provider env passes HOME but drops HTTPS_PROXY/NO_PROXY/CA variables; works on a plain network, likely fails behind a corporate proxy | Unscheduled, see section 3 |
+| 10 | No package installs: `node_modules` and symlinks rejected; the runner could only build stdlib Python + static files | P1-T6 |
+| 11 | `start` scaffolds only `contract.json` and `idea.md`; the planner must know every other file and field from docs | P2-T5, P4-T6 |
+| 12 | The plan's "use from phone on home Wi-Fi" needs `--host 0.0.0.0`; no guidance on the exposure risk | P4-T5, P4-T7 |
+| 13 | Design artifacts were text only; `validate_design` accepts a direction with one sentence | P4-T2 |
+| 14 | Adding wireframe files to `plan/` changed the digest as expected: approval binds the pictures the owner saw | Keep |
+| 15 | Free hosting (Render, Vercel) would lose the app's SQLite data | P4-T7 hosting pack |
+
+What worked and must be kept: plan digests, scope enforcement, the final full-gate rerun,
+export, the Claude adapter flags, and reviewers that traced every fetch against the
+server and found real issues (a stale-state path, the CSRF hole, 320 px not covered).
+
+## 3. Known gaps not yet scheduled (phase 6+)
+
+| Gap | Note |
+| --- | --- |
+| Amendable plans | Beyond additive checks: versioned contracts with delta approvals for changing scope mid-project |
+| Parallel writers | One writer at a time today; independent jobs on disjoint paths could run in parallel |
+| Shared-file ownership | Routes, schema, migrations, `package.json` touched by many jobs; needs a shared-file protocol or integration job |
+| Copy and hash cost | Every attempt copies and hashes the whole tree several times; slow for large repos |
+| Services in gates | Postgres, Redis or queues started for checks (compose-style) so approved architecture can be verified |
+| Secrets for built apps | A way to give apps API keys during checks without exposing them to workers |
+| Git breadth | Submodules, symlinks, LFS, branch and PR flow (today: patch applied to the working tree) |
+| Proxy-aware adapters | Pass HTTPS_PROXY/NO_PROXY/CA variables into the sandbox (finding 9) |
+| Kind-3 brains | Raw model APIs and local models (Ollama, OpenRouter, vendor APIs) through a built-in agent loop |
+| Optimise mode | Like bug mode: benchmark the slowness, freeze it as a failing gate, fix, show before/after |
+| Performance budgets | Beyond Core Web Vitals: API latency at load, query counts per request, bundle budgets as gates |
+| Infrastructure skills | Cache, queue, CDN/HTTP caching and realtime skills with pass conditions, plus runnable services |
+| Remote connector and service | Local connector is in P5-T1; remote access, service mode and the dashboard come after v1.0 (see appendix C) |
+
+## 4. Commit b7da4d1 (17 Nov 2026), made outside this plan
+
+"Enforce managed handoffs and verify Vesper Relay workflows": 28 files, about 1,200 lines.
+Verified here: 41 tests pass; repo-fix, stockroom and the new repair replay pass;
+`verify-facts.sh` passes.
+
+| Change | Effect on this plan |
+| --- | --- |
+| `builder/planning.py`: impact-based depth (`full`/`focused`/`skip`), tech-lead architecture handoff, canonical contract acknowledged by engineers and QA, independent `review-plan` critique required before `approve` | Adopted as the plan's depth vocabulary; P2-T5, P4-T6, P4-T7 shrink to what's left |
+| `review_plan` reuses `decode_provider_report`, a 180 s timeout and claude/codex-only providers | Same weaknesses as candidate review: covered in P1-T1, P1-T2 (plan critique schema), P1-T3, P1-T8 |
+| Session identities in plan critiques are self-declared ("not authentication against a malicious operator") | Attesting independence becomes a protected human action in P2-T2 |
+| Repair: `--failure-id` and typed `VESPER_REPRO` evidence; `VESPER_REGRESSION` timeout 120 → 300 s; `examples/replay_repair.py` | The automatic repair loop (P5-T3) generates failure IDs and typed reproducers; README checks include the repair replay |
+| `examples/specialist_evals/`: specialist-vs-control trials, blind grader, 8/10 target, Codex CLI only | Becomes the per-role section of the P5-T4 bench, run through brain adapters |
+| Skill updates (discovery, frontend races and replays, focus after errors, idempotency for SQLite/Postgres) | Keep; phase-4 rewrites must preserve these points |
+| Stockroom server skips reverse DNS on loopback (fixed a macOS readiness timeout) | Mac lesson: local servers in gates should bind a numeric address and avoid name lookups |
+| The commit's own plan notes host Python 3.9.6 (macOS default) while 3.11+ is required | Covered by SETUP: install a newer Python |
+| The fixture predated managed planning and failed `review` | Fixture updated (planning.json, api-contract.md, intake planning_version) |
