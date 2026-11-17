@@ -8,9 +8,11 @@ import time
 
 
 def stop_group(pid, sig):
+    # macOS returns EPERM, not ESRCH, when the group holds only unreaped zombies. Every
+    # member was started in this session under our user, so treat EPERM as "already gone".
     try:
         os.killpg(pid, sig)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
 
 

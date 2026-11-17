@@ -70,6 +70,34 @@ class CheckTimeoutTests(unittest.TestCase):
         self.assertEqual(self.command("status")["completed"], ["J1"])
 
 
+class TimeoutCleanupTests(unittest.TestCase):
+    """macOS killpg can return EPERM for a group that holds only unreaped zombies (finding 18)."""
+
+    def run_with_killpg(self, killpg, script, timeout):
+        from builder.process import run_process
+        with tempfile.TemporaryDirectory() as temp, mock.patch("builder.process.os.killpg", killpg):
+            return run_process([sys.executable, "-c", script], cwd=temp, input_text="",
+                               env={"PATH": os.defpath}, log=Path(temp) / "x.log", timeout=timeout)
+
+    def test_timeout_returns_124_when_cleanup_gets_eperm(self):
+        real, calls = os.killpg, []
+
+        def killpg(pid, sig):
+            calls.append(sig)
+            if len(calls) > 1:
+                raise PermissionError(1, "Operation not permitted")
+            real(pid, sig)
+
+        self.assertEqual(self.run_with_killpg(killpg, "import time; time.sleep(5)", 1), 124)
+        self.assertGreater(len(calls), 1)
+
+    def test_normal_exit_keeps_its_status_when_cleanup_gets_eperm(self):
+        def killpg(pid, sig):
+            raise PermissionError(1, "Operation not permitted")
+
+        self.assertEqual(self.run_with_killpg(killpg, "raise SystemExit(3)", 10), 3)
+
+
 class RunCheckDefaultTests(unittest.TestCase):
     def timeout_for(self, check):
         seen = []
