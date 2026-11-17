@@ -110,4 +110,22 @@ other check outputs in temporary locations. The runner tracks candidate file
 contents and modes and rejects links, special files, and unrelated changes.
 On the final job it reruns the full approved gate set.
 
+Gates get a minimal environment: `PATH`, a temporary `HOME` and `TMPDIR`,
+`LANG` and `PYTHONDONTWRITEBYTECODE`. When a gate needs more, for example a
+Playwright gate that must find its browsers, list the variable names in the
+contract's top-level `gate_env`:
+
+```json
+"gate_env": ["PLAYWRIGHT_BROWSERS_PATH"]
+```
+
+Only names go in the contract, so they are part of the reviewed digest. The
+runner copies each value from its own environment when the gate runs and
+leaves out names that are unset. With a launcher, the variables reach the
+launcher process, which decides what enters its sandbox. `review` rejects
+names that look like secrets (any containing `key`, `token`, `secret`,
+`password`, `credential` or `auth`, in any case), provider login variables such
+as `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, and the five names
+the runner sets itself.
+
 See [PILOT.md](docs/PILOT.md) for the results, limitations, and next gaps.

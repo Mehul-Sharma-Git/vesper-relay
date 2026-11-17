@@ -47,12 +47,17 @@ def provider_command(name, launcher, trust_host, *, operation="worker", response
             "--allowedTools", tools, "--max-turns", str(max_turns), *output]
 
 
+# Provider login material. Workers and reviewers on the host get these; gates never do.
+PROVIDER_CREDENTIALS = {
+    "codex": ("OPENAI_API_KEY", "CODEX_HOME"),
+    "claude": ("ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"),
+}
+
+
 def provider_environment(name, launcher):
     keys = {"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "LOGNAME"}
-    if not launcher and name == "codex":
-        keys.update({"OPENAI_API_KEY", "CODEX_HOME"})
-    elif not launcher:
-        keys.update({"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"})
+    if not launcher:
+        keys.update(PROVIDER_CREDENTIALS["codex" if name == "codex" else "claude"])
     return {key: value for key, value in os.environ.items() if key in keys}
 
 

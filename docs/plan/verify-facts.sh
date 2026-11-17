@@ -40,8 +40,8 @@ check "checks may set a timeout (1-1800 s; default 45, 300 for VESPER_REGRESSION
     sh -c 'grep -q "Invalid timeout for check" builder/contracts.py && grep -q "timeout=check.get(\"timeout\"" builder/runner.py'
 check "reviewer timeout and max turns are flags (--review-timeout/--review-max-turns; P1-T3)" "P1-T7, P1-T8" \
     sh -c 'grep -q "def review_limits" builder/providers.py && grep -q "\"--max-turns\", str(max_turns)" builder/providers.py && grep -q "timeout=review_timeout" builder/runner.py && grep -q -- "--review-max-turns" build_local.py && grep -q "review_limit_options(plan_review)" vesper.py'
-check "gate env is a fixed allow-list" "P1-T4" \
-    grep -q '"PYTHONDONTWRITEBYTECODE": "1"' builder/runner.py
+check "gate env is a fixed base plus the contract's gate_env names (no secrets; P1-T4)" "P1-T5, P1-T9" \
+    sh -c 'grep -q "\"PYTHONDONTWRITEBYTECODE\": \"1\"" builder/runner.py && grep -q "for name in gate_env if name in os.environ" builder/runner.py && grep -q "def validate_gate_env" builder/contracts.py && grep -q "PROVIDER_CREDENTIALS = {" builder/providers.py'
 check "gates are Python scripts only" "P1-T5" \
     grep -q 'script.endswith(".py")' builder/contracts.py
 check "safe_path rejects node_modules" "P1-T6" \

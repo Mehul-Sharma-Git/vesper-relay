@@ -102,7 +102,7 @@ class RunCheckDefaultTests(unittest.TestCase):
     def timeout_for(self, check):
         seen = []
 
-        def fake_execute(*args, timeout):
+        def fake_execute(*args, timeout, gate_env=()):
             seen.append(timeout)
             args[5].write_text("")
             return 0, True

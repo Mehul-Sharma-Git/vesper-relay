@@ -82,8 +82,11 @@ def copy_tree(source, destination):
     destination.chmod(stat.S_IMODE(source.stat().st_mode))
 
 
-def execute_check(script_name, package_source, checks_manifest, candidate, candidate_manifest, log, launcher, timeout=45):
-    """Give every gate the same isolated input layout, including baseline reproducers."""
+def execute_check(script_name, package_source, checks_manifest, candidate, candidate_manifest, log, launcher,
+                  timeout=45, gate_env=()):
+    """Give every gate the same isolated input layout, including baseline reproducers.
+
+    gate_env names approved host variables whose current values the gate also receives."""
     with tempfile.TemporaryDirectory(dir=log.parent, prefix="gate-") as temp:
         home = Path(temp)
         package, isolated = home / "checks", home / "candidate"
@@ -95,7 +98,8 @@ def execute_check(script_name, package_source, checks_manifest, candidate, candi
         mode = stat.S_IMODE(isolated.stat().st_mode)
         command = ([launcher, "check", str(script), str(isolated)] if launcher
                    else [sys.executable, "-I", "-B", str(script), str(isolated)])
-        env = {"PATH": os.defpath, "HOME": temp, "TMPDIR": temp,
+        env = {**{name: os.environ[name] for name in gate_env if name in os.environ},
+               "PATH": os.defpath, "HOME": temp, "TMPDIR": temp,
                "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}
         code = run_process(command, cwd=home, input_text="", env=env, log=log, timeout=timeout)
         intact = (inventory(package) == checks_manifest and inventory(isolated) == candidate_manifest
@@ -333,7 +337,8 @@ class Runner:
             final = len(state["completed"]) + 1 == len(contract["jobs"])
             for check in contract["checks"]:
                 if final or check["id"] in job["checks"]:
-                    self.run_check(state, check, candidate, directory, launcher)
+                    self.run_check(state, check, candidate, directory, launcher,
+                                   gate_env=contract.get("gate_env", ()))
                     require(inventory(candidate) == proposed and stat.S_IMODE(candidate.stat().st_mode) == mode,
                             f"Check {check['id']} modified the candidate")
             self.frozen_contract(state)
@@ -468,14 +473,15 @@ class Runner:
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
         return self.accept_candidate(state, attempt["job"], candidate, manifest)
 
-    def run_check(self, state, check, candidate, directory, launcher):
+    def run_check(self, state, check, candidate, directory, launcher, gate_env=()):
         logs = directory / "logs"
         logs.mkdir(exist_ok=True)
         log = logs / (check["id"] + ".log")
         code, intact = execute_check(check["script"], self.approval(state) / "checks",
                                      state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,
                                      timeout=check.get("timeout",
-                                                       300 if check["id"] == "VESPER_REGRESSION" else 45))
+                                                       300 if check["id"] == "VESPER_REGRESSION" else 45),
+                                     gate_env=gate_env)
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
         state["active"]["checks"].append(result)
         self.save(state)
