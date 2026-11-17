@@ -14,7 +14,7 @@ from uuid import uuid4
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract)
 from .process import run_process
-from .providers import provider_command, provider_environment, worker_prompt
+from .providers import provider_command, provider_environment, review_limits, worker_prompt
 from .review_gate import (decode_provider_report, needs_security, prompt as review_prompt, report_schema,
                           validate_report, write_diff)
 
@@ -400,7 +400,8 @@ class Runner:
         return {**attempt, "outcome": "awaiting_review"}
 
     def review_candidate(self, report=None, *, provider=None, launcher=None, trust_host=False,
-                         external_attested=False):
+                         external_attested=False, review_timeout=180, review_max_turns=20):
+        review_limits(review_timeout, review_max_turns)
         state = self.state()
         attempt = state["active"]
         require(attempt and "review" in attempt, "No tested candidate awaits review")
@@ -443,10 +444,10 @@ class Runner:
                 view_digest = fingerprint(inventory(view))
                 response = session / "response.json"
                 command = provider_command(provider, launcher, trust_host, operation="reviewer", response=response,
-                                           schema=schema)
+                                           schema=schema, max_turns=review_max_turns)
                 log = directory / ("reviewer-" + uuid4().hex + ".log")
                 code = run_process(command, cwd=view, input_text=review_prompt(profile, packet),
-                                   env=provider_environment(provider, launcher), log=log, timeout=180)
+                                   env=provider_environment(provider, launcher), log=log, timeout=review_timeout)
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
                 output = response if response.is_file() else log
@@ -473,7 +474,8 @@ class Runner:
         log = logs / (check["id"] + ".log")
         code, intact = execute_check(check["script"], self.approval(state) / "checks",
                                      state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,
-                                     timeout=300 if check["id"] == "VESPER_REGRESSION" else 45)
+                                     timeout=check.get("timeout",
+                                                       300 if check["id"] == "VESPER_REGRESSION" else 45))
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
         state["active"]["checks"].append(result)
         self.save(state)
@@ -489,14 +491,18 @@ class Runner:
                 self.save(state)
                 raise
 
-    def run(self, provider, command, launcher=None, *, reviewer=None, trust_host=False):
+    def run(self, provider, command, launcher=None, *, reviewer=None, trust_host=False,
+            review_timeout=180, review_max_turns=20):
+        review_limits(review_timeout, review_max_turns)
+        limits = {"review_timeout": review_timeout, "review_max_turns": review_max_turns}
         state = self.state()
         contract = self.frozen_contract(state)
         if "repair" in state["bundle"]:
             require(launcher, "Vesper repairs require a confined launcher")
         if state["active"]:
             if "review" in state["active"]:
-                self.review_candidate(provider=reviewer or provider, launcher=launcher, trust_host=trust_host)
+                self.review_candidate(provider=reviewer or provider, launcher=launcher, trust_host=trust_host,
+                                      **limits)
                 state = self.state()
             else:
                 require(state["active"]["provider"] != "manual", "Submit or abandon the active manual attempt first")
@@ -521,7 +527,8 @@ class Runner:
             else:
                 result = self.verify(state, contract, job, workspace, launcher)
                 if result["outcome"] == "awaiting_review":
-                    self.review_candidate(provider=reviewer or provider, launcher=launcher, trust_host=trust_host)
+                    self.review_candidate(provider=reviewer or provider, launcher=launcher, trust_host=trust_host,
+                                          **limits)
                     state = self.state()
         return self.status()
 

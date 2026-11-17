@@ -11,6 +11,13 @@ from builder.runner import Runner
 from builder.learning import record
 
 
+def review_limit_options(parser):
+    parser.add_argument("--review-timeout", type=int, default=180, metavar="SECONDS",
+                        help="Reviewer wall-time limit, 1 to 1800 seconds (default 180)")
+    parser.add_argument("--review-max-turns", type=int, default=20, metavar="N",
+                        help="Reviewer agent turn limit, 1 to 100 (default 20)")
+
+
 def initialize(root, idea):
     root.mkdir(parents=True, exist_ok=True)
     if any(root.iterdir()):
@@ -41,6 +48,7 @@ def main():
     review_boundary = review_candidate.add_mutually_exclusive_group()
     review_boundary.add_argument("--launcher")
     review_boundary.add_argument("--trust-host", action="store_true")
+    review_limit_options(review_candidate)
     commands.add_parser("abandon").add_argument("attempt")
     commands.add_parser("retry").add_argument("--reason", required=True)
     commands.add_parser("status")
@@ -51,6 +59,7 @@ def main():
     trust = run.add_mutually_exclusive_group()
     trust.add_argument("--launcher")
     trust.add_argument("--trust-host", action="store_true")
+    review_limit_options(run)
     args = parser.parse_args()
     root = args.project.resolve()
     engine = Runner(root)
@@ -75,7 +84,9 @@ def main():
                         result = engine.review_candidate(read_json(args.report), external_attested=args.attest_independent)
                     else:
                         result = engine.review_candidate(provider=args.provider, launcher=check_launcher(args.launcher),
-                                                         trust_host=args.trust_host)
+                                                         trust_host=args.trust_host,
+                                                         review_timeout=args.review_timeout,
+                                                         review_max_turns=args.review_max_turns)
                 elif args.command == "abandon":
                     result = engine.abandon(args.attempt)
                 elif args.command == "retry":
@@ -85,7 +96,9 @@ def main():
                 elif args.command == "run":
                     command = provider_command(args.provider, args.launcher, args.trust_host)
                     result = engine.run(args.provider, command, args.launcher,
-                                        reviewer=args.reviewer_provider, trust_host=args.trust_host)
+                                        reviewer=args.reviewer_provider, trust_host=args.trust_host,
+                                        review_timeout=args.review_timeout,
+                                        review_max_turns=args.review_max_turns)
                 else:
                     result = engine.prepare()
                 if args.command in {"submit", "run", "review-candidate"} and (

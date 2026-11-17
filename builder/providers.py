@@ -16,8 +16,18 @@ def check_launcher(launcher):
     return launcher
 
 
-def provider_command(name, launcher, trust_host, *, operation="worker", response=None, schema=None):
+def review_limits(timeout=180, max_turns=20):
+    """Bound a reviewer's wall time (seconds) and agent turns; return them unchanged."""
+    require(type(timeout) is int and 1 <= timeout <= 1800, "Review timeout must be 1 to 1800 seconds")
+    require(type(max_turns) is int and 1 <= max_turns <= 100, "Review max turns must be 1 to 100")
+    return timeout, max_turns
+
+
+def provider_command(name, launcher, trust_host, *, operation="worker", response=None, schema=None,
+                     max_turns=20):
     # A launcher finds the schema as review.schema.json in its CWD and passes it on itself.
+    # It also builds its own provider command, so max_turns reaches only a direct provider.
+    review_limits(max_turns=max_turns)
     require(launcher or trust_host, "Select --launcher PATH or explicitly opt into --trust-host")
     if launcher:
         return [check_launcher(launcher), operation, name]
@@ -34,7 +44,7 @@ def provider_command(name, launcher, trust_host, *, operation="worker", response
         output += ["--json-schema", json.dumps(schema, separators=(",", ":"))]
     return [binary, "--restricted", "-p", "--strict-mcp-config", "--mcp-config",
             '{"mcpServers":{}}', "--permission-mode", "dontAsk", "--tools", tools,
-            "--allowedTools", tools, "--max-turns", "20", *output]
+            "--allowedTools", tools, "--max-turns", str(max_turns), *output]
 
 
 def provider_environment(name, launcher):

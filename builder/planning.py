@@ -134,13 +134,15 @@ def plan_report_schema(digest, identity):
     }
 
 
-def review_plan(runner, report=None, *, external_attested=False, provider=None, launcher=None, trust_host=False):
+def review_plan(runner, report=None, *, external_attested=False, provider=None, launcher=None, trust_host=False,
+                review_timeout=180, review_max_turns=20):
     from .contracts import review_bundle
     from .process import run_process
-    from .providers import provider_command, provider_environment
+    from .providers import provider_command, provider_environment, review_limits
     from .review_gate import STRICT_ENDING, decode_provider_report
     from .runner import atomic_json, copy_tree
 
+    review_limits(review_timeout, review_max_turns)
     require(not runner.state_file.exists(), "An approved plan cannot be replaced; start a new run")
     _, bundle = review_bundle(runner.root, include_critique=False)
     require("planning" in bundle and bundle["planning"]["depth"] != "skip",
@@ -155,7 +157,7 @@ def review_plan(runner, report=None, *, external_attested=False, provider=None, 
         require(external_attested, "Attest that a separate independent reviewer authored this report")
     else:
         require(provider, "Choose a separate reviewer provider or supply an independent report")
-        provider_command(provider, launcher, trust_host, operation="reviewer")
+        provider_command(provider, launcher, trust_host, operation="reviewer", max_turns=review_max_turns)
     history[digest] = history.get(digest, 0) + 1
     atomic_json(history_path, history)
     if report is None:
@@ -184,9 +186,9 @@ def review_plan(runner, report=None, *, external_attested=False, provider=None, 
             before = inventory(view)
             response, log = session / "response.json", session / "review.log"
             command = provider_command(provider, launcher, trust_host, operation="reviewer", response=response,
-                                       schema=schema)
+                                       schema=schema, max_turns=review_max_turns)
             code = run_process(command, cwd=view, input_text=prompt,
-                               env=provider_environment(provider, launcher), log=log, timeout=180)
+                               env=provider_environment(provider, launcher), log=log, timeout=review_timeout)
             require(code == 0, "Plan reviewer failed; no approval recorded")
             require(inventory(view) == before, "Plan reviewer modified its input copy")
             output = response if response.is_file() else log

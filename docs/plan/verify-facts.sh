@@ -36,12 +36,10 @@ check "provider_command builds reviewer commands in builder/providers.py" "P1-T2
     grep -q "def provider_command" builder/providers.py
 check "reviewers get a JSON Schema (review.schema.json, Claude --json-schema; P1-T2)" "P1-T8" \
     sh -c 'grep -q "json-schema" builder/providers.py && grep -q "review.schema.json" builder/runner.py && grep -q "review.schema.json" builder/planning.py && grep -q "structured_output" builder/review_gate.py'
-check "gate timeout is hardcoded (45; 300 for VESPER_REGRESSION)" "P1-T3" \
-    grep -q "else 45)" builder/runner.py
-check "reviewer timeout is hardcoded (180)" "P1-T3" \
-    grep -q "timeout=180" builder/runner.py
-check "reviewer max turns is hardcoded (20)" "P1-T3" \
-    grep -q '"--max-turns", "20"' builder/providers.py
+check "checks may set a timeout (1-1800 s; default 45, 300 for VESPER_REGRESSION; P1-T3)" "P1-T5" \
+    sh -c 'grep -q "Invalid timeout for check" builder/contracts.py && grep -q "timeout=check.get(\"timeout\"" builder/runner.py'
+check "reviewer timeout and max turns are flags (--review-timeout/--review-max-turns; P1-T3)" "P1-T7, P1-T8" \
+    sh -c 'grep -q "def review_limits" builder/providers.py && grep -q "\"--max-turns\", str(max_turns)" builder/providers.py && grep -q "timeout=review_timeout" builder/runner.py && grep -q -- "--review-max-turns" build_local.py && grep -q "review_limit_options(plan_review)" vesper.py'
 check "gate env is a fixed allow-list" "P1-T4" \
     grep -q '"PYTHONDONTWRITEBYTECODE": "1"' builder/runner.py
 check "gates are Python scripts only" "P1-T5" \
@@ -72,8 +70,8 @@ check "approve requires an approving plan critique at full/focused depth" "P2-T2
     grep -q "Independent plan critique must approve" builder/runner.py
 check "review_plan uses the same report decoder (parse bug applies)" "P1-T1, P1-T2" \
     grep -q "decode_provider_report(output.read_text" builder/planning.py
-check "plan critique timeout is hardcoded (180)" "P1-T3" \
-    grep -q "log=log, timeout=180" builder/planning.py
+check "plan critique uses the review limits (P1-T3)" "P1-T7, P1-T8" \
+    grep -q "log=log, timeout=review_timeout" builder/planning.py
 check "review-plan --provider choices are claude/codex" "P1-T8" \
     grep -q 'choice.add_argument("--provider", choices=("codex", "claude"))' vesper.py
 check "specialist evals call Codex CLI directly" "P1-T8, P5-T4" \

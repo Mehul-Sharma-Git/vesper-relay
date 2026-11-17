@@ -10,7 +10,7 @@ import sys
 from uuid import uuid4
 import tempfile
 
-from build_local import initialize
+from build_local import initialize, review_limit_options
 from builder.contracts import BuilderError, fingerprint, inventory, read_json, require
 from builder.git_bridge import apply_change, change, repository, seed_repository
 from builder.learning import RULES, guidance, memory, promote, record, record_repair, state_home, summary
@@ -203,6 +203,7 @@ def main():
     execution = plan_review.add_mutually_exclusive_group()
     execution.add_argument("--launcher")
     execution.add_argument("--trust-host", action="store_true")
+    review_limit_options(plan_review)
     commands.add_parser("incidents")
     boundary(commands.add_parser("repair-reproduce"))
     commands.add_parser("repair-commit").add_argument("--digest", required=True)
@@ -264,7 +265,8 @@ def main():
                             "Invalid plan review report")
                 result = review_plan(runner, report=read_json(args.report) if args.report else None,
                                      external_attested=args.attest_independent, provider=args.provider,
-                                     launcher=check_launcher(args.launcher), trust_host=args.trust_host)
+                                     launcher=check_launcher(args.launcher), trust_host=args.trust_host,
+                                     review_timeout=args.review_timeout, review_max_turns=args.review_max_turns)
         elif args.command == "incidents":
             require(args.project, "Pass --project PATH before the command")
             result = incident_report(Runner(args.project.resolve()))
