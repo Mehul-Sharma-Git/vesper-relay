@@ -69,7 +69,8 @@ and only the owner merges into it.
 - Branch every task from an up-to-date `dev`, and open every PR into `dev`.
 - Merge into `dev` yourself only when all three are true:
   1. every step-6 check passes locally;
-  2. the PR's CI is green (`gh pr checks <n> --watch`);
+  2. the PR's CI is green: every check in `gh pr checks <n>` passes, except that
+     `verify (macos-latest)` counts only when it actually ran (see "CI and macOS" below);
   3. an independent review passes.
 
   Then run `gh pr merge <n> --squash --delete-branch` (`--merge` only for a `/plan-sync`
@@ -91,6 +92,16 @@ and only the owner merges into it.
 
   The review passes on `VERDICT: APPROVE`. Record each round's verdict in the PR as a
   comment.
+- **CI and macOS:** the step-6 checks run locally on the owner's Mac, so they cover
+  macOS. GitHub's macOS runners are often unavailable, so `verify (macos-latest)` counts
+  only when it actually ran:
+  - It passed: fine.
+  - It ran and a test failed: CI is red. Read the log and fix it.
+  - It is still queued, or ended `cancelled` or failed with no steps run (no runner;
+    check with `gh run view <run> --json jobs`): ignore it and say so in the PR.
+
+  Wait for the other checks, not for a queued macOS job: `gh pr checks <n> --watch` can
+  sit 15 minutes on one.
 - Never push to or merge into `main`. At each phase gate, `/phase-gate` opens a
   `dev` → `main` PR with the gate results; only the owner merges it.
 

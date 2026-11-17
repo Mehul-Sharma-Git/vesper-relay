@@ -64,7 +64,8 @@ Done when every one of those passes. Keep the outputs for the PR.
 
 1. Commit, push, and `gh pr create --base dev`. The body gets what changed, the step-6
    and acceptance outputs, and the approach for L tasks.
-2. `gh pr checks <n> --watch`. If it goes red, fix, push, and watch again.
+2. Wait for CI (`gh pr checks <n>`). If it goes red, fix, push, and wait again. A macOS
+   job that never got a runner doesn't count (README, "CI and macOS").
 3. Run the independent review from README. Fix blockers, re-run checks, and re-review, at
    most 2 rounds.
 4. Merge with `gh pr merge <n> --squash --delete-branch` only when README's three
