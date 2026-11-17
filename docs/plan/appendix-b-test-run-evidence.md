@@ -72,3 +72,10 @@ Verified here: 41 tests pass; repo-fix, stockroom and the new repair replay pass
 | Stockroom server skips reverse DNS on loopback (fixed a macOS readiness timeout) | Mac lesson: local servers in gates should bind a numeric address and avoid name lookups |
 | The commit's own plan notes host Python 3.9.6 (macOS default) while 3.11+ is required | Covered by SETUP: install a newer Python |
 | The fixture predated managed planning and failed `review` | Fixture updated (planning.json, api-contract.md, intake planning_version) |
+
+Housekeeping outside the board (branch `plan/dev-setup`): `scripts/dev-setup.sh` creates a
+project `.venv` on Python 3.11+ (Homebrew `python@3.12` on a Mac if none is found; never
+sudo), ignores it in Git, and reports go/node/pnpm/docker for later tasks. Documented
+commands and `verify-facts.sh` now call `.venv/bin/python3`, and a Claude Code
+SessionStart hook runs `dev-setup.sh --check`. The runner is unchanged; users get a
+Python 3.11+ without a venv through P1-T11 step 3.

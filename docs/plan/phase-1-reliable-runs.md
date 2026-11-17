@@ -332,6 +332,8 @@ different AI as reviewer also passes.
      image present and the right architecture, each configured brain's CLI present, its
      flags still match the adapter (run `--help` and compare), and login working (a tiny
      dry call). Prints a fix for each failure.
+  3. The vesper command (shim and plugin launcher) finds a Python 3.11+ automatically, and
+     vesper setup offers to install one, so users never need a venv.
 - **Acceptance:** tests with fake environments for each branch; `doctor` reports a missing
   flag when a stand-in CLI's `--help` changes.
 
