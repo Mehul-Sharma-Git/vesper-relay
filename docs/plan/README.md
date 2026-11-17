@@ -170,7 +170,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P1-T1 | Robust reviewer report decoding | P0-T1 | S | done |
 | P1-T2 | Structured reviewer output (schema flags) | P1-T1 | S | done |
 | P1-T3 | Configurable gate and reviewer limits | P0-T1 | S | done |
-| P1-T4 | Gate environment pass-through | P0-T1 | S | todo |
+| P1-T4 | Gate environment pass-through | P0-T1 | S | doing |
 | P1-T5 | Command gates (any language) | P1-T3 | M | todo |
 | P1-T6 | Toolchain support: setup step and ignored build dirs | P1-T5 | L | todo |
 | P1-T7 | Config files: personal + project, `config show` | P0-T1 | M | todo |
