@@ -42,10 +42,10 @@ repository root (merge it with an existing `CLAUDE.md` if there is one).
    must change, stop and say why before touching it.
 6. **Verify.** Run, and paste the results into the PR description:
    ```sh
-   python3 -B -m unittest discover -s tests -v
-   python3 -B examples/replay_repo_fix.py "$(mktemp -d)/repo-pilot"
-   python3 -B examples/replay_stockroom.py "$(mktemp -d)/build-pilot"
-   python3 -B examples/replay_repair.py "$(mktemp -d)/repair-pilot"
+   .venv/bin/python3 -B -m unittest discover -s tests -v
+   .venv/bin/python3 -B examples/replay_repo_fix.py "$(mktemp -d)/repo-pilot"
+   .venv/bin/python3 -B examples/replay_stockroom.py "$(mktemp -d)/build-pilot"
+   .venv/bin/python3 -B examples/replay_repair.py "$(mktemp -d)/repair-pilot"
    ```
    plus any extra command in the task's "Acceptance".
 7. **Update this board.** Set the task to `done` (or `blocked` with a reason) in the
