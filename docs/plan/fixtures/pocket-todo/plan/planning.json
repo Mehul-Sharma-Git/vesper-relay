@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "impact": {
+    "new_system": true,
+    "data": true,
+    "security": false,
+    "integrations": false,
+    "deployment": false,
+    "cross_layer": true
+  },
+  "rationale": "New build: a standard-library Python server with SQLite persistence and a browser UI. Full architecture and independent critique apply to every build.",
+  "authors": [
+    "planner-session",
+    "architecture-session"
+  ],
+  "architecture": {
+    "owner": "technical-lead",
+    "author": "architecture-session",
+    "revision": "7d3330b1569e2e8b41a0c6d14f27f9bd054e942756dd7f07f6eda7dc77b0acfc",
+    "artifact": "architecture.md",
+    "inputs": [
+      "product.md",
+      "decisions.md"
+    ],
+    "consumers": [
+      "backend",
+      "frontend",
+      "qa"
+    ]
+  },
+  "handoff": {
+    "canonical_contract": "api-contract.md",
+    "acknowledged_by": [
+      "backend",
+      "frontend",
+      "qa"
+    ]
+  }
+}
