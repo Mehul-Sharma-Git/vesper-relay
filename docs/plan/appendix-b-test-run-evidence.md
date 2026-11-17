@@ -33,6 +33,7 @@ reported about $1.26 at list price (informational; the owner's plans are fixed-f
 | 14 | Adding wireframe files to `plan/` changed the digest as expected: approval binds the pictures the owner saw | Keep |
 | 15 | Free hosting (Render, Vercel) would lose the app's SQLite data | P4-T7 hosting pack |
 | 16 | While fixing #1: a hostile reviewer reply (deep nesting, or 256 KB of `{"`) made the decoder raise `RecursionError` or scan for 10+ s. The brace scan now tries only keyed-object starts, catches `RecursionError`, and gives up after 200 failed starts | P1-T1 |
+| 17 | With `--json-schema`, Claude Code (checked on 2.1.81, 17 Nov 2026) returns the report in the wrapper's `structured_output` and leaves `result` empty. Without reading `structured_output`, adding the flag would have rejected every Claude review. Codex CLI and Gemini CLI were not installed, so their output-schema options are unchecked; the brain adapters (P1-T8) must check them | P1-T2, P1-T8 |
 
 What worked and must be kept: plan digests, scope enforcement, the final full-gate rerun,
 export, the Claude adapter flags, and reviewers that traced every fetch against the

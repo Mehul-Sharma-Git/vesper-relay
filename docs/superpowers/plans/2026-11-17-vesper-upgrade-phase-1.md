@@ -35,13 +35,13 @@ Depends on: P0-T1 · Size: S · Spec: `docs/plan/phase-1-reliable-runs.md`, sect
 ## Task P1-T2: Structured reviewer output (schema flags)
 Depends on: P1-T1 · Size: S · Spec: `docs/plan/phase-1-reliable-runs.md`, section P1-T2
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P1-T2 and every file under its "Read first"
-- [ ] Create branch `plan/p1-t2`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P1-T2 and every file under its "Read first"
+- [x] Create branch `plan/p1-t2` (used `plan/p1-t2-structured-review-output`)
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P1-T3: Configurable gate and reviewer limits
 Depends on: P0-T1 · Size: S · Spec: `docs/plan/phase-1-reliable-runs.md`, section P1-T3
