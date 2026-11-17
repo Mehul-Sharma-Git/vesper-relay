@@ -103,9 +103,31 @@ def records(data, label):
     return {item["id"]: item for item in value}
 
 
+# Every gate gets these from the runner (runner.execute_check); gate_env may not replace them.
+GATE_FIXED_ENV = ("PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE")
+SECRET_NAME = re.compile(r"(?i)(key|token|secret|password|credential|auth)")
+
+
+def validate_gate_env(value):
+    """Names (never values) of host variables copied into every gate; secrets are refused."""
+    from .providers import PROVIDER_CREDENTIALS
+    require(isinstance(value, list)
+            and all(isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name)
+                    for name in value) and len(value) == len(set(value)),
+            "Invalid gate_env: use a list of distinct environment variable names")
+    credentials = {name for names in PROVIDER_CREDENTIALS.values() for name in names}
+    for name in value:
+        require(not SECRET_NAME.search(name) and name not in credentials,
+                f"gate_env must not pass credentials: {name}")
+        require(name not in GATE_FIXED_ENV, f"gate_env cannot replace {name}")
+    return value
+
+
 def validate(data, checks_inventory):
     require(isinstance(data, dict) and nonempty(data.get("title")) and nonempty(data.get("delivery")),
             "Contract needs a title and delivery target")
+    if "gate_env" in data:
+        validate_gate_env(data["gate_env"])
     requirements = records(data, "requirements")
     checks = records(data, "checks")
     jobs = records(data, "jobs")
