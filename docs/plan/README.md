@@ -117,9 +117,10 @@ this way:
    section 3 or a new task on the board, so the plan keeps matching reality. For several
    such commits, run `/plan-sync`.
 
-**Last plan sync:** `b7da4d1` (2026-11-17). `/plan-sync` analyses commits after this one,
-skipping squash merges of PRs whose head branch starts with `plan/` (the plan's own work),
-and updates this line when it finishes.
+**Last plan sync:** `b7da4d1` (2026-11-17). Always a commit on `dev`. `/plan-sync` analyses
+what landed on `dev` after it (first-parent), plus `main` commits `dev` lacks, skipping
+merges of PRs whose head branch starts with `plan/` (the plan's own work). It sets this
+line to the `dev` tip it analysed.
 
 ## Using Superpowers
 

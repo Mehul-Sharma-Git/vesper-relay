@@ -13,12 +13,11 @@ hand `main` to the owner. Merging into `dev` follows README "Branches, PRs and m
 ## 1. Sync and pick the gate
 
 1. If a `plan/<gate-id>-gate` branch or open PR exists, resume it. Otherwise
-   `git switch dev && git pull --ff-only`, then check for a gate that stopped before
-   handing over `main`: a `-G` row that is `done` or `blocked (...)` whose gate PR merged
-   into `dev` after the newest `dev` → `main` PR was opened. Compare
-   `gh pr list --base dev --state merged --search "head:plan/<gate-id>-gate" --json mergedAt`
-   with `gh pr list --base main --head dev --state all --json createdAt`. If you find one,
-   go straight to section 4.
+   `git switch dev && git pull --ff-only`, then check that the last gate run was handed
+   over: take the last `## Gate ` heading in `docs/plan/appendix-b-test-run-evidence.md`.
+   If no `dev` → `main` PR in any state has that exact line in its body
+   (`gh pr list --base main --head dev --state all --limit 100 --json number,body`), that
+   run stopped before handing over `main`: go straight to section 4.
 2. `sh scripts/dev-setup.sh --check` (run `sh scripts/dev-setup.sh` if it fails), then
    `sh docs/plan/verify-facts.sh`.
 3. The gate is the first `-G` row that isn't `done`. Check every task it depends on is
@@ -42,8 +41,9 @@ Done when every pass criterion has a measured result: pass or fail, with evidenc
 
 ## 3. Record
 
-1. In `docs/plan/appendix-b-test-run-evidence.md`, add a section for this gate: date, the
-   commit tested, each criterion with its result and evidence, elapsed time, and plan
+1. In `docs/plan/appendix-b-test-run-evidence.md`, add a section for this run headed
+   `## Gate <gate-id> — <YYYY-MM-DD HH:MM>` (the start time, so every run's heading is
+   unique; section 1 and 4 checks match this exact line). Include: the commit tested, each criterion with its result and evidence, elapsed time, and plan
    usage before and after.
 2. Set the gate's board status: `done` if every criterion passed, else
    `blocked (<failed criteria>)` with the follow-up you recommend.
@@ -52,12 +52,17 @@ Done when every pass criterion has a measured result: pass or fail, with evidenc
 
 ## 4. Hand over main
 
-Whatever the result:
-`gh pr create --base main --head dev --title "Phase <n> gate: PASSED|FAILED — <one line>"`,
-with the gate report from appendix B as the body and the result stated in its first
-line. If a `dev` → `main` PR is already open (`gh pr list --base main --head dev --state open`),
-update that one with `gh pr edit` instead: add this gate to its title and append this
-gate's report to its body. Don't merge it.
+Whatever the result, deliver this run's report section from appendix B, starting with
+its `## Gate ` heading line unchanged, in a `dev` → `main` PR:
+
+- If one is already open (`gh pr list --base main --head dev --state open`), update it
+  with `gh pr edit`: add `<gate-id> PASSED|FAILED` to its title and append the report to
+  its body.
+- Otherwise run
+  `gh pr create --base main --head dev --title "<gate-id> PASSED|FAILED — <one line>"`
+  with the report as the body.
+
+Don't merge it.
 
 End by telling the owner: the gate result, the `dev` → `main` PR link, and to review and
 merge it with "Create a merge commit" (see `docs/plan/GETTING-STARTED.md`). If the gate
