@@ -1,3 +1,4 @@
+from test_planning import narrow
 import json
 import os
 from pathlib import Path
@@ -35,6 +36,7 @@ class TeamTests(unittest.TestCase):
 
         for name in ("product", "design", "architecture", "decisions"):
             (project / "plan" / f"{name}.md").write_text("Spinner stops on failure.\n")
+        narrow(project)
         contract = {
             "team": 1, "title": "Fix spinner", "delivery": "Git patch",
             "requirements": [{"id": "R1", "description": "Spinner stops on failure", "checks": ["G1"]}],
@@ -208,13 +210,30 @@ class RepairTests(unittest.TestCase):
                         "user.email=test@example.com", "commit", "-qm", "repair fixture"], check=True)
         return source
 
+    def test_setup_failure_is_not_reproduced_and_creates_no_repair_ref(self):
+        source = self.source()
+        probe = self.root / "repro.py"
+        probe.write_text("raise RuntimeError('provider credentials unavailable')\n")
+        result = self.cli("repair", "--idea", "Investigate a suspected defect", "--repro", probe, "--failure-id", "fixture-marker",
+                          "--path", "vesper.py", checkout=source)
+        project = result["project"]
+        def cmd(*args, **kwargs):
+            return self.cli("--project", project, *args, checkout=source, **kwargs)
+        self.assertIn("specific defect", cmd("repair-reproduce", "--trust-host", code=2))
+        cmd("approve", "--digest", cmd("review")["digest"], code=2)
+        self.assertEqual(subprocess.check_output(
+            ["git", "-C", str(source), "for-each-ref", "refs/heads/vesper/repair"]), b"")
+
     def test_repair_requires_reproduction_and_commits_reviewed_bytes_to_a_branch(self):
         source = self.source()
         probe = self.root / "repro.py"
-        probe.write_text("from pathlib import Path\nimport sys\n"
-                         "assert 'REPAIR_OK = True' in (Path(sys.argv[1]) / 'vesper.py').read_text()\n")
+        probe.write_text("import json, sys\nfrom pathlib import Path\n"
+                         "fixed = 'REPAIR_OK = True' in (Path(sys.argv[1]) / 'vesper.py').read_text()\n"
+                         "print('VESPER_REPRO ' + json.dumps(dict(failure_id='fixture-marker', "
+                         "outcome='fixed' if fixed else 'reproduced', evidence='Fixture marker check')))\n"
+                         "raise SystemExit(0 if fixed else 1)\n")
         result = self.cli("repair", "--idea", "Repair a reproducible coordinator defect",
-                          "--repro", probe, "--path", "vesper.py", checkout=source)
+                          "--repro", probe, "--failure-id", "fixture-marker", "--path", "vesper.py", checkout=source)
         project = Path(result["project"])
 
         def cmd(*args, **kwargs):
@@ -253,9 +272,12 @@ class RepairTests(unittest.TestCase):
     def test_repair_run_reproduces_reviews_commits_and_records_learning(self):
         source = self.source()
         probe = self.root / "repro.py"
-        probe.write_text("from pathlib import Path\nimport sys\n"
-                         "assert 'REPAIR_OK = True' in (Path(sys.argv[1]) / 'vesper.py').read_text()\n")
-        project = self.cli("repair", "--idea", "Repair a coordinator defect", "--repro", probe,
+        probe.write_text("import json, sys\nfrom pathlib import Path\n"
+                         "fixed = 'REPAIR_OK = True' in (Path(sys.argv[1]) / 'vesper.py').read_text()\n"
+                         "print('VESPER_REPRO ' + json.dumps(dict(failure_id='fixture-marker', "
+                         "outcome='fixed' if fixed else 'reproduced', evidence='Fixture marker check')))\n"
+                         "raise SystemExit(0 if fixed else 1)\n")
+        project = self.cli("repair", "--idea", "Repair a coordinator defect", "--repro", probe, "--failure-id", "fixture-marker",
                            "--path", "vesper.py", checkout=source)["project"]
 
         def cmd(*args, **kwargs):

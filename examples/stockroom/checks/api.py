@@ -1,26 +1,63 @@
+from collections import deque
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import selectors
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
+def wait_for_ready(process, timeout):
+    deadline = time.monotonic() + timeout
+    recent = deque(maxlen=6)
+    stage = "unreported"
+    partial = b""
+    with selectors.DefaultSelector() as ready:
+        ready.register(process.stdout, selectors.EVENT_READ)
+        while time.monotonic() < deadline:
+            if not ready.select(max(0, deadline - time.monotonic())):
+                break
+            chunk = os.read(process.stdout.fileno(), 4096)
+            if not chunk:
+                try:
+                    process.wait(timeout=0.1)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+            *lines, partial = (partial + chunk).split(b"\n")
+            for raw in lines:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if line.startswith("READY http://127.0.0.1:"):
+                    return line.split(" ", 1)[1]
+                if line.startswith("STARTUP "):
+                    stage = line.removeprefix("STARTUP ")[:180]
+                recent.append(line[-180:])
+            partial = partial[-180:]
+    if partial:
+        recent.append(partial.decode("utf-8", errors="replace"))
+    status = process.poll()
+    if status is None:
+        status = "unavailable (running)"
+    output = "\n".join(recent) or "(none)"
+    raise AssertionError(
+        f"Server did not announce readiness (deadline {timeout}s). "
+        f"Last startup stage: {stage}. Exit status: {status}.\nRecent output:\n{output}"
+    )
+
+
 @contextmanager
-def server(root, db):
+def server(root, db, *, timeout=6):
     command = [sys.executable, "-B", str(root / "server.py"), "--port", "0", "--db", str(db)]
+    env = dict(os.environ, STOCKROOM_STARTUP_DIAGNOSTICS="1")
     with subprocess.Popen(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, bufsize=1) as process:
+                          env=env) as process:
         try:
-            with selectors.DefaultSelector() as ready:
-                ready.register(process.stdout, selectors.EVENT_READ)
-                assert ready.select(6), "Server did not announce readiness"
-            line = process.stdout.readline().strip()
-            assert line.startswith("READY http://127.0.0.1:"), f"Startup failed: {line}"
-            yield line.split(" ", 1)[1]
+            yield wait_for_ready(process, timeout)
         finally:
             if process.poll() is None:
                 process.terminate()

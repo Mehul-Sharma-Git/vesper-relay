@@ -3,9 +3,12 @@ import argparse
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
+from socketserver import TCPServer
 import sqlite3
+import sys
 from urllib.parse import parse_qs, urlsplit
 
 
@@ -18,6 +21,14 @@ COLUMNS = "id, name, room, quantity, status, version"
 
 class InputError(ValueError):
     pass
+
+
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer resolves the hostname here. The preview listens on a
+        # numeric loopback address and can use that address directly.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 def verify(condition, message):
@@ -137,11 +148,17 @@ class Stockroom(BaseHTTPRequestHandler):
         return 200, current
 
 
+def startup_stage(stage):
+    if os.environ.get("STOCKROOM_STARTUP_DIAGNOSTICS") == "1":
+        print(f"STARTUP {stage}", file=sys.stderr, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, default=Path("stockroom.sqlite3"))
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    startup_stage("sqlite-initializing")
     with closing(sqlite3.connect(args.db)) as db, db:
         db.execute("""
           CREATE TABLE IF NOT EXISTS items (
@@ -150,7 +167,9 @@ def main():
             status TEXT NOT NULL DEFAULT 'needed', version INTEGER NOT NULL DEFAULT 1
           )
         """)
-    with ThreadingHTTPServer(("127.0.0.1", args.port), Stockroom) as server:
+    startup_stage("http-binding")
+    with LoopbackHTTPServer(("127.0.0.1", args.port), Stockroom) as server:
+        startup_stage("http-bound")
         server.db_path = args.db
         print(f"READY http://127.0.0.1:{server.server_port}", flush=True)
         server.serve_forever()

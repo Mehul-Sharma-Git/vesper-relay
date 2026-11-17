@@ -22,5 +22,10 @@ conditional on the remaining count inside the transaction, then confirm
 one success and a clean conflict or bounded contention result. Testing
 two independent in-memory connections would not exercise shared state.
 
+Define which outcomes reserve an idempotency key. If the contract replays
+conflicts, store the conflict receipt atomically even when the item update
+matches no rows. Check same-key replay with a changed payload and verify
+that a failed transaction leaves neither the mutation nor its receipt.
+
 Report engine and connection settings, migration or rollback order,
 failure behavior, and actual results. See [SQLite documentation](https://sqlite.org/docs.html).

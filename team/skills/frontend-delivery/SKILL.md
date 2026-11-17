@@ -18,6 +18,16 @@ out of presentation and derive UI values rather than duplicating them.
 | Popup traps or loses focus | Verify real keyboard movement, Escape behavior where appropriate, and focus return. |
 | Layout works on a single fixture | Test narrow and wide, long labels, zoom, touch, and no hover. |
 
+Guard state updates at the write boundary. An earlier response must not
+replace a newer revision of the same item. Use an invocation or mount
+identity so teardown invalidates earlier callbacks even after remount.
+An ambiguous mutation needs a reachable recovery action. Reuse the exact
+request identity for a supported replay. A replay receipt may describe an
+older revision. If the contract allows that, fetch the current row and
+apply the version guard before showing recovery as complete. If the API
+cannot replay safely, reconcile authoritative state before allowing a new
+mutation. Test an intervening edit after a lost response.
+
 Example: for a search field, keep the submitted filter and returned
 records paired. After search A starts and search B starts, resolve B,
 then A; the visible results and announced count must still describe B.

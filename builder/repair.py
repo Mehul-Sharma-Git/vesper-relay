@@ -7,11 +7,34 @@ import sys
 import tempfile
 from uuid import uuid4
 
-from .contracts import fingerprint, inventory, read_json, require, review_bundle, safe_path
+from .contracts import BuilderError, fingerprint, inventory, nonempty, read_json, require, review_bundle, safe_path
 from .git_bridge import change, file_entries, git, git_file_entries
 
 
 REPRO = "vesper_repro.py"
+RESULT_PREFIX = "VESPER_REPRO "
+
+
+def validate_failure_id(failure_id):
+    require(isinstance(failure_id, str) and re.fullmatch(r"[a-z][a-z0-9-]{0,63}", failure_id),
+            "Provide a specific defect ID (lowercase letters, digits and hyphens)")
+
+
+def read_repro_result(log, failure_id, outcome):
+    from .runner import read_tail
+
+    records = [line.removeprefix(RESULT_PREFIX) for line in read_tail(log, 8192).splitlines()
+               if line.startswith(RESULT_PREFIX)]
+    message = f"Expected one specific defect result ({failure_id}, {outcome}); see {log.name}"
+    require(len(records) == 1, message)
+    try:
+        data = json.loads(records[0])
+    except ValueError as exc:
+        raise BuilderError(message) from exc
+    require(isinstance(data, dict) and data.get("failure_id") == failure_id
+            and data.get("outcome") == outcome and nonempty(data.get("evidence")), message)
+    return data
+
 ALLOWED_SOURCE = re.compile(r"(?:vesper\.py|build_local\.py|builder/[a-z_]+\.py|"
                             r"team/roles/[a-z-]+\.md|team/skills/[a-z-]+/SKILL\.md|tests/test_[a-z_0-9]+\.py)")
 
@@ -38,18 +61,19 @@ def incident_report(runner):
                                             "interrupted": "interrupted"}.get(attempt["outcome"], "unclassified"))
         incidents.append({"id": attempt["id"], "job": attempt["job"], "kind": kind,
                           "origin": labels.get(kind, "needs investigation"),
-                          "failed_checks": [check["id"] for check in attempt.get("checks", []) if check["exit_code"]]})
+                          "failed_checks": [check["id"] for check in attempt.get("checks", []) if check["exit_code"] or check.get("evidence_error")]})
     return {"incidents": incidents}
 
 
-def draft(root, idea, paths, reproducer, source=None):
+def draft(root, idea, paths, reproducer, failure_id, source=None):
     paths = repair_paths(paths)
+    validate_failure_id(failure_id)
     require(reproducer.is_file() and reproducer.stat().st_size <= 128_000,
             "Supply a small, trusted Python reproducer")
     script = reproducer.read_text(encoding="utf-8")
     (root / "checks" / REPRO).write_text(script, encoding="utf-8")
     plan = root / "plan"
-    packet = {"paths": paths, "source_incident": source}
+    packet = {"paths": paths, "failure_id": failure_id, "source_incident": source}
     (plan / "repair.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
     notes = {
         "product": "Repair this Vesper-owned defect.\n\n" + idea,
@@ -72,11 +96,19 @@ def draft(root, idea, paths, reproducer, source=None):
                   "depends_on": [], "checks": ["VESPER_REPRO", "VESPER_REGRESSION"], "review": "security"}],
     }
     (plan / "contract.json").write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    (plan / "planning.json").write_text(json.dumps({
+        "version": 1, "impact": dict.fromkeys(
+            ("new_system", "data", "security", "integrations", "deployment", "cross_layer"), False),
+        "authors": ["repair-planner"], "existing_design": "architecture.md",
+        "rationale": "Proposed narrow restoration of the reproduced behavior within existing boundaries. "
+                     "Owner must reclassify any data, security, integration or deployment change before approval."
+    }, indent=2), encoding="utf-8")
 
 
 def validate_repair(contract, packet):
     require(isinstance(packet, dict), "Invalid repair metadata")
     paths = repair_paths(packet.get("paths"))
+    validate_failure_id(packet.get("failure_id"))
     checks = {item["id"]: item["script"] for item in contract["checks"]}
     require(checks.get("VESPER_REPRO") == REPRO and checks.get("VESPER_REGRESSION") == "vesper_regression.py",
             "Repair requires the independent reproducer and baseline regression gates")
@@ -106,6 +138,12 @@ def check_proof(proof, digest, bundle):
             and proof.get("baseline_exit_code") == 1 and proof.get("baseline_digest") == fingerprint(bundle["seed"])
             and proof.get("reproducer_digest") == bundle["checks"][REPRO][0],
             "Reproduce the defect on the frozen source baseline before approval")
+    failure_id = bundle["repair"].get("failure_id")
+    if failure_id:
+        evidence = proof.get("defect")
+        require(isinstance(evidence, dict) and evidence.get("failure_id") == failure_id
+                and evidence.get("outcome") == "reproduced" and nonempty(evidence.get("evidence")),
+                "Repair evidence is missing its specific defect result")
     return proof
 
 
@@ -116,6 +154,10 @@ def reproduction_record(runner, digest, bundle):
     require(log.parent == runner.control and log.is_file() and not log.is_symlink()
             and sha256(log.read_bytes()).hexdigest() == data.get("log_digest"),
             "Reproduction evidence changed")
+    failure_id = bundle["repair"].get("failure_id")
+    if failure_id:
+        require(read_repro_result(log, failure_id, "reproduced") == data["defect"],
+                "Recorded defect result differs from the baseline log")
     return data
 
 
@@ -138,7 +180,8 @@ def reproduce(runner, launcher=None, trust_host=False):
     require(intact, "Reproducer modified its input")
     require(code == 1, f"Expected a failing baseline check with exit 1, got {code}. "
                        f"See {log.name}.\n{read_tail(log, 800)}")
-    result = {"digest": digest, "baseline_exit_code": code, "baseline_digest": fingerprint(bundle["seed"]),
+    defect = read_repro_result(log, bundle["repair"]["failure_id"], "reproduced")
+    result = {"digest": digest, "defect": defect, "baseline_exit_code": code, "baseline_digest": fingerprint(bundle["seed"]),
               "reproducer_digest": bundle["checks"][REPRO][0], "log": str(log),
               "log_digest": sha256(log.read_bytes()).hexdigest()}
     atomic_json(receipt, result)

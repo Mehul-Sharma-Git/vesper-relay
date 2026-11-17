@@ -122,12 +122,15 @@ class Runner:
 
     def review(self):
         contract, bundle = review_bundle(self.root)
-        return {"digest": fingerprint(bundle), "contract": contract, "files": bundle}
+        return {"digest": fingerprint(bundle), "packet_digest": fingerprint({k: v for k, v in bundle.items() if k != "plan_critique"}), "contract": contract, "files": bundle}
 
     def approve(self, digest):
         require(not self.state_file.exists(), "A contract is already approved for this run")
         _, bundle = review_bundle(self.root)
         require(fingerprint(bundle) == digest, "Approval digest changed. Review the current draft again.")
+        if bundle.get("planning", {}).get("depth") in ("full", "focused"):
+            require(bundle.get("plan_critique", {}).get("report", {}).get("verdict") == "approve",
+                    "Independent plan critique must approve this exact packet before implementation")
         proof = None
         if "repair" in bundle:
             from .repair import reproduction_record
@@ -248,7 +251,8 @@ class Runner:
         prompt = worker_prompt(contract, job, self.approval(state) / "plan", state["bundle"]["plan"],
                                previous[-1].get("reason") if previous else None,
                                state["bundle"].get("intake"),
-                               state["bundle"].get("team", {}).get("jobs", {}).get(job["id"]))
+                               state["bundle"].get("team", {}).get("jobs", {}).get(job["id"]),
+                               state["bundle"].get("planning"))
         if "repair" in state["bundle"]:
             proof = state["repair_reproduction"]
             incident = state["bundle"]["repair"].get("source_incident")
@@ -337,7 +341,7 @@ class Runner:
                 return self.stage_review(state, job, candidate, directory, proposed)
             return self.accept_candidate(state, job["id"], candidate, proposed)
         except BuilderError as exc:
-            if any(item["exit_code"] for item in attempt["checks"]):
+            if any(item["exit_code"] or item.get("evidence_error") for item in attempt["checks"]):
                 kind = "check"
             elif str(exc).startswith("Changes outside job scope:"):
                 kind = "scope"
@@ -464,12 +468,21 @@ class Runner:
         log = logs / (check["id"] + ".log")
         code, intact = execute_check(check["script"], self.approval(state) / "checks",
                                      state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,
-                                     timeout=120 if check["id"] == "VESPER_REGRESSION" else 45)
+                                     timeout=300 if check["id"] == "VESPER_REGRESSION" else 45)
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
         state["active"]["checks"].append(result)
         self.save(state)
         require(intact, f"Check {check['id']} modified the candidate or check package")
         require(code == 0, f"Check {check['id']} exited {code}\n{read_tail(log)}")
+        failure_id = state["bundle"].get("repair", {}).get("failure_id")
+        if check["id"] == "VESPER_REPRO" and failure_id:
+            from .repair import read_repro_result
+            try:
+                read_repro_result(log, failure_id, "fixed")
+            except BuilderError as exc:
+                result["evidence_error"] = str(exc)
+                self.save(state)
+                raise
 
     def run(self, provider, command, launcher=None, *, reviewer=None, trust_host=False):
         state = self.state()

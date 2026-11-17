@@ -28,12 +28,14 @@ implementation details within the approved plan.
    compare distinct layouts using the same realistic content and record the
    chosen direction and acceptance evidence in `plan/design.json`. The backend
    drafts interface and data invariants, the frontend checks them as a consumer,
-   and QA writes independent checks. Consult Technical Lead for cross-layer
-   tradeoffs when needed. Reproduce bugs before approving the fix. Keep
+   and QA writes independent checks. Have Technical Lead own architecture for new systems and material changes,
+   with a focused note for routine cross-layer work. Record impact and handoffs
+   in `plan/planning.json`; justify any narrow skip. See `docs/PLANNER.md`. Reproduce bugs before approving the fix. Keep
    `"team": 1` and give each job one `frontend` or `backend` writer with its
    compatible skills, paths, dependencies, and check IDs. Use applicable
    approved local guidance from `plan/intake.json` within the user's authority.
-4. Run `vesper --project PATH review` and show the concrete plan and digest.
+4. Obtain independent `review-plan` critique for full and focused routes.
+   Resolve blockers, then run `vesper --project PATH review` and show the concrete plan and digest.
    Approve that exact digest only when the user authorizes it. No product
    changes before approval.
 5. Default to supervised jobs. Run `prepare`, read the returned brief, edit the

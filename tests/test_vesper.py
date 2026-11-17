@@ -1,3 +1,4 @@
+from test_planning import narrow
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,7 @@ class VesperTests(unittest.TestCase):
         command = lambda *args, **kwargs: self.cli("--project", project, *args, **kwargs)
         for name in ("product", "design", "architecture", "decisions"):
             (project / "plan" / f"{name}.md").write_text("Spinner stops on failure.\n")
+        narrow(project)
         contract = {"team": 1, "title": "Fix spinner", "delivery": "Git patch",
                     "requirements": [{"id": "R1", "description": "Spinner stops on failure", "checks": ["G1"]}],
                     "checks": [{"id": "G1", "script": "gate.py"}],
@@ -134,10 +136,11 @@ class VesperTests(unittest.TestCase):
         command = lambda *args, **kwargs: self.cli("--project", project, *args, **kwargs)
         for name in ("product", "design", "architecture", "decisions"):
             (project / "plan" / f"{name}.md").write_text("Maintenance request.\n")
-        contract = {"title": "Improve toolkit", "delivery": "Git patch",
+        narrow(project)
+        contract = {"team": 1, "title": "Improve toolkit", "delivery": "Git patch",
                     "requirements": [{"id": "R1", "description": "Verified change", "checks": ["G1"]}],
                     "checks": [{"id": "G1", "script": "vesper_regression.py"}],
-                    "jobs": [{"id": "J1", "role": "maintainer", "goal": "Fix the issue",
+                    "jobs": [{"id": "J1", "role": "backend", "goal": "Fix the issue",
                               "paths": ["README.md"], "depends_on": [], "checks": ["G1"]}]}
         target = project / "plan" / "contract.json"
         target.write_text(json.dumps(contract))

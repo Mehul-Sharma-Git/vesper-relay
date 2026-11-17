@@ -142,7 +142,7 @@ def validate(data, checks_inventory):
     return data
 
 
-def review_bundle(root):
+def review_bundle(root, *, include_critique=True):
     plans = inventory(root / "plan")
     checks = inventory(root / "checks")
     seed = inventory(root / "seed")
@@ -187,6 +187,13 @@ def review_bundle(root):
         packet = json.loads(reviewed_text(root / "plan", "repair.json", plans))
         validate_repair(contract, packet)
         bundle["repair"] = packet
+    if "intake" in bundle:
+        from .planning import validate_planning, attach_critique
+        version = bundle["intake"].get("planning_version", 1)
+        require(type(version) is int and version == 1, "Unsupported managed planning version")
+        bundle["planning"] = validate_planning(root, contract, bundle)
+        if include_critique and bundle["planning"]["depth"] != "skip":
+            attach_critique(root, bundle)
     return contract, bundle
 
 

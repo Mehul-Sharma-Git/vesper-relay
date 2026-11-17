@@ -23,7 +23,9 @@ Gather specialist sketches or feasibility evidence before asking the user to
 choose. Ask only the few decisions that can change direction or complexity
 at each round. State a recommendation with consequences and mark facts,
 user decisions, delegated defaults, and open items separately. Do not
-present untested proposals as requirements.
+present untested proposals as requirements. Ask explicitly about any
+time limit, authority, or later action that changes eligibility. Keep an
+unconfirmed recommendation open in the decision log.
 
 Replace “make filters work” with “with active and archived records present,
 selecting Archived shows only archived records; clearing the filter returns

@@ -16,7 +16,10 @@ rapid scanning; a chronological feed with a clear unread boundary favors
 reconstructing events. Sketch both at narrow and wide widths. Compare
 speed to find an exception, comprehension of unresolved work, keyboard
 path, and implementation cost. Avoid substituting gradient, shadows, or
-type changes for an actual composition decision.
+type changes for an actual composition decision. Preserve the supplied
+values and what they represent in each frame. If a failure scenario
+requires different data, label it separately from the comparison. Keep
+the handoff to the requested artifact and the states needed to use it.
 
 | Design move | Pass condition |
 | --- | --- |
@@ -27,7 +30,8 @@ type changes for an actual composition decision.
 
 Hand off a state matrix with trigger, UI, available action, and next
 state; include loading, empty, partial, validation, error, retry, disabled,
-and success as applicable. Name semantic tokens, component variants,
+and success as applicable. For an error or conflict, name where focus
+lands when it appears and after each recovery action. Name semantic tokens, component variants,
 content rules, focus return, live announcements, touch behavior, zoom
 and reflow, and visual acceptance evidence. Record which choice needs the
 planner's decision. For accessibility criteria, see the

@@ -18,7 +18,7 @@ from builder.maintenance import MAINTENANCE_GATE
 from builder.runner import Runner, atomic_json, copy_tree
 from builder.process import run_process
 from builder.providers import check_launcher, provider_command, provider_environment
-from builder.repair import commit_repair, draft as draft_repair, incident_report, repair_paths, reproduce
+from builder.repair import commit_repair, draft as draft_repair, incident_report, repair_paths, reproduce, validate_failure_id
 from builder.team import catalog, profile, render
 
 
@@ -85,9 +85,8 @@ def start(args):
         (root / "plan" / "learning-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
         shutil.copytree(root / "seed" / "tests", root / "checks" / "baseline_tests")
         (root / "checks" / "vesper_regression.py").write_text(MAINTENANCE_GATE)
-    intake = {"mode": mode, "repository": meta, "guidance": suggestions}
-    if args.command in {"start", "repair"}:
-        intake["team_contract"] = 1
+    intake = {"mode": mode, "repository": meta, "guidance": suggestions, "planning_version": 1}
+    intake["team_contract"] = 1
     (root / "plan" / "intake.json").write_text(json.dumps(intake, indent=2) + "\n")
     atomic_json(root / ".vesper.json", {"intake": intake, "seed_digest": fingerprint(inventory(root / "seed"))})
     if args.command == "repair":
@@ -96,7 +95,7 @@ def start(args):
             reports = incident_report(Runner(args.from_project.resolve()))["incidents"]
             require(reports, "The source run has no recorded incidents")
             source = reports[-1]
-        draft_repair(root, idea, args.path, args.repro, source)
+        draft_repair(root, idea, args.path, args.repro, args.failure_id, source)
     return {"project": str(root), "status": "planning", "guide": str(ROOT / "docs" / "WORKFLOWS.md"),
             **intake}
 
@@ -193,8 +192,17 @@ def main():
     repair = commands.add_parser("repair")
     repair.add_argument("--idea", required=True)
     repair.add_argument("--repro", required=True, type=Path)
+    repair.add_argument("--failure-id", required=True)
     repair.add_argument("--path", required=True, action="append")
     repair.add_argument("--from-project", type=Path)
+    plan_review = commands.add_parser("review-plan")
+    choice = plan_review.add_mutually_exclusive_group(required=True)
+    choice.add_argument("--report", type=Path)
+    choice.add_argument("--provider", choices=("codex", "claude"))
+    plan_review.add_argument("--attest-independent", action="store_true")
+    execution = plan_review.add_mutually_exclusive_group()
+    execution.add_argument("--launcher")
+    execution.add_argument("--trust-host", action="store_true")
     commands.add_parser("incidents")
     boundary(commands.add_parser("repair-reproduce"))
     commands.add_parser("repair-commit").add_argument("--digest", required=True)
@@ -236,6 +244,7 @@ def main():
         elif args.command in {"start", "maintain", "repair"}:
             if args.command == "repair":
                 repair_paths(args.path)
+                validate_failure_id(args.failure_id)
                 require(args.repro.is_file() and args.repro.stat().st_size <= 128_000,
                         "Supply a small, trusted Python reproducer")
             result = start(args)
@@ -245,6 +254,17 @@ def main():
         elif args.command == "consult":
             require(args.project, "Pass --project PATH before the command")
             result = consult(args.project.resolve(), args)
+        elif args.command == "review-plan":
+            from builder.planning import review_plan
+            require(args.project, "Pass --project PATH before the command")
+            runner = Runner(args.project.resolve())
+            with runner.lock():
+                if args.report:
+                    require(not args.report.is_symlink() and args.report.stat().st_size <= 256_000,
+                            "Invalid plan review report")
+                result = review_plan(runner, report=read_json(args.report) if args.report else None,
+                                     external_attested=args.attest_independent, provider=args.provider,
+                                     launcher=check_launcher(args.launcher), trust_host=args.trust_host)
         elif args.command == "incidents":
             require(args.project, "Pass --project PATH before the command")
             result = incident_report(Runner(args.project.resolve()))

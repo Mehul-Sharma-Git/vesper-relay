@@ -63,6 +63,10 @@ def replay(destination):
         "jobs": [{"id": "J_API", "role": "backend", "goal": "Restore status filtering",
                   "paths": ["server.py"], "depends_on": [], "checks": ["G_API"], "skills": ["sqlite"]}],
     }))
+    (plan / "planning.json").write_text(json.dumps({"version": 1,
+        "impact": dict.fromkeys(("new_system", "data", "security", "integrations", "deployment", "cross_layer"), False),
+        "authors": ["fixture-planner"], "existing_design": "architecture.md",
+        "rationale": "Restore the existing parameterized filter; no new state or interface."}))
     run("approve", "--digest", run("review")["digest"])
     initial = run("prepare")
     rejected = run("submit", initial["id"], code=1)

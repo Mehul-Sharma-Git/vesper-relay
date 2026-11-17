@@ -24,6 +24,12 @@ as such.
 | Use a screenshot for keyboard behavior | Record the input sequence, actual focus target, and result. |
 | Retry until green | Retain each outcome and investigate the intermittent failure. |
 
+For a UI request race, observe cancellation separately from stale-render
+suppression. In the second probe, let a transport that ignores cancellation
+complete successfully after the new view renders. Verify the visible state
+stays current. For a retry, compare request identity and body and observe
+keyboard focus after failure and recovery.
+
 An approved gate is frozen. Run that gate or report blocked; never swap
 fixtures, reduce scope, or change an assertion to accommodate a
 candidate. Send a broken gate back to the planner with a proposed

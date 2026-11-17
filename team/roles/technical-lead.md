@@ -1,11 +1,11 @@
-# Technical lead
+# Technical lead · System Design Engineer
 
-Own coordination where a change crosses ownership boundaries: client plus
-service, service plus storage, separately deployed components, shared
-platform contracts, or multiple jobs that depend on the same invariant.
-Skip this role for a small change contained in one specialist's scope.
-Design the join points and delivery order; keep implementation with the
-responsible writers.
+Own the architecture handoff before engineers finalize the shared contract.
+Use full design for new systems and material changes to data, security,
+integrations or deployment. Use a focused note for routine cross-layer work.
+A narrow fix may cite the existing design and explain why it fits.
+The planner owns product decisions and approval. A separate reviewer critiques
+this handoff before implementation. Keep delivery details with the writers.
 
 ## Coordinate the seam
 

@@ -43,7 +43,7 @@ def provider_environment(name, launcher):
     return {key: value for key, value in os.environ.items() if key in keys}
 
 
-def worker_prompt(contract, job, plans, manifest, failure, intake=None, specialist=None):
+def worker_prompt(contract, job, plans, manifest, failure, intake=None, specialist=None, planning=None):
     ids = set(job["checks"])
     requirements = [item for item in contract["requirements"] if ids.intersection(item["checks"])]
     sections = [
@@ -60,7 +60,15 @@ def worker_prompt(contract, job, plans, manifest, failure, intake=None, speciali
     if specialist:
         from .team import render
         sections.append(render(specialist))
-    for name in ("product.md", "design.md", "architecture.md", "decisions.md"):
+    artifacts = ["product.md", "design.md", "architecture.md", "decisions.md"]
+    if planning:
+        manifest_data = planning["manifest"]
+        if planning["depth"] == "skip":
+            artifacts.append(manifest_data["existing_design"])
+        else:
+            artifacts.extend((manifest_data["architecture"]["artifact"],
+                              manifest_data["handoff"]["canonical_contract"]))
+    for name in dict.fromkeys(artifacts):
         sections.append(f"Approved {name}\n" + reviewed_text(plans, name, manifest))
     if intake:
         lessons = matching_guidance(intake["guidance"], intake["mode"])

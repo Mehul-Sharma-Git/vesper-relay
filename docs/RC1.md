@@ -69,12 +69,16 @@ to inspect local history. A failed app check can lead to a product fix. A provid
 or launcher failure can lead to an environment fix. A confirmed Vesper-owned
 bug can go through source repair. The assistant can author the reproducer as
 part of diagnosis. Review it and the allowed files before authorizing the run.
-The reproducer receives the source snapshot path, exits `1` for the defect, and
-exits `0` once fixed. Use a distinct exit code for setup errors.
+The reproducer receives the source snapshot path. Emit one line beginning
+`VESPER_REPRO ` followed by JSON with `failure_id`, `outcome`, and a concrete
+`evidence` string. Use `outcome: "reproduced"` and exit `1` only after observing
+the specific defect. Use `outcome: "fixed"` and exit `0` after confirming the
+expected behavior. Use a distinct nonzero exit for setup, product or provider
+failures. The gate matches the declared ID and expected outcome.
 
 ```sh
 vesper repair --idea 'Describe the confirmed Vesper defect' \
-  --repro /path/to/repro.py --path builder/runner.py
+  --failure-id resume-defect --repro /path/to/repro.py --path builder/runner.py
 vesper --project REPAIR_RUN review
 vesper --project REPAIR_RUN repair-run --digest APPROVED_PLAN_DIGEST \
   --provider codex --reviewer-provider claude --launcher /path/to/launcher --commit

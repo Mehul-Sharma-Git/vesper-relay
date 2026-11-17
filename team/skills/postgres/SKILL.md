@@ -23,5 +23,10 @@ writers, backfill existing rows in bounded batches, then validate and
 enforce the constraint. Confirm old readers still work during rollout
 and document whether a forward repair is safer than reversal.
 
+For an idempotency claim that can wait on a competing transaction, test
+both commit and rollback of the first claimant. Verify that the waiting
+transaction observes or acquires the claim as appropriate. Include the
+actual session setup and observations in the test instructions.
+
 Report migration order, roles, lock assumptions, validation results, and
 recovery procedure. See [PostgreSQL documentation](https://www.postgresql.org/docs/).
