@@ -44,8 +44,8 @@ for adapter in ADAPTERS.values():
                ('worker_command', 'reviewer_command', 'consult_command', 'parse_result', 'environment'))"
 check "reviewers get a JSON Schema (review.schema.json; --json-schema for strict-output brains; P1-T2, P1-T8)" "P3-T4" \
     sh -c 'grep -q "json-schema" builder/brains/claude_code.py && grep -q "if adapter.capabilities.strict_output else None" builder/brains/__init__.py && grep -q "review.schema.json" builder/runner.py && grep -q "review.schema.json" builder/planning.py && grep -q "structured_output" builder/review_gate.py'
-check "checks may set a timeout (1-1800 s; default 45, 300 for VESPER_REGRESSION; P1-T3)" "P1-T7" \
-    sh -c 'grep -q "Invalid timeout for check" builder/contracts.py && grep -q "limit = check.get(\"timeout\", 300 if check\[\"id\"\] == \"VESPER_REGRESSION\" else 45)" builder/runner.py'
+check "checks may set a timeout (1-1800 s; default 45, 900 for VESPER_REGRESSION; P1-T3, P1-G)" "P1-T7" \
+    sh -c 'grep -q "Invalid timeout for check" builder/contracts.py && grep -q "limit = check.get(\"timeout\", REGRESSION_TIMEOUT if check\[\"id\"\] == \"VESPER_REGRESSION\" else 45)" builder/runner.py && grep -q "^REGRESSION_TIMEOUT = 900$" builder/runner.py'
 check "reviewer timeout and max turns are flags (--review-timeout/--review-max-turns; P1-T3)" "P1-T7" \
     sh -c 'grep -q "def review_limits" builder/providers.py && grep -q "\"--max-turns\", str(max_turns)" builder/brains/claude_code.py && grep -q "timeout=review_timeout" builder/runner.py && grep -q -- "--review-max-turns" build_local.py && grep -q "review_limit_options(plan_review)" vesper.py'
 check "gate env is a fixed base (home and tool caches in the gate temp dir) plus the contract's gate_env names (no secrets; P1-T4, P1-T5, P1-T6)" "P1-T9" \
