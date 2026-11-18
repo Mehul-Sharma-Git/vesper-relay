@@ -44,6 +44,8 @@ check "gate env is a fixed base (home and tool caches in the gate temp dir) plus
     sh -c 'grep -q "\"PYTHONDONTWRITEBYTECODE\": \"1\"" builder/runner.py && grep -q "for name in gate_env if name in os.environ" builder/runner.py && grep -q "\"GOCACHE\": str(cache" builder/runner.py && grep -q "def validate_gate_env" builder/contracts.py && grep -q "PROVIDER_CREDENTIALS = {" builder/providers.py'
 check "gates are Python scripts or bare-program commands run in a throwaway copy with an overlay (P1-T5)" "P1-T9" \
     sh -c 'grep -q "script.endswith(\".py\")" builder/contracts.py && grep -q "PROGRAM_NAME.fullmatch(command\[0\])" builder/contracts.py && grep -q "def execute_command_check" builder/runner.py && grep -q "\"check-command\"" builder/runner.py'
+check "config: personal config.toml + project vesper.toml, section levels in LEVELS, secret-like keys refused, vesper config show (P1-T7)" "P1-T8, P1-T9, P1-T11, P2-T3" \
+    sh -c 'grep -q "^LEVELS = {" builder/config.py && grep -q "def secret_like" builder/config.py && grep -q "def load_config" builder/config.py && grep -q "add_parser(\"config\")" vesper.py'
 check "safe_path rejects node_modules (build dirs pass only as ignored top-level entries; P1-T6)" "P4-T8" \
     grep -q '"node_modules"' builder/contracts.py
 check "inventory rejects linked or special paths" "P1-T9" \

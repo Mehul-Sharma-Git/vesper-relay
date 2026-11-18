@@ -173,7 +173,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P1-T4 | Gate environment pass-through | P0-T1 | S | done |
 | P1-T5 | Command gates (any language) | P1-T3 | M | done |
 | P1-T6 | Toolchain support: setup step and ignored build dirs | P1-T5 | L | done |
-| P1-T7 | Config files: personal + project, `config show` | P0-T1 | M | todo |
+| P1-T7 | Config files: personal + project, `config show` | P0-T1 | M | done |
 | P1-T8 | Brain adapter interface: Claude Code, Codex, Gemini CLI | P1-T2, P1-T7 | L | todo |
 | P1-T9 | Pluggable sandbox: Docker and Podman backends, selftest | P1-T5, P1-T8 | L | todo |
 | P1-T10 | Worker tool layer (shell only inside the sandbox) | P1-T9 | M | todo |
