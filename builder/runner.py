@@ -1,5 +1,5 @@
 """Single-writer state machine with frozen checks and verified snapshots."""
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import fcntl
 import json
@@ -66,11 +66,12 @@ def copy_file(source, destination):
     return destination
 
 
-def copy_tree(source, destination):
+def copy_tree(source, destination, ignore=()):
     # copytree's directory copystat preserves extended attributes. Build the
-    # tree from its recorded representation instead.
+    # tree from its recorded representation instead. Ignored top-level build
+    # directories are left behind.
     destination.mkdir()
-    entries = inventory(source)
+    entries = inventory(source, ignore)
     for name, (digest, _) in entries.items():
         if digest is None:
             (destination / name).mkdir()
@@ -82,15 +83,51 @@ def copy_tree(source, destination):
     destination.chmod(stat.S_IMODE(source.stat().st_mode))
 
 
-def gate_environment(temp, gate_env, path=os.defpath):
+def gate_environment(temp, gate_env, path=os.defpath, dependencies=None):
     """The same fixed environment for every gate: home and tool caches live in the gate's temp dir.
 
-    gate_env names approved host variables whose current values the gate also receives."""
+    gate_env names approved host variables whose current values the gate also receives.
+    dependencies is the run's shared dependency cache, given when the contract has build setup."""
     cache = Path(temp) / ".cache"
-    return {**{name: os.environ[name] for name in gate_env if name in os.environ},
-            "PATH": path, "HOME": str(temp), "TMPDIR": str(temp),
-            "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
-            "XDG_CACHE_HOME": str(cache), "GOCACHE": str(cache / "go-build"), "GOPATH": str(Path(temp) / "go")}
+    env = {**{name: os.environ[name] for name in gate_env if name in os.environ},
+           "PATH": path, "HOME": str(temp), "TMPDIR": str(temp),
+           "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
+           "XDG_CACHE_HOME": str(cache), "GOCACHE": str(cache / "go-build"), "GOPATH": str(Path(temp) / "go")}
+    if dependencies is not None:
+        store = str(dependencies / "pnpm-store")
+        env.update(GOMODCACHE=str(dependencies / "go-mod"), PNPM_STORE_DIR=store, npm_config_store_dir=store)
+    return env
+
+
+def launch_command(operation, command, work, temp, log, launcher, timeout, gate_env, dependencies=None,
+                   extra_env=None):
+    """Run a bare-program argv in work: through the launcher as `<operation> <work> -- argv`,
+    or on the host with the program resolved on the runner's own PATH."""
+    if launcher:
+        argv, path = [launcher, operation, str(work), "--", *command], os.defpath
+    else:
+        program = shutil.which(command[0], path=os.environ.get("PATH", os.defpath))
+        if not program:
+            label = "Build setup" if operation == "setup" else "Command gate"
+            log.write_text(f"{label} program not found on PATH: {command[0]}\n", encoding="utf-8")
+            return 127
+        argv = [program, *command[1:]]
+        path = os.pathsep.join((os.path.dirname(program), os.defpath))
+    env = gate_environment(temp, gate_env, path, dependencies)
+    env.update(extra_env or {})
+    return run_process(argv, cwd=work, input_text="", env=env, log=log, timeout=timeout)
+
+
+def copy_build_dirs(source, target, ignore):
+    """Copy what build setup left in ignored top-level entries, links kept as links."""
+    for name in ignore:
+        path = source / name
+        if path.is_symlink():
+            os.symlink(os.readlink(path), target / name)
+        elif path.is_dir():
+            shutil.copytree(path, target / name, symlinks=True)
+        elif path.is_file():
+            copy_file(path, target / name)
 
 
 def execute_check(script_name, package_source, checks_manifest, candidate, candidate_manifest, log, launcher,
@@ -136,11 +173,12 @@ def merge_overlay(source, target):
 
 
 def execute_command_check(command, overlay, package_source, checks_manifest, candidate, candidate_manifest, log,
-                          launcher, timeout=45, gate_env=()):
+                          launcher, timeout=45, gate_env=(), prepared=None, ignore=(), dependencies=None):
     """Run an approved argv in a throwaway copy of the candidate, with QA's overlay copied in first.
 
     Tools may write caches and reports in that copy. The gate never gets checks/ or the verified
-    candidate; intact reports whether both are unchanged afterwards."""
+    candidate; intact reports whether both are unchanged afterwards. prepared is the copy build
+    setup ran in: its ignored directories (node_modules and the like) are copied in too."""
     mode = stat.S_IMODE(candidate.stat().st_mode)
 
     def unchanged():
@@ -152,6 +190,8 @@ def execute_command_check(command, overlay, package_source, checks_manifest, can
         work = home / "work"
         copy_tree(candidate, work)
         require(inventory(work) == candidate_manifest, "Gate inputs changed during preparation")
+        if prepared is not None:
+            copy_build_dirs(prepared, work, ignore)
         if overlay:
             staging, prefix = home / "overlay", overlay["from"] + "/"
             copy_tree(package_source / overlay["from"], staging)
@@ -163,17 +203,7 @@ def execute_command_check(command, overlay, package_source, checks_manifest, can
             if problem:
                 log.write_text(problem + "\n", encoding="utf-8")
                 return 1, unchanged()
-        if launcher:
-            argv, path = [launcher, "check-command", str(work), "--", *command], os.defpath
-        else:
-            program = shutil.which(command[0], path=os.environ.get("PATH", os.defpath))
-            if not program:
-                log.write_text(f"Command gate program not found on PATH: {command[0]}\n", encoding="utf-8")
-                return 127, unchanged()
-            argv = [program, *command[1:]]
-            path = os.pathsep.join((os.path.dirname(program), os.defpath))
-        code = run_process(argv, cwd=work, input_text="", env=gate_environment(temp, gate_env, path),
-                           log=log, timeout=timeout)
+        code = launch_command("check-command", command, work, temp, log, launcher, timeout, gate_env, dependencies)
         return code, unchanged()
 
 
@@ -381,10 +411,13 @@ class Runner:
             require(launcher, "Vesper repair gates require a confined launcher")
         attempt = state["active"]
         attempt["checks"] = []
+        attempt.pop("setup", None)
         self.save(state)
+        ignore = contract.get("build", {}).get("ignore", ())
         try:
             base = self.check_snapshot(state)
-            proposed = inventory(workspace)
+            # Worker workspaces may hold build output in ignored directories; it is never promoted.
+            proposed = inventory(workspace, ignore)
             if "repair" in state["bundle"]:
                 from .repair import validate_git_candidate
                 validate_git_candidate(base, proposed)
@@ -402,22 +435,17 @@ class Runner:
             directory = self.attempt_dir(attempt) / ("verify-" + uuid4().hex)
             directory.mkdir()
             candidate = directory / "candidate"
-            copy_tree(workspace, candidate)
+            copy_tree(workspace, candidate, ignore)
             require(inventory(candidate) == proposed, "Attempt changed while copying")
-            final = len(state["completed"]) + 1 == len(contract["jobs"])
-            for check in contract["checks"]:
-                if final or check["id"] in job["checks"]:
-                    self.run_check(state, check, candidate, directory, launcher,
-                                   gate_env=contract.get("gate_env", ()))
-                    require(inventory(candidate) == proposed and stat.S_IMODE(candidate.stat().st_mode) == mode,
-                            f"Check {check['id']} modified the candidate")
+            self.run_gates(state, contract, job, candidate, proposed, directory, launcher)
             self.frozen_contract(state)
             attempt["changed"] = changed
             if "team" in state["bundle"]:
                 return self.stage_review(state, job, candidate, directory, proposed)
             return self.accept_candidate(state, job["id"], candidate, proposed)
         except BuilderError as exc:
-            if any(item["exit_code"] or item.get("evidence_error") for item in attempt["checks"]):
+            if any(item["exit_code"] or item.get("evidence_error")
+                   for item in attempt["checks"] + attempt.get("setup", [])):
                 kind = "check"
             elif str(exc).startswith("Changes outside job scope:"):
                 kind = "scope"
@@ -543,7 +571,59 @@ class Runner:
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
         return self.accept_candidate(state, attempt["job"], candidate, manifest)
 
-    def run_check(self, state, check, candidate, directory, launcher, gate_env=()):
+    def run_gates(self, state, contract, job, candidate, proposed, directory, launcher):
+        """The job's gates (every gate on the final job). Build setup runs once, before the
+        first command gate, in a prepared copy that is removed afterwards."""
+        build = contract.get("build", {})
+        gate_env = contract.get("gate_env", ())
+        dependencies = self.control / "cache" if build.get("setup") else None
+        mode = stat.S_IMODE(candidate.stat().st_mode)
+        final = len(state["completed"]) + 1 == len(contract["jobs"])
+        with ExitStack() as cleanup:
+            prepared = None
+            for check in contract["checks"]:
+                if not (final or check["id"] in job["checks"]):
+                    continue
+                if "command" in check and dependencies and prepared is None:
+                    temp = cleanup.enter_context(tempfile.TemporaryDirectory(dir=directory, prefix="setup-"))
+                    prepared = Path(temp) / "work"
+                    self.run_setup(state, build, candidate, proposed, prepared, directory, launcher,
+                                   gate_env, dependencies)
+                self.run_check(state, check, candidate, directory, launcher, gate_env=gate_env,
+                               prepared=prepared, ignore=build.get("ignore", ()), dependencies=dependencies)
+                require(inventory(candidate) == proposed and stat.S_IMODE(candidate.stat().st_mode) == mode,
+                        f"Check {check['id']} modified the candidate")
+
+    def run_setup(self, state, build, candidate, manifest, prepared, directory, launcher, gate_env, dependencies):
+        """Install toolchain dependencies (pnpm install, go mod download) into a copy of the
+        candidate. The only gate-side step a launcher may give network access. It must leave
+        tracked files, lockfiles included, exactly as the candidate has them."""
+        require("repair" not in state["bundle"], "Vesper repairs cannot run build setup")
+        logs = directory / "logs"
+        logs.mkdir(exist_ok=True)
+        for name in ("go-mod", "pnpm-store"):
+            (dependencies / name).mkdir(mode=0o700, parents=True, exist_ok=True)
+        copy_tree(candidate, prepared)
+        require(inventory(prepared) == manifest, "Gate inputs changed during preparation")
+        results = state["active"].setdefault("setup", [])
+        for index, command in enumerate(build["setup"], 1):
+            log = logs / f"setup-{index}.log"
+            with tempfile.TemporaryDirectory(dir=directory, prefix="setup-home-") as temp:
+                # -modcacherw keeps Go's module cache deletable along with the run.
+                goflags = " ".join(filter(None, (os.environ.get("GOFLAGS") if "GOFLAGS" in gate_env else None,
+                                                 "-modcacherw")))
+                code = launch_command("setup", command, prepared, temp, log, launcher, build.get("timeout", 600),
+                                      gate_env, dependencies, {"GOFLAGS": goflags})
+            results.append({"command": command, "exit_code": code, "log": str(log.relative_to(self.root))})
+            self.save(state)
+            require(code == 0, f"Build setup {command[0]} exited {code}\n{read_tail(log)}")
+        after = inventory(prepared, build.get("ignore", ()))
+        changed = sorted(path for path in manifest.keys() | after.keys() if manifest.get(path) != after.get(path))
+        require(not changed, "Build setup changed tracked files: " + ", ".join(changed))
+        require(inventory(candidate) == manifest, "Build setup modified the candidate")
+
+    def run_check(self, state, check, candidate, directory, launcher, gate_env=(), prepared=None, ignore=(),
+                  dependencies=None):
         logs = directory / "logs"
         logs.mkdir(exist_ok=True)
         log = logs / (check["id"] + ".log")
@@ -552,7 +632,8 @@ class Runner:
             code, intact = execute_command_check(check["command"], check.get("overlay"),
                                                  self.approval(state) / "checks", state["bundle"]["checks"],
                                                  candidate, inventory(candidate), log, launcher,
-                                                 timeout=limit, gate_env=gate_env)
+                                                 timeout=limit, gate_env=gate_env, prepared=prepared,
+                                                 ignore=ignore, dependencies=dependencies)
         else:
             code, intact = execute_check(check["script"], self.approval(state) / "checks",
                                          state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,

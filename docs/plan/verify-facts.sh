@@ -36,18 +36,20 @@ check "provider_command builds reviewer commands in builder/providers.py" "P1-T2
     grep -q "def provider_command" builder/providers.py
 check "reviewers get a JSON Schema (review.schema.json, Claude --json-schema; P1-T2)" "P1-T8" \
     sh -c 'grep -q "json-schema" builder/providers.py && grep -q "review.schema.json" builder/runner.py && grep -q "review.schema.json" builder/planning.py && grep -q "structured_output" builder/review_gate.py'
-check "checks may set a timeout (1-1800 s; default 45, 300 for VESPER_REGRESSION; P1-T3)" "P1-T6, P1-T7" \
+check "checks may set a timeout (1-1800 s; default 45, 300 for VESPER_REGRESSION; P1-T3)" "P1-T7" \
     sh -c 'grep -q "Invalid timeout for check" builder/contracts.py && grep -q "limit = check.get(\"timeout\", 300 if check\[\"id\"\] == \"VESPER_REGRESSION\" else 45)" builder/runner.py'
 check "reviewer timeout and max turns are flags (--review-timeout/--review-max-turns; P1-T3)" "P1-T7, P1-T8" \
     sh -c 'grep -q "def review_limits" builder/providers.py && grep -q "\"--max-turns\", str(max_turns)" builder/providers.py && grep -q "timeout=review_timeout" builder/runner.py && grep -q -- "--review-max-turns" build_local.py && grep -q "review_limit_options(plan_review)" vesper.py'
-check "gate env is a fixed base (home and tool caches in the gate temp dir) plus the contract's gate_env names (no secrets; P1-T4, P1-T5)" "P1-T6, P1-T9" \
+check "gate env is a fixed base (home and tool caches in the gate temp dir) plus the contract's gate_env names (no secrets; P1-T4, P1-T5, P1-T6)" "P1-T9" \
     sh -c 'grep -q "\"PYTHONDONTWRITEBYTECODE\": \"1\"" builder/runner.py && grep -q "for name in gate_env if name in os.environ" builder/runner.py && grep -q "\"GOCACHE\": str(cache" builder/runner.py && grep -q "def validate_gate_env" builder/contracts.py && grep -q "PROVIDER_CREDENTIALS = {" builder/providers.py'
-check "gates are Python scripts or bare-program commands run in a throwaway copy with an overlay (P1-T5)" "P1-T6, P1-T9" \
+check "gates are Python scripts or bare-program commands run in a throwaway copy with an overlay (P1-T5)" "P1-T9" \
     sh -c 'grep -q "script.endswith(\".py\")" builder/contracts.py && grep -q "PROGRAM_NAME.fullmatch(command\[0\])" builder/contracts.py && grep -q "def execute_command_check" builder/runner.py && grep -q "\"check-command\"" builder/runner.py'
-check "safe_path rejects node_modules" "P1-T6" \
+check "safe_path rejects node_modules (build dirs pass only as ignored top-level entries; P1-T6)" "P4-T8" \
     grep -q '"node_modules"' builder/contracts.py
-check "inventory rejects linked or special paths" "P1-T6" \
+check "inventory rejects linked or special paths" "P1-T9" \
     grep -q "Linked or special path is unsupported" builder/contracts.py
+check "contract build: ignored top-level dirs and a setup step before the first command gate (launcher op setup; P1-T6)" "P1-T9, P4-T8" \
+    sh -c 'grep -q "def validate_build" builder/contracts.py && grep -q "def inventory(root, ignore=())" builder/contracts.py && grep -q "def run_setup" builder/runner.py && grep -q "launch_command(\"setup\"" builder/runner.py && grep -q "Build setup changed tracked files" builder/runner.py'
 check "workers get Read/Edit/Write/Glob/Grep only" "P1-T10" \
     grep -q '"Read,Edit,Write,Glob,Grep"' builder/providers.py
 check "--provider choices are claude/codex" "P1-T8" \

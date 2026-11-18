@@ -83,7 +83,8 @@ The launcher is a user-configured executable. Its interface is:
 |---|---|---|
 | `launcher worker codex` or `launcher worker claude` | CWD is the disposable work copy. The job brief arrives on stdin. | Give the provider the candidate as its writable project. Limit other mounts and network access to those needed for the selected provider. |
 | `launcher check /path/to/gate.py /path/to/candidate` | CWD is a temporary gate directory. Gate inputs are in the script's parent directory. | Run Python with the gate package and candidate mounted read-only. Give it separate temporary space. Permit loopback inside the isolated environment for checks that start a server. |
-| `launcher check-command /path/to/work -- PROGRAM ARGS...` | CWD is `/path/to/work`, a throwaway copy of the candidate with the check's overlay already copied in. `PROGRAM` is a bare name, never a path. | Mount the work copy writable and nothing from `checks/` or the verified candidate. Resolve `PROGRAM` on the sandbox's own `PATH`, run it with the given arguments in the work copy, and give it separate temporary space. Permit loopback as for `check`. |
+| `launcher check-command /path/to/work -- PROGRAM ARGS...` | CWD is `/path/to/work`, a throwaway copy of the candidate with the check's overlay already copied in. `PROGRAM` is a bare name, never a path. | Mount the work copy writable and nothing from `checks/` or the verified candidate. Resolve `PROGRAM` on the sandbox's own `PATH`, run it with the given arguments in the work copy, and give it separate temporary space. Permit loopback as for `check`. When the contract has build setup, `GOMODCACHE` and `PNPM_STORE_DIR` name the run's dependency cache: mount it read-only. |
+| `launcher setup /path/to/work -- PROGRAM ARGS...` | CWD is `/path/to/work`, a throwaway copy of the candidate. Runs once per verification, before the first command gate, for each command in the contract's `build.setup`. `PNPM_STORE_DIR` and `GOMODCACHE` name the run's dependency cache. | The only gate-side step that may have network access. Mount the work copy and the two cache directories writable, nothing else. Resolve `PROGRAM` as for `check-command`. |
 | `launcher reviewer codex` or `launcher reviewer claude` | CWD contains the baseline, candidate, frozen plan, diff, and check evidence (for a plan critique: `plan/`, `checks/` and `seed/`), plus `review.schema.json`, the JSON Schema the verdict must match. The review prompt arrives on stdin. | Mount the review copy read-only. Pass `review.schema.json` to the provider's structured-output option where it has one (Claude Code: `--json-schema "$(cat review.schema.json)"`). Return the JSON verdict on stdout. Exclude the writer workspace and accepted snapshots. |
 | `launcher consult codex` or `launcher consult claude` | CWD is a copy of the baseline. The specialist brief and requested handoff arrive on stdin. | Mount the baseline read-only and return the handoff on stdout. |
 
@@ -145,7 +146,35 @@ leaves out names that are unset. With a launcher, the variables reach the
 launcher process, which decides what enters its sandbox. `review` rejects
 names that look like secrets (any containing `key`, `token`, `secret`,
 `password`, `credential` or `auth`, in any case), provider login variables such
-as `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, and the eight names
-the runner sets itself.
+as `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, and the names the
+runner sets itself (the eight above plus `GOMODCACHE`, `PNPM_STORE_DIR` and
+`npm_config_store_dir`).
+
+### Toolchains: build setup and ignored directories
+
+Projects that need `pnpm install` or Go modules declare a top-level `build`:
+
+```json
+"build": {"ignore": ["node_modules", "dist", ".pnpm-store", "test-results", ".turbo"],
+          "setup": [["pnpm", "install", "--frozen-lockfile"], ["go", "mod", "download"]],
+          "timeout": 600}
+```
+
+`ignore` names top-level directories that hold build output. Worker work
+copies may contain them, links included, but they are never checked for
+scope, promoted to a snapshot, exported or put in a Git patch. Everything else
+keeps the strict rules: links and special files are rejected, and lockfiles
+such as `pnpm-lock.yaml` and `go.sum` are ordinary tracked files. A job may
+not write inside an ignored directory, and the seed may not contain one.
+
+`setup` commands run once per verification, before the first command gate,
+in a throwaway copy of the candidate (launcher operation `setup`). They must
+leave tracked files unchanged, so commit the lockfile: `pnpm install
+--frozen-lockfile` writes one when none exists, which fails the check. Each
+command gate then gets the setup's ignored directories in its own copy.
+`GOMODCACHE` and `PNPM_STORE_DIR` point into `.builder/cache/` in the run, so
+repeat verifications reuse downloads. Script gates never trigger setup, and
+Vesper repairs cannot use it. `timeout` is per setup command (1 to 1800
+seconds, default 600).
 
 See [PILOT.md](docs/PILOT.md) for the results, limitations, and next gaps.
