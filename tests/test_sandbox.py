@@ -27,6 +27,9 @@ import test_rc1
 from test_rc1 import verdict
 
 
+ID = "f" * 64  # an engine's full image ID (Docker adds "sha256:", Podman does not)
+
+
 def value_after(argv, flag):
     return [argv[index + 1] for index, item in enumerate(argv) if item == flag]
 
@@ -72,34 +75,48 @@ class ArgumentTests(unittest.TestCase):
                     if engine.name == "podman":
                         self.assertIn("--userns=keep-id", argv)
 
-    def fake_engine(self, script):
+    def fake_engine(self, script, name="docker"):
         bin_dir = self.root / "engine-bin"
         bin_dir.mkdir(exist_ok=True)
-        fake = bin_dir / "docker"
+        fake = bin_dir / name
         fake.write_text("#!/bin/sh\n" + script)
         fake.chmod(0o700)
         return mock.patch.dict(os.environ, {"PATH": str(bin_dir)})
 
     def test_jobs_run_the_image_id_the_check_resolved(self):
-        with self.fake_engine('case "$*" in *"inspect"*) echo sha256:feed;; *) exit 1;; esac\n'):
+        with self.fake_engine(f'case "$*" in *"inspect"*) echo sha256:{ID};; *) exit 1;; esac\n'):
             engine = Docker().check()
         job = check_job(self.work, "gate.py")
         argv = self.build(engine, job)
         self.assertNotIn(image_tag(), argv)
-        self.assertEqual(argv[argv.index("sha256:feed") + 1:], list(job.argv))
+        self.assertEqual(argv[argv.index(f"sha256:{ID}") + 1:], list(job.argv))
+        for answer in ("", "sha256:feed", "--privileged"):
+            with self.subTest(answer=answer), self.fake_engine(f'echo "{answer}"\n'), \
+                    self.assertRaisesRegex(BuilderError, "gave no image ID"):
+                Docker().check()
+
+    def test_podman_ids_have_no_prefix_and_a_missing_image_is_not_known(self):
+        # Podman prints the bare 64-hex storage ID and says "image not known" for a missing one.
+        with self.fake_engine(f'case "$*" in *"inspect"*) echo {ID};; *) exit 1;; esac\n', "podman"):
+            engine = Podman().check()
+        self.assertEqual(engine.image_id, ID)
+        self.assertIn(ID, self.build(engine, check_job(self.work, "gate.py")))
+        missing = 'echo "Error: vesper-sandbox: image not known" >&2; exit 125\n'
+        with self.fake_engine(missing, "podman"), self.assertRaisesRegex(BuilderError, "vesper sandbox build"):
+            Podman().check()
 
     def test_a_listed_image_that_inspect_misses_is_used_by_id(self):
         # Docker Desktop 29.2 (containerd image store) at times answers "No such image" to
         # `image inspect <tag>` while `image ls` lists the tag; inspect by ID still works.
         script = ('case "$*" in\n'
-                  '  *"inspect"*"sha256:feed"*) echo sha256:feed;;\n'
+                  f'  *"inspect"*"sha256:{ID}"*) echo sha256:{ID};;\n'
                   '  *"inspect"*) echo "Error response from daemon: No such image: x" >&2; exit 1;;\n'
-                  '  *"image ls -q --no-trunc"*) echo sha256:feed;;\n'
+                  f'  *"image ls -q --no-trunc"*) echo sha256:{ID};;\n'
                   '  *) exit 1;;\nesac\n')
         with self.fake_engine(script):
             engine = Docker().check()
-        self.assertIn("sha256:feed", self.build(engine, check_job(self.work, "gate.py")))
-        missing = script.replace('  *"image ls -q --no-trunc"*) echo sha256:feed;;\n', "")
+        self.assertIn(f"sha256:{ID}", self.build(engine, check_job(self.work, "gate.py")))
+        missing = script.replace(f'  *"image ls -q --no-trunc"*) echo sha256:{ID};;\n', "")
         with self.fake_engine(missing), self.assertRaisesRegex(BuilderError, "vesper sandbox build"):
             Docker().check()
 

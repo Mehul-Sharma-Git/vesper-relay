@@ -26,7 +26,7 @@ from builder.team import PROFILES
 from builder.wizard import setup
 
 TAG = image_tag()
-IMAGE_ID = "sha256:56d7b7cbe179"  # what the fake engine resolves TAG to; jobs run this ID
+IMAGE_ID = "sha256:" + "56d7b7cbe179" * 5 + "abcd"  # what the fake engine resolves TAG to; jobs run this ID
 HOST = host_arch(platform.machine())
 OTHER = "amd64" if HOST == "arm64" else "arm64"
 

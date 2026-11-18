@@ -226,7 +226,8 @@ class Container(Sandbox):
         result = engine("image", "inspect", "--format", "{{.Id}}", self.tag())
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
-            require(any(word in detail.lower() for word in ("no such", "not found", "unknown")),
+            # Docker: "No such image"; Podman: "image not known".
+            require(any(word in detail.lower() for word in ("no such", "not found", "unknown", "not known")),
                     f"{self.name} could not be reached (is it running?): {detail[:400]}")
             # Docker Desktop 29.2 (containerd image store) at times answers "No such image" for a
             # tag that `image ls` lists, while the image ID still resolves: use the listed ID.
@@ -236,7 +237,8 @@ class Container(Sandbox):
                     f"Sandbox image {self.tag()} is not built for {self.name}: run "
                     f"`vesper sandbox build --backend {self.name}`")
         image_id = result.stdout.strip()
-        require(re.fullmatch(r"sha256:[0-9a-f]+", image_id), f"{self.name} gave no image ID for {self.tag()}")
+        # A full image ID: Docker prints "sha256:<64 hex>", Podman the bare 64 hex. Each accepts its own form.
+        require(re.fullmatch(r"(sha256:)?[0-9a-f]{64}", image_id), f"{self.name} gave no image ID for {self.tag()}")
         self.image_id = image_id
         return self
 

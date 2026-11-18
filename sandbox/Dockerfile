@@ -3,12 +3,12 @@
 # Build for this machine:   vesper sandbox build            (tag: vesper-sandbox:<digest of this file>)
 # Both architectures:       docker buildx build --platform linux/arm64,linux/amd64 -t vesper-sandbox sandbox/
 #
-# Debian slim with Python 3, Go, Node LTS + pnpm, Playwright for Node and Python (one
-# Chromium and its OS libraries, shared by both), the v1.0 agent CLIs (Claude Code, Codex,
-# Gemini CLI) and tinyproxy, which guards brain traffic. Every version is pinned below; Go
-# and Node downloads are checked against their published SHA-256 sums. Vesper runs the
-# container as your own uid with a read-only root filesystem, so nothing here needs to be
-# writable at run time.
+# Debian slim with Python 3, Go, Node LTS + pnpm, Playwright for Node and Python (each
+# with the Chromium build it expects, sharing one set of OS libraries), the v1.0 agent CLIs
+# (Claude Code, Codex, Gemini CLI) and tinyproxy, which guards brain traffic. Every version
+# is pinned below; Go and Node downloads are checked against their published SHA-256 sums.
+# Vesper runs the container as your own uid with a read-only root filesystem, so nothing
+# here needs to be writable at run time.
 ARG BASE_IMAGE=debian:trixie-slim
 FROM ${BASE_IMAGE}
 
