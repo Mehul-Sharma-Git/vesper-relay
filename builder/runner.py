@@ -82,11 +82,20 @@ def copy_tree(source, destination):
     destination.chmod(stat.S_IMODE(source.stat().st_mode))
 
 
-def execute_check(script_name, package_source, checks_manifest, candidate, candidate_manifest, log, launcher,
-                  timeout=45, gate_env=()):
-    """Give every gate the same isolated input layout, including baseline reproducers.
+def gate_environment(temp, gate_env, path=os.defpath):
+    """The same fixed environment for every gate: home and tool caches live in the gate's temp dir.
 
     gate_env names approved host variables whose current values the gate also receives."""
+    cache = Path(temp) / ".cache"
+    return {**{name: os.environ[name] for name in gate_env if name in os.environ},
+            "PATH": path, "HOME": str(temp), "TMPDIR": str(temp),
+            "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
+            "XDG_CACHE_HOME": str(cache), "GOCACHE": str(cache / "go-build"), "GOPATH": str(Path(temp) / "go")}
+
+
+def execute_check(script_name, package_source, checks_manifest, candidate, candidate_manifest, log, launcher,
+                  timeout=45, gate_env=()):
+    """Give every gate the same isolated input layout, including baseline reproducers."""
     with tempfile.TemporaryDirectory(dir=log.parent, prefix="gate-") as temp:
         home = Path(temp)
         package, isolated = home / "checks", home / "candidate"
@@ -98,13 +107,74 @@ def execute_check(script_name, package_source, checks_manifest, candidate, candi
         mode = stat.S_IMODE(isolated.stat().st_mode)
         command = ([launcher, "check", str(script), str(isolated)] if launcher
                    else [sys.executable, "-I", "-B", str(script), str(isolated)])
-        env = {**{name: os.environ[name] for name in gate_env if name in os.environ},
-               "PATH": os.defpath, "HOME": temp, "TMPDIR": temp,
-               "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}
-        code = run_process(command, cwd=home, input_text="", env=env, log=log, timeout=timeout)
+        code = run_process(command, cwd=home, input_text="", env=gate_environment(temp, gate_env),
+                           log=log, timeout=timeout)
         intact = (inventory(package) == checks_manifest and inventory(isolated) == candidate_manifest
                   and stat.S_IMODE(isolated.stat().st_mode) == mode)
         return code, intact
+
+
+def merge_overlay(source, target):
+    """Copy QA's overlay into the gate's work copy. Overlay files replace candidate files of the
+    same name there; a file/directory clash is a candidate defect. Returns an error or None."""
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        for name, (digest, _) in inventory(source).items():
+            destination = target / name
+            if digest is None:
+                if destination.exists() and not destination.is_dir():
+                    return f"Overlay directory {name} clashes with a candidate file"
+                destination.mkdir(exist_ok=True)
+            else:
+                if destination.exists() and not destination.is_file():
+                    return f"Overlay file {name} clashes with a candidate directory"
+                destination.unlink(missing_ok=True)
+                copy_file(source / name, destination)
+    except OSError as exc:
+        return f"Overlay could not be placed in the work copy: {exc}"
+    return None
+
+
+def execute_command_check(command, overlay, package_source, checks_manifest, candidate, candidate_manifest, log,
+                          launcher, timeout=45, gate_env=()):
+    """Run an approved argv in a throwaway copy of the candidate, with QA's overlay copied in first.
+
+    Tools may write caches and reports in that copy. The gate never gets checks/ or the verified
+    candidate; intact reports whether both are unchanged afterwards."""
+    mode = stat.S_IMODE(candidate.stat().st_mode)
+
+    def unchanged():
+        return (inventory(package_source) == checks_manifest and inventory(candidate) == candidate_manifest
+                and stat.S_IMODE(candidate.stat().st_mode) == mode)
+
+    with tempfile.TemporaryDirectory(dir=log.parent, prefix="gate-") as temp:
+        home = Path(temp)
+        work = home / "work"
+        copy_tree(candidate, work)
+        require(inventory(work) == candidate_manifest, "Gate inputs changed during preparation")
+        if overlay:
+            staging, prefix = home / "overlay", overlay["from"] + "/"
+            copy_tree(package_source / overlay["from"], staging)
+            require(inventory(staging) == {path.removeprefix(prefix): value for path, value
+                                           in checks_manifest.items() if path.startswith(prefix)},
+                    "Gate inputs changed during preparation")
+            problem = merge_overlay(staging, work if overlay["to"] == "." else work / overlay["to"])
+            shutil.rmtree(staging)
+            if problem:
+                log.write_text(problem + "\n", encoding="utf-8")
+                return 1, unchanged()
+        if launcher:
+            argv, path = [launcher, "check-command", str(work), "--", *command], os.defpath
+        else:
+            program = shutil.which(command[0], path=os.environ.get("PATH", os.defpath))
+            if not program:
+                log.write_text(f"Command gate program not found on PATH: {command[0]}\n", encoding="utf-8")
+                return 127, unchanged()
+            argv = [program, *command[1:]]
+            path = os.pathsep.join((os.path.dirname(program), os.defpath))
+        code = run_process(argv, cwd=work, input_text="", env=gate_environment(temp, gate_env, path),
+                           log=log, timeout=timeout)
+        return code, unchanged()
 
 
 class Runner:
@@ -477,11 +547,16 @@ class Runner:
         logs = directory / "logs"
         logs.mkdir(exist_ok=True)
         log = logs / (check["id"] + ".log")
-        code, intact = execute_check(check["script"], self.approval(state) / "checks",
-                                     state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,
-                                     timeout=check.get("timeout",
-                                                       300 if check["id"] == "VESPER_REGRESSION" else 45),
-                                     gate_env=gate_env)
+        limit = check.get("timeout", 300 if check["id"] == "VESPER_REGRESSION" else 45)
+        if "command" in check:
+            code, intact = execute_command_check(check["command"], check.get("overlay"),
+                                                 self.approval(state) / "checks", state["bundle"]["checks"],
+                                                 candidate, inventory(candidate), log, launcher,
+                                                 timeout=limit, gate_env=gate_env)
+        else:
+            code, intact = execute_check(check["script"], self.approval(state) / "checks",
+                                         state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,
+                                         timeout=limit, gate_env=gate_env)
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
         state["active"]["checks"].append(result)
         self.save(state)
