@@ -94,8 +94,10 @@ def gate_environment(temp, gate_env, path=os.defpath, dependencies=None):
            "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
            "XDG_CACHE_HOME": str(cache), "GOCACHE": str(cache / "go-build"), "GOPATH": str(Path(temp) / "go")}
     if dependencies is not None:
+        # pnpm 10+ reads only pnpm_config_store_dir; older releases read npm_config_store_dir.
         store = str(dependencies / "pnpm-store")
-        env.update(GOMODCACHE=str(dependencies / "go-mod"), PNPM_STORE_DIR=store, npm_config_store_dir=store)
+        env.update(GOMODCACHE=str(dependencies / "go-mod"), PNPM_STORE_DIR=store,
+                   pnpm_config_store_dir=store, npm_config_store_dir=store)
     return env
 
 

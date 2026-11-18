@@ -147,8 +147,8 @@ launcher process, which decides what enters its sandbox. `review` rejects
 names that look like secrets (any containing `key`, `token`, `secret`,
 `password`, `credential` or `auth`, in any case), provider login variables such
 as `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, and the names the
-runner sets itself (the eight above plus `GOMODCACHE`, `PNPM_STORE_DIR` and
-`npm_config_store_dir`).
+runner sets itself (the eight above plus `GOMODCACHE`, `PNPM_STORE_DIR`,
+`pnpm_config_store_dir` and `npm_config_store_dir`).
 
 ### Toolchains: build setup and ignored directories
 
@@ -172,7 +172,8 @@ in a throwaway copy of the candidate (launcher operation `setup`). They must
 leave tracked files unchanged, so commit the lockfile: `pnpm install
 --frozen-lockfile` writes one when none exists, which fails the check. Each
 command gate then gets the setup's ignored directories in its own copy.
-`GOMODCACHE` and `PNPM_STORE_DIR` point into `.builder/cache/` in the run, so
+`GOMODCACHE` and the pnpm store (`PNPM_STORE_DIR`, plus `pnpm_config_store_dir`,
+the name pnpm 10 and later reads) point into `.builder/cache/` in the run, so
 repeat verifications reuse downloads. Script gates never trigger setup, and
 Vesper repairs cannot use it. `timeout` is per setup command (1 to 1800
 seconds, default 600).

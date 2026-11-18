@@ -25,7 +25,7 @@ FAKE_SETUP = (
     "pkg.mkdir(parents=True)\n"
     "(pkg / 'index.js').write_text('module.exports = 1')\n"
     "os.symlink('.pnpm/left-pad@1/node_modules/left-pad', 'node_modules/left-pad')\n"
-    "names = ('PNPM_STORE_DIR', 'npm_config_store_dir', 'GOMODCACHE', 'GOFLAGS', 'HOME')\n"
+    "names = ('PNPM_STORE_DIR', 'pnpm_config_store_dir', 'npm_config_store_dir', 'GOMODCACHE', 'GOFLAGS', 'HOME')\n"
     "seen = {'cwd': os.getcwd(), **{n: os.environ.get(n) for n in names}}\n"
     "pathlib.Path('node_modules/setup.json').write_text(json.dumps(seen))\n"
     "store = pathlib.Path(os.environ['PNPM_STORE_DIR'])\n"
@@ -222,6 +222,7 @@ class ToolchainTests(unittest.TestCase):
         log = (self.project / done["checks"][1]["log"]).read_text()
         seen = json.loads(next(line for line in log.splitlines() if line.startswith("SETUP "))[6:])
         self.assertEqual(Path(seen["PNPM_STORE_DIR"]).resolve(), cache / "pnpm-store")
+        self.assertEqual(seen["pnpm_config_store_dir"], seen["PNPM_STORE_DIR"])
         self.assertEqual(seen["npm_config_store_dir"], seen["PNPM_STORE_DIR"])
         self.assertEqual(Path(seen["GOMODCACHE"]).resolve(), cache / "go-mod")
         self.assertEqual(seen["GOFLAGS"], "-modcacherw")
@@ -302,7 +303,8 @@ class ToolchainTests(unittest.TestCase):
         self.single_job([{"id": "G1", "command": ["node", "--test"],
                           "overlay": {"from": "nodetests", "to": "."}, "timeout": 300}],
                         ["package.json", "pnpm-lock.yaml", "app.mjs"],
-                        {"ignore": IGNORE, "setup": [["pnpm", "install", "--frozen-lockfile"]], "timeout": 600})
+                        {"ignore": IGNORE, "setup": [["pnpm", "install", "--frozen-lockfile"],
+                                                      ["pnpm", "store", "path"]], "timeout": 600})
         self.approve()
         attempt, workspace = self.candidate("J1")
         (workspace / "package.json").write_text('{"name": "pocket", "version": "1.0.0", "private": true}\n')
@@ -312,8 +314,11 @@ class ToolchainTests(unittest.TestCase):
         done = self.last_attempt()
         logs = {item["id"]: (self.project / item["log"]).read_text() for item in done["checks"]}
         self.assertEqual(done["outcome"], "accepted", (done.get("reason"), logs))
-        self.assertEqual([item["exit_code"] for item in done["setup"]], [0])
+        self.assertEqual([item["exit_code"] for item in done["setup"]], [0, 0])
         self.assertIn("pass 2", logs["G1"])
+        # pnpm really uses the run's shared store (it ignores PNPM_STORE_DIR and npm_config_store_dir).
+        store = Path((self.project / done["setup"][1]["log"]).read_text().strip().splitlines()[-1])
+        self.assertEqual(store.resolve().parent, (self.project / ".builder" / "cache" / "pnpm-store").resolve())
         self.assertEqual(sorted(path.name for path in self.snapshot().iterdir()),
                          ["app.mjs", "package.json", "pnpm-lock.yaml"])
 

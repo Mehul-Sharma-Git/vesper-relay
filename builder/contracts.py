@@ -120,7 +120,7 @@ def records(data, label):
 GATE_FIXED_ENV = ("PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE",
                   "XDG_CACHE_HOME", "GOCACHE", "GOPATH",
                   # Set when the contract has build setup: the run's shared dependency caches.
-                  "GOMODCACHE", "PNPM_STORE_DIR", "npm_config_store_dir")
+                  "GOMODCACHE", "PNPM_STORE_DIR", "pnpm_config_store_dir", "npm_config_store_dir")
 PROGRAM_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._+-]{0,127}")
 SECRET_NAME = re.compile(r"(?i)(key|token|secret|password|credential|auth)")
 
