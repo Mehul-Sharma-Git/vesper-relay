@@ -6,8 +6,11 @@ to the adapter's declared capabilities:
 
 - no ``strict_output``: no schema is passed; the tolerant report parser reads the reply;
 - no ``usage_report``: nothing but wall time is recorded for the call;
-- no ``run_shell`` (and, until the sandbox worker tools of P1-T10, every brain): workers
-  get file tools only, today's behaviour.
+- no ``run_shell``: no brain process gets the shell tool, even inside a sandbox.
+
+Tools (P1-T10) come from the role (``team.PROFILES``) as names: read, edit, write, search,
+shell. The core grants shell only inside a real sandbox backend and never gives a reviewer
+or consultant edit or write; each adapter translates the granted names into its own flags.
 """
 import os
 import shutil
@@ -15,6 +18,9 @@ from typing import NamedTuple
 
 from ..contracts import require
 
+# What a brain gets when the core passes no tools: today's file tools, never shell.
+WORKER_TOOLS = frozenset({"read", "edit", "write", "search"})
+READ_TOOLS = frozenset({"read", "search"})
 # Workers and reviewers on the host see only these, plus their own brain's credentials.
 BASE_ENV = frozenset({"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "LOGNAME"})
 
@@ -46,17 +52,20 @@ class Adapter:
 
     # Every command takes ``program``: the CLI to start. None means this machine's
     # executable; the sandbox passes the bare name found on the image's PATH.
-    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None):
+    # ``tools`` is the set of granted tool names (see the module docstring); "shell" in it
+    # means the brain may run any command, which the core allows only inside a sandbox.
+    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None, tools=WORKER_TOOLS):
         """Edit the approved paths in the workspace (the current directory); prompt on stdin."""
         raise NotImplementedError
 
     def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
-                         program=None):
+                         program=None, tools=READ_TOOLS):
         """Read-only review of the copy in the current directory. ``response`` is a file the
         brain may write its final reply to; ``schema`` is given only to strict-output brains."""
         raise NotImplementedError
 
-    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None):
+    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None,
+                        tools=READ_TOOLS):
         """Read-only consultation that returns a handoff as text."""
         raise NotImplementedError
 

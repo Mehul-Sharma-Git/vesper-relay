@@ -25,7 +25,14 @@ def review_limits(timeout=180, max_turns=20):
     return timeout, max_turns
 
 
-def worker_prompt(contract, job, plans, manifest, failure, intake=None, specialist=None, planning=None):
+SHELL_PROMPT = ("You can run commands inside your workspace. Run the project's own unit tests and start the "
+                "app before finishing. Report the exact commands and results.")
+
+
+def worker_prompt(contract, job, plans, manifest, failure, intake=None, specialist=None, planning=None,
+                  shell=False):
+    """The job brief. ``shell`` (granted only inside a real sandbox) adds the run-your-code
+    instruction; the independent gates stay out of the workspace and are named by id only."""
     ids = set(job["checks"])
     requirements = [item for item in contract["requirements"] if ids.intersection(item["checks"])]
     sections = [
@@ -34,6 +41,7 @@ def worker_prompt(contract, job, plans, manifest, failure, intake=None, speciali
         "Use workspace files as context. Keep secrets and external actions out of this job. "
         "The coordinator independently checks and publishes your changes. "
         "Finish with a short summary or explain the blocker.",
+        *([SHELL_PROMPT] if shell else []),
         "Approved contract (task subset)\n" + json.dumps({
             "title": contract["title"], "delivery": contract["delivery"], "requirements": requirements,
             "writable_paths": job["paths"], "gates": job["checks"],

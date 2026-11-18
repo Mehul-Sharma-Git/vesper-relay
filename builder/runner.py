@@ -14,7 +14,7 @@ from uuid import uuid4
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract)
 from .process import run_process
-from .brains import command as brain_command, launch, parse_result, usage
+from .brains import command as brain_command, launch, parse_result, tools as brain_tools, usage
 from .providers import review_limits, worker_prompt
 from .review_gate import needs_security, prompt as review_prompt, report_schema, validate_report, write_diff
 from .sandbox import Sandbox, check_job, command_job
@@ -348,7 +348,7 @@ class Runner:
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
 
-    def begin(self, state, contract, provider, adapter=None):
+    def begin(self, state, contract, provider, adapter=None, shell=False):
         require(not state["active"], "An attempt is active. Submit or abandon it first.")
         job = self.ready(state, contract)
         require(job, "No jobs remain")
@@ -367,7 +367,7 @@ class Runner:
                                previous[-1].get("reason") if previous else None,
                                state["bundle"].get("intake"),
                                state["bundle"].get("team", {}).get("jobs", {}).get(job["id"]),
-                               state["bundle"].get("planning"))
+                               state["bundle"].get("planning"), shell=shell)
         if "repair" in state["bundle"]:
             proof = state["repair_reproduction"]
             incident = state["bundle"]["repair"].get("source_incident")
@@ -700,11 +700,13 @@ class Runner:
             # Choose and check every brain the job needs before it starts.
             ready = self.ready(state, contract)
             brain = selection.worker(ready["role"])
-            brain_command(brain, "worker", launcher, trust_host)
+            brain_command(brain, "worker", launcher, trust_host, role=ready["role"])
             reviewer = reviewer_for(ready) if "team" in state["bundle"] else None
             if reviewer:
                 brain_command(reviewer, "reviewer", launcher, trust_host, max_turns=review_max_turns)
-            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name)
+            # Shell only inside a real sandbox backend (P1-T10); the prompt says so only then.
+            shell = "shell" in brain_tools(brain, "worker", ready["role"], isinstance(launcher, Sandbox))
+            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell)
             log = self.attempt_dir(attempt) / "worker.log"
             print(f"{job['id']} | {brain.name} | attempt {attempt['id'][:8]}", file=sys.stderr, flush=True)
 
@@ -713,7 +715,7 @@ class Runner:
                 self.save(state)
 
             code = launch(brain, "worker", launcher, trust_host, work=workspace, input_text=prompt, log=log,
-                          timeout=job.get("timeout", 180), on_start=record_child)
+                          timeout=job.get("timeout", 180), on_start=record_child, role=job["role"])
             attempt["worker_log"] = str(log.relative_to(self.root))
             if code != 0:
                 self.finish(state, "worker_failed", f"Worker brain {brain.name} exited {code}\n{read_tail(log)}",

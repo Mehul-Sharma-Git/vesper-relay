@@ -6,10 +6,20 @@ Flags: ``exec`` (non-interactive, prompt ``-`` on stdin), ``-c approval_policy="
 Codex has no turn-limit flag; the wall-time limit bounds it. Its ``--output-schema`` is not
 wired yet, so it is not declared strict and reviewers rely on the tolerant parser.
 
+Tools (P1-T10): Codex reads, searches and edits through its own command tool, confined by
+its own ``--sandbox`` policy, so it has no per-tool list. Without shell (no sandbox backend)
+the worker keeps ``workspace-write`` and reviewers and consultants ``read-only``, as before.
+With shell, inside a Vesper sandbox, the worker gets ``danger-full-access``: the Codex config
+reference describes it as disabling Codex's own sandboxing, "use only if your environment
+already isolates processes" (learn.chatgpt.com/docs/config-file/config-advanced, read
+2026-11-18); the container is that isolation (read-only root, /work the only writable mount,
+provider hosts only). Reviewers and consultants stay ``read-only`` whatever they are granted,
+so they never edit or write.
+
 Inside a sandbox it logs in through ``~/.codex/auth.json`` mounted read-only (or
 ``OPENAI_API_KEY``).
 """
-from .base import Adapter, Capabilities
+from .base import READ_TOOLS, WORKER_TOOLS, Adapter, Capabilities
 
 
 class Codex(Adapter):
@@ -30,12 +40,14 @@ class Codex(Adapter):
         return [program or self.executable(), "exec", "-c", 'approval_policy="never"', "--skip-git-repo-check",
                 "--sandbox", mode, "--ignore-user-config", *output, *choice, "-"]
 
-    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None):
-        return self.command("workspace-write", None, model, effort, program)
+    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None, tools=WORKER_TOOLS):
+        mode = "danger-full-access" if "shell" in tools else "workspace-write"
+        return self.command(mode, None, model, effort, program)
 
     def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
-                         program=None):
+                         program=None, tools=READ_TOOLS):
         return self.command("read-only", response, model, effort, program)
 
-    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None):
+    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None,
+                        tools=READ_TOOLS):
         return self.command("read-only", response, model, effort, program)
