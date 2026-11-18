@@ -164,7 +164,13 @@ class ConfigTests(unittest.TestCase):
                      "[paths]\npassword_file = '/tmp/p'\n",
                      "[defaults]\ncredentials = 'x'\n",
                      "[tools]\nlist = [{name = 'a', token = 'x'}]\n",
-                     "[tools.keys]\nfirst = 'x'\n"):
+                     "[tools.keys]\nfirst = 'x'\n",
+                     "[tools]\napi_key1 = 'x'\n",
+                     "[paths]\nawsAccessKeyId = 'x'\n",
+                     "[tools]\nAPIKEYID = 'x'\n",
+                     "[tools]\nopenaikey2 = 'x'\n",
+                     "[tools]\ngithubToken2 = 'x'\n",
+                     "[defaults]\nDB_PASSWD = 'x'\n"):
             with self.subTest(text=text):
                 message = self.refused("looks like a secret", personal=text)
                 self.assertIn("Keychain", message)
@@ -198,7 +204,8 @@ class ConfigTests(unittest.TestCase):
             parse_flag("limits.review_timeout=1\nlimits.review_max_turns=2")
 
     def test_ordinary_words_containing_key_letters_are_allowed(self):
-        values = self.load("[defaults]\nkeyboard_layout = 'us'\n[paths]\nkeystore_dir = '/k'\n")["values"]
+        values = self.load("[defaults]\nkeyboard_layout = 'us'\nkeystrokeDelay = 5\n"
+                           "[paths]\nkeystore_dir = '/k'\n")["values"]
         self.assertEqual(values["defaults.keyboard_layout"]["value"], "us")
         self.assertEqual(values["paths.keystore_dir"]["value"], "/k")
 

@@ -12,7 +12,6 @@ Planning depth is not a config key; it comes from ``plan/planning.json``.
 import json
 import os
 from pathlib import Path
-import re
 import tomllib
 
 from .contracts import BuilderError, require
@@ -38,7 +37,10 @@ DEFAULTS = {
 
 SANDBOX_BACKENDS = ("docker", "podman", "none")
 FLAG = "a command flag"
-SECRET_WORDS = ("token", "secret", "password", "credential")
+# A name is secret-like when it contains one of these anywhere, ignoring case; only the
+# benign words below are exempt (so keyboard_layout passes, awsAccessKeyId does not).
+SECRET_WORDS = ("key", "token", "secret", "password", "passwd", "credential")
+BENIGN_WORDS = ("keyboard", "keystroke", "keystore")
 SECRET_STORE = ("Config files hold no secrets: store it in the macOS Keychain or in "
                 "~/.config/vesper/secrets.env (readable only by you, mode 600)")
 
@@ -55,10 +57,10 @@ def personal_path(explicit=None, environ=os.environ):
 
 def secret_like(name):
     """True when a key name looks like it holds a secret (key, token, secret, ...)."""
-    for part in re.split(r"[^a-z0-9]+", str(name).lower()):
-        if any(word in part for word in SECRET_WORDS) or re.search(r"keys?$", part):
-            return True
-    return False
+    text = str(name).lower()
+    for word in BENIGN_WORDS:
+        text = text.replace(word, " ")
+    return any(word in text for word in SECRET_WORDS)
 
 
 def refuse_secret(name, where):
