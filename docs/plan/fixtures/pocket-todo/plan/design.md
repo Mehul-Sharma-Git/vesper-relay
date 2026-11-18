@@ -16,6 +16,9 @@
 - Delete current list: button "Delete list" opens confirm() naming the list and its todo count.
 - Inbox shows no Rename list / Delete list buttons.
 - Choosing a list in the panel closes the phone menu; the toggle shows the current list name.
+- "Add list" adds the list to the panel and keeps the phone menu open; the current list does not change.
+- Saving a rename updates the toggle to the new name; the phone menu may stay open or close.
+- Confirming "Delete list" removes the list and makes Inbox the current list; cancelling changes nothing.
 - Filter: three buttons with `aria-pressed`, labels All, Active, Done.
 - Add todo: labelled input `id="new-todo"` ("New todo") + Add button; Enter submits.
 - Each todo: a checkbox labelled by its title, and a Delete button ("Delete <title>").

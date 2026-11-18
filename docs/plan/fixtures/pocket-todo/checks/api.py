@@ -43,11 +43,23 @@ def call(base, path, method="GET", payload=None, raw=None):
         return response.status, (json.loads(body) if body else None)
 
 
+def status(base, path):
+    try:
+        with urlopen(Request(base + path), timeout=5) as response:
+            return response.status
+    except HTTPError as exc:
+        exc.close()
+        return exc.code
+
+
 def check(root):
     with tempfile.TemporaryDirectory() as directory:
         db = Path(directory) / "todos.sqlite3"
         with server(root, db) as base:
             assert call(base, "/health") == (200, {"ok": True})
+            # Only /, /app.js and /styles.css are static: never the server's own files or the database.
+            for path in ("/server.py", "/%2e%2e/server.py", "/todos.sqlite3", "/missing.txt"):
+                assert status(base, path) == 404, f"GET {path} must be 404"
             code, lists = call(base, "/api/lists")
             assert code == 200 and len(lists) == 1, lists
             inbox = lists[0]

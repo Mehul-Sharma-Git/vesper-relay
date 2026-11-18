@@ -24,7 +24,13 @@ def no_horizontal_scroll(page):
 
 def phone(browser, base):
     page = browser.new_page(viewport={"width": 375, "height": 740})
-    page.on("dialog", lambda dialog: dialog.accept())
+    dialogs, answer = [], {"accept": False}
+
+    def on_dialog(dialog):
+        dialogs.append(dialog.message)
+        dialog.accept() if answer["accept"] else dialog.dismiss()
+
+    page.on("dialog", on_dialog)
     page.goto(base + "/")
     toggle, panel = page.locator("#list-toggle"), page.locator("#list-panel")
     expect(toggle).to_be_visible()
@@ -78,10 +84,24 @@ def phone(browser, base):
     rename.press("Enter")
     expect(toggle).to_contain_text("Office")
 
+    # D4: deleting a list asks first, naming the list and its todo count; Cancel keeps it.
     if toggle.get_attribute("aria-expanded") != "true":
         toggle.click()
     page.get_by_role("button", name="Delete list").click()
+    for _ in range(40):
+        if dialogs:
+            break
+        page.wait_for_timeout(100)
+    assert len(dialogs) == 1, "Delete list did not ask for confirmation"
+    assert "Office" in dialogs[0] and re.search(r"\b1\b", dialogs[0]), \
+        f"Confirmation must name the list and its todo count: {dialogs[0]!r}"
+    expect(toggle).to_contain_text("Office")
+    if toggle.get_attribute("aria-expanded") != "true":
+        toggle.click()
+    answer["accept"] = True
+    page.get_by_role("button", name="Delete list").click()
     expect(toggle).to_contain_text("Inbox")
+    assert len(dialogs) == 2, dialogs
     if toggle.get_attribute("aria-expanded") != "true":
         toggle.click()
     expect(panel.get_by_role("button", name=re.compile("^Office"))).to_have_count(0)
