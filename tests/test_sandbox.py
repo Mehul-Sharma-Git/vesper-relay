@@ -1,0 +1,310 @@
+"""Pluggable sandbox: backends, jobs, logins and the runner's use of them (P1-T9).
+
+These tests need no container engine: they check the arguments each backend builds and
+drive the runner through a fake backend. SandboxSelftest runs the real selftest only when
+Docker and the built image are present.
+"""
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from builder.brains import ADAPTERS, Brain, job as brain_job
+from builder.contracts import BuilderError
+from builder.runner import Runner
+from builder.sandbox import (Docker, Job, Podman, Sandbox, backend, check_job, command_job, image_tag,
+                             secrets)
+
+import test_rc1
+from test_rc1 import verdict
+
+
+def value_after(argv, flag):
+    return [argv[index + 1] for index, item in enumerate(argv) if item == flag]
+
+
+class ArgumentTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.work = self.root / "work"
+        self.work.mkdir()
+
+    def build(self, engine, job, network="none"):
+        return engine.run_argv(job, "vesper-test", network)
+
+    def test_every_operation_is_hardened(self):
+        jobs = {
+            "worker": brain_job(Brain("codex", ADAPTERS["codex"]), "worker", self.work),
+            "reviewer": brain_job(Brain("codex", ADAPTERS["codex"]), "reviewer", self.work, out=self.root),
+            "consult": brain_job(Brain("gemini-cli", ADAPTERS["gemini-cli"]), "consult", self.work),
+            "setup": command_job("setup", ["pnpm", "install"], self.work, dependencies=self.root),
+            "check": check_job(self.work, "gate.py"),
+            "check-command": command_job("check-command", ["go", "test"], self.work, dependencies=self.root),
+        }
+        for engine in (Docker(), Podman()):
+            for operation, job in jobs.items():
+                with self.subTest(engine=engine.name, operation=operation):
+                    argv = self.build(engine, job)
+                    self.assertEqual(argv[:2], [engine.program, "run"])
+                    for flag in ("--rm", "-i", "--read-only", "--init"):
+                        self.assertIn(flag, argv)
+                    self.assertEqual(value_after(argv, "--cap-drop"), ["ALL"])
+                    self.assertIn("no-new-privileges", value_after(argv, "--security-opt"))
+                    user = value_after(argv, "--user")[0]
+                    self.assertNotEqual(user.split(":")[0], "0")
+                    self.assertTrue(value_after(argv, "--memory") and value_after(argv, "--pids-limit"))
+                    self.assertIn(image_tag(), argv)
+                    mounts = " ".join(value_after(argv, "--mount"))
+                    self.assertNotIn(f"source={Path.home()},", mounts)
+                    self.assertNotIn("docker.sock", " ".join(argv))
+                    self.assertNotIn("-v", argv)
+                    self.assertEqual(argv[argv.index(image_tag()) + 1:], list(job.argv))
+                    if engine.name == "podman":
+                        self.assertIn("--userns=keep-id", argv)
+
+    def test_mounts_and_networks_follow_the_operation_table(self):
+        docker = Docker()
+        worker = brain_job(Brain("claude-code", ADAPTERS["claude-code"]), "worker", self.work)
+        self.assertEqual(worker.network, "egress")
+        self.assertIn(f"type=bind,source={self.work},target=/work", value_after(self.build(docker, worker), "--mount"))
+        self.assertEqual(value_after(self.build(docker, worker, "vesper-egress-1"), "--network"), ["vesper-egress-1"])
+        reviewer = brain_job(Brain("codex", ADAPTERS["codex"]), "reviewer", self.work, out=self.root / "out")
+        mounts = value_after(self.build(docker, reviewer), "--mount")
+        self.assertIn(f"type=bind,source={self.work},target=/work,readonly", mounts)
+        self.assertIn(f"type=bind,source={self.root / 'out'},target=/out", mounts)
+        self.assertEqual(reviewer.argv[reviewer.argv.index("--output-last-message") + 1], "/out/response.json")
+        check = check_job(self.work, "gate.py")
+        self.assertEqual((check.network, check.work_readonly), ("none", True))
+        self.assertEqual(check.argv, ("python3", "-I", "-B", "/work/checks/gate.py", "/work/candidate"))
+        self.assertEqual(value_after(self.build(docker, check), "--network"), ["none"])
+        setup = command_job("setup", ["pnpm", "install"], self.work, dependencies=self.root / "cache")
+        self.assertEqual(setup.network, "open")
+        self.assertIn(f"type=bind,source={self.root / 'cache'},target=/cache", value_after(self.build(docker, setup), "--mount"))
+        gate = command_job("check-command", ["pnpm", "test"], self.work, dependencies=self.root / "cache")
+        self.assertEqual(gate.network, "none")
+        self.assertIn(f"type=bind,source={self.root / 'cache'},target=/cache,readonly",
+                      value_after(self.build(docker, gate), "--mount"))
+        self.assertEqual(dict(gate.env)["PNPM_STORE_DIR"], "/cache/pnpm-store")
+        self.assertEqual(value_after(self.build(docker, setup, "bridge"), "--network"), ["bridge"])
+
+    def test_paths_that_break_mount_syntax_are_refused(self):
+        odd = self.root / "a,b"
+        odd.mkdir()
+        with self.assertRaisesRegex(BuilderError, "comma"):
+            self.build(Docker(), check_job(odd, "gate.py"))
+
+    def test_logins_pass_by_name_never_by_value(self):
+        claude = brain_job(Brain("claude-code", ADAPTERS["claude-code"]), "worker", self.work)
+        self.assertEqual(claude.secrets, ("CLAUDE_CODE_OAUTH_TOKEN",))
+        argv = self.build(Docker(), claude)
+        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", value_after(argv, "-e"))
+        codex = brain_job(Brain("codex", ADAPTERS["codex"]), "worker", self.work)
+        self.assertEqual(codex.secrets, ())
+        login = Path("~/.codex/auth.json").expanduser()
+        self.assertIn(f"type=bind,source={login},target=/home/vesper/.codex/auth.json,readonly",
+                      value_after(self.build(Docker(), codex), "--mount"))
+        store = self.root / "secrets.env"
+        store.write_text("CLAUDE_CODE_OAUTH_TOKEN=sk-test-value\n")
+        store.chmod(0o600)
+        with mock.patch.object(secrets, "keychain", return_value=None):
+            env = Docker().cli_environment(claude, {"PATH": "/bin", "HOME": "/h", "OTHER": "x"}, store)
+        self.assertEqual(env["CLAUDE_CODE_OAUTH_TOKEN"], "sk-test-value")
+        self.assertNotIn("OTHER", env)
+        self.assertNotIn("sk-test-value", " ".join(argv))
+
+    def test_brain_model_and_effort_reach_the_sandbox(self):
+        job = brain_job(Brain("claude-code", ADAPTERS["claude-code"], "opus", "high"), "reviewer", self.work,
+                        out=self.root, schema={"type": "object"}, max_turns=9)
+        self.assertEqual(job.argv[0], "claude")
+        self.assertEqual(value_after(list(job.argv), "--model"), ["opus"])
+        self.assertEqual(value_after(list(job.argv), "--effort"), ["high"])
+        self.assertEqual(value_after(list(job.argv), "--max-turns"), ["9"])
+        self.assertIn("--json-schema", job.argv)
+        self.assertTrue(job.hosts)
+
+    def test_every_adapter_declares_its_provider_hosts(self):
+        for name, adapter in ADAPTERS.items():
+            with self.subTest(adapter=name):
+                self.assertTrue(adapter.sandbox_hosts)
+                self.assertTrue(all("." in host and "/" not in host for host in adapter.sandbox_hosts))
+
+    def test_proxy_allows_only_the_brain_hosts(self):
+        config, filters = Docker().proxy_files(("api.anthropic.com", "chatgpt.com"))
+        self.assertIn("FilterDefaultDeny Yes", config)
+        self.assertIn("ConnectPort 443", config)
+        self.assertEqual(filters.splitlines(), [r"^api\.anthropic\.com$", r"^chatgpt\.com$"])
+
+
+class SecretStoreTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.store = Path(temp.name) / "secrets.env"
+
+    def test_secrets_file_must_be_private(self):
+        self.store.write_text("# comment\nGEMINI_API_KEY = 'abc'\n")
+        self.store.chmod(0o644)
+        with mock.patch.object(secrets, "keychain", return_value=None):
+            with self.assertRaisesRegex(BuilderError, "mode 600"):
+                secrets.read("GEMINI_API_KEY", self.store)
+            self.store.chmod(0o600)
+            self.assertEqual(secrets.read("GEMINI_API_KEY", self.store), "abc")
+            self.assertIsNone(secrets.read("OPENAI_API_KEY", self.store))
+
+    def test_keychain_comes_first(self):
+        self.store.write_text("GEMINI_API_KEY=file\n")
+        self.store.chmod(0o600)
+        with mock.patch.object(secrets, "keychain", return_value="chain"):
+            self.assertEqual(secrets.read("GEMINI_API_KEY", self.store), "chain")
+
+    def test_missing_login_names_the_fix(self):
+        with mock.patch.object(secrets, "keychain", return_value=None):
+            with self.assertRaisesRegex(BuilderError, "claude setup-token"):
+                Docker().cli_environment(brain_job(Brain("claude-code", ADAPTERS["claude-code"]), "worker",
+                                                   Path("/tmp")), {"PATH": "/bin"}, self.store)
+
+
+class FakeSandbox(Sandbox):
+    """Runs jobs on the host with /work mapped to the job's work directory."""
+    name = "fake"
+
+    def __init__(self):
+        self.jobs = []
+
+    def check(self):
+        return self
+
+    def run(self, job, *, input_text, log, timeout, on_start=None):
+        self.jobs.append(job)
+        if job.operation == "worker":
+            (job.work / "app.js").write_text("export const loading = false;\n")
+            return 0
+        if job.operation == "reviewer":
+            packet = json.loads((job.work / "review.json").read_text())
+            out = next(source for source, target, _ in job.mounts if target == "/out")
+            report = {key: packet[key] for key in ("attempt_id", "base_digest", "candidate_digest")}
+            report.update(verdict="approve", summary="Checked the candidate in the sandbox.", findings=[],
+                          evidence={key: "Read the diff." for key in
+                                    ("requirements", "correctness", "scope", "tests", "maintainability", "security")})
+            (out / "response.json").write_text(json.dumps(report))
+            return 0
+        argv = [str(job.work) + item[5:] if item.startswith("/work") else item for item in job.argv]
+        argv[0] = sys.executable if argv[0] == "python3" else argv[0]
+        with log.open("wb") as output:
+            return subprocess.run(argv, cwd=job.work, stdout=output, stderr=subprocess.STDOUT).returncode
+
+
+class RunnerSandboxTests(unittest.TestCase):
+    setUp = test_rc1.TeamTests.setUp
+    cli = test_rc1.TeamTests.cli
+    git = test_rc1.TeamTests.git
+    plan = test_rc1.TeamTests.plan
+    approve = test_rc1.TeamTests.approve
+
+    def test_worker_gates_and_reviewer_all_run_through_the_backend(self):
+        from builder.brains import Selection
+        project, command = self.plan()
+        self.approve(command)
+        fake = FakeSandbox()
+        with mock.patch.dict(os.environ, {"VESPER_STATE_DIR": self.env["VESPER_STATE_DIR"]}), \
+                mock.patch.object(secrets, "keychain", return_value="token"):
+            result = Runner(project).run(Selection(worker="claude-code", reviewer="codex", settings={}), fake)
+        self.assertEqual(result["status"], "complete", result)
+        self.assertEqual([job.operation for job in fake.jobs], ["worker", "check", "reviewer"])
+        worker, check, reviewer = fake.jobs
+        self.assertFalse(worker.work_readonly)
+        self.assertTrue(check.work_readonly and reviewer.work_readonly)
+        self.assertEqual(reviewer.argv[0], "codex")
+        self.assertEqual(result["attempts"][-1]["review"]["adapter"], "codex")
+
+
+class CommandLineTests(unittest.TestCase):
+    setUp = test_rc1.TeamTests.setUp
+    cli = test_rc1.TeamTests.cli
+    git = test_rc1.TeamTests.git
+    plan = test_rc1.TeamTests.plan
+    approve = test_rc1.TeamTests.approve
+
+    def test_none_backend_warns_on_every_run(self):
+        _, command = self.plan()
+        self.approve(command)
+        self.env["PATH"] = os.defpath
+        for flags in (("--sandbox", "none"), ("--trust-host",)):
+            with self.subTest(flags=flags):
+                error = command("run", "--brain", "codex", *flags, code=2)
+                self.assertIn("WARNING: no sandbox", error)
+
+    def test_default_backend_comes_from_the_config_and_needs_its_engine(self):
+        _, command = self.plan()
+        self.approve(command)
+        self.env["PATH"] = os.defpath
+        self.assertIn("docker not found", command("run", "--brain", "codex", code=2))
+        config = Path(self.env["HOME"]) / ".config" / "vesper" / "config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text('[sandbox]\nbackend = "podman"\n')
+        self.assertIn("podman not found", command("run", "--brain", "codex", code=2))
+        self.assertIn("docker not found", command("run", "--brain", "codex", "--sandbox", "docker", code=2))
+        self.assertEqual(command("status")["attempts"], [])
+
+    def test_missing_image_names_the_build_command(self):
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "docker"
+        fake.write_text("#!/bin/sh\nexit 1\n")
+        fake.chmod(0o700)
+        self.env["PATH"] = str(bin_dir) + os.pathsep + os.defpath
+        _, command = self.plan()
+        self.approve(command)
+        self.assertIn("vesper sandbox build", command("run", "--brain", "codex", code=2))
+
+
+def engine_ready():
+    docker = shutil.which("docker")
+    return bool(docker) and subprocess.run([docker, "image", "inspect", image_tag()],
+                                           capture_output=True).returncode == 0
+
+
+@unittest.skipUnless(engine_ready(), "Docker and the sandbox image are needed (vesper sandbox build)")
+class SandboxSelftest(unittest.TestCase):
+    setUp = test_rc1.TeamTests.setUp
+    cli = test_rc1.TeamTests.cli
+    git = test_rc1.TeamTests.git
+    plan = test_rc1.TeamTests.plan
+    approve = test_rc1.TeamTests.approve
+
+    def test_supervised_gates_run_in_docker(self):
+        project, command = self.plan()
+        path = project / "plan" / "contract.json"
+        contract = json.loads(path.read_text())
+        contract["checks"].append({"id": "G2", "command": [
+            "python3", "-c", "import os, pathlib, sys; sys.exit(0 if os.getuid() and 'false' in "
+            "pathlib.Path('app.js').read_text() and not pathlib.Path(os.path.expanduser('~')).joinpath("
+            "'.ssh').exists() else 1)"]})
+        contract["requirements"][0]["checks"].append("G2")
+        contract["jobs"][0]["checks"].append("G2")
+        path.write_text(json.dumps(contract))
+        self.approve(command)
+        attempt = command("prepare")
+        (Path(attempt["workspace"]) / "app.js").write_text("export const loading = false;\n")
+        result = command("submit", attempt["id"], "--sandbox", "docker")
+        self.assertEqual(result["outcome"], "awaiting_review", result)
+        self.assertEqual([(item["id"], item["exit_code"]) for item in result["checks"]], [("G1", 0), ("G2", 0)])
+
+    def test_selftest_passes(self):
+        result = subprocess.run(["sh", str(ROOT / "sandbox" / "selftest.sh"), "docker"],
+                                capture_output=True, text=True, timeout=600)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

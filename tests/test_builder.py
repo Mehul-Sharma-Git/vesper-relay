@@ -195,7 +195,11 @@ class BuilderTests(unittest.TestCase):
 
     def test_provider_dispatch_checks_protocol_and_uses_fresh_scoped_jobs(self):
         self.approve()
-        self.command("run", "--brain", "codex", code=2)
+        # With no boundary flag the config's sandbox (docker by default) applies; without its engine
+        # on PATH the run stops before any attempt.
+        stderr = self.command("run", "--brain", "codex", code=2, env=dict(os.environ, PATH=os.defpath))
+        self.assertRegex(stderr, "(docker|podman) not found")
+        self.assertEqual(self.command("status")["attempts"], [])
         env = self.provider_environment(
             "from pathlib import Path\nimport sys\n"
             "assert '--skip-git-repo-check' in sys.argv and sys.argv[-1] == '-'\n"

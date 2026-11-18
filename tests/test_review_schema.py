@@ -179,7 +179,7 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         template = case.report()
         seen = {}
 
-        def fake_run(command, *, cwd, input_text, env, log, timeout):
+        def fake_run(command, *, cwd, input_text, env, log, timeout, **_):
             identity = re.search(r'"reviewer": "(reviewer-[0-9a-f]+)"', input_text).group(1)
             schema = json.loads(command[command.index("--json-schema") + 1])
             seen.update(schema=schema, identity=identity, prompt=input_text,

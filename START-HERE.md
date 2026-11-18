@@ -56,7 +56,7 @@ python3 -B build_local.py --project ~/my-product status
 
 Repeat until complete. Only the runner publishes snapshots. Submit executes
 the approved checks on the host by default, so use this mode with trusted
-code and trusted checks, or supply the isolation launcher below.
+code and trusted checks, or add `--sandbox docker` (or the isolation launcher below).
 Managed team jobs pause at `awaiting_review`. Follow the separate review step
 in [the RC1 guide](docs/RC1.md) before preparing the next job.
 
@@ -65,15 +65,39 @@ in [the RC1 guide](docs/RC1.md) before preparing the next job.
 With a supported, authenticated agent CLI installed (Claude Code, Codex or Gemini CLI):
 
 ```sh
-python3 -B build_local.py --project ~/my-product run --brain codex --launcher /absolute/path/to/launcher
-# Or --brain claude-code (Claude Code v2.1.248+) or --brain gemini-cli, or a brain named in
+vesper sandbox build                 # once, and after the image definition changes
+sh sandbox/selftest.sh               # every escape attempt must fail
+python3 -B build_local.py --project ~/my-product run --brain codex
+# Or --brain claude-code or --brain gemini-cli, or a brain named in
 # ~/.config/vesper/config.toml. Add --reviewer-brain NAME for a different reviewer.
 ```
 
-A launcher is called as `LAUNCHER worker|reviewer|consult CLI` (with `CLI` one of
+Brains, gates and reviewers run in the sandbox: `sandbox.backend` in the config, `docker` by
+default, or `--sandbox docker|podman|none`. The image (`sandbox/Dockerfile`, arm64 and amd64)
+holds Python, Go, Node with pnpm, Playwright's Chromium and the three agent CLIs. Every job
+runs as your uid with a read-only root filesystem, no capabilities, `no-new-privileges`, and
+memory and process limits; only its own directories are mounted, never your home, SSH keys or
+the engine's socket. Gates get no network (loopback works); build setup gets the network;
+brains reach only their provider's hosts, through a filtering proxy.
+
+Sandboxed brains need a login of their own, because the sandbox can't read your Mac's Keychain
+logins:
+
+| Brain | Login |
+|---|---|
+| `claude-code` | `claude setup-token`, then `security add-generic-password -s vesper-relay -a CLAUDE_CODE_OAUTH_TOKEN -w` |
+| `codex` | `codex login`; `~/.codex/auth.json` is mounted read-only |
+| `gemini-cli` | a Gemini API key: `security add-generic-password -s vesper-relay -a GEMINI_API_KEY -w` |
+
+Instead of the Keychain, put `NAME=value` lines in `~/.config/vesper/secrets.env` (mode 600).
+With Colima, keep runs under your home directory (the default state directory is), since
+Colima shares only the home directory with its engine.
+
+`--sandbox none` (or `--trust-host`) runs everything on this machine and warns on every run.
+A launcher (`--launcher PATH`) is the option for a custom setup. It is called as `LAUNCHER worker|reviewer|consult CLI` (with `CLI` one of
 `claude`, `codex`, `gemini`) and builds that CLI's command itself.
 
-For a trusted local experiment, explicitly replace `--launcher …` with
+For a trusted local experiment, explicitly pass
 `--trust-host`. The direct Codex adapter requests workspace-write. The direct
 Claude adapter requests restricted mode and file tools. These controls depend
 on the local installation. In host mode, the worker can reach resources

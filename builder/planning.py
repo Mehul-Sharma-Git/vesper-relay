@@ -137,9 +137,8 @@ def plan_report_schema(digest, identity):
 def review_plan(runner, report=None, *, external_attested=False, brain=None, launcher=None, trust_host=False,
                 review_timeout=180, review_max_turns=20):
     """Independent critique of the exact plan packet: an attested report or a launched reviewer brain."""
-    from .brains import command as brain_command, environment as brain_environment, parse_result
+    from .brains import command as brain_command, launch, parse_result
     from .contracts import review_bundle
-    from .process import run_process
     from .providers import review_limits
     from .review_gate import STRICT_ENDING
     from .runner import atomic_json, copy_tree
@@ -188,10 +187,8 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
             (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
             before = inventory(view)
             response, log = session / "response.json", session / "review.log"
-            command = brain_command(brain, "reviewer", launcher, trust_host, response=response,
-                                    schema=schema, max_turns=review_max_turns)
-            code = run_process(command, cwd=view, input_text=prompt,
-                               env=brain_environment(brain, launcher), log=log, timeout=review_timeout)
+            code = launch(brain, "reviewer", launcher, trust_host, work=view, input_text=prompt, log=log,
+                          timeout=review_timeout, response=response, schema=schema, max_turns=review_max_turns)
             require(code == 0, "Plan reviewer failed; no approval recorded")
             require(inventory(view) == before, "Plan reviewer modified its input copy")
             output = response if response.is_file() else log

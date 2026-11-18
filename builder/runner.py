@@ -14,9 +14,10 @@ from uuid import uuid4
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract)
 from .process import run_process
-from .brains import command as brain_command, environment as brain_environment, parse_result, usage
+from .brains import command as brain_command, launch, parse_result, usage
 from .providers import review_limits, worker_prompt
 from .review_gate import needs_security, prompt as review_prompt, report_schema, validate_report, write_diff
+from .sandbox import Sandbox, check_job, command_job
 
 
 def stamp():
@@ -103,8 +104,11 @@ def gate_environment(temp, gate_env, path=os.defpath, dependencies=None):
 
 def launch_command(operation, command, work, temp, log, launcher, timeout, gate_env, dependencies=None,
                    extra_env=None):
-    """Run a bare-program argv in work: through the launcher as `<operation> <work> -- argv`,
-    or on the host with the program resolved on the runner's own PATH."""
+    """Run a bare-program argv in work: in the sandbox backend, through the launcher as
+    `<operation> <work> -- argv`, or on the host with the program resolved on the runner's own PATH."""
+    if isinstance(launcher, Sandbox):
+        job = command_job(operation, command, work, dependencies=dependencies, gate_env=gate_env, extra=extra_env)
+        return launcher.run(job, input_text="", log=log, timeout=timeout)
     if launcher:
         argv, path = [launcher, operation, str(work), "--", *command], os.defpath
     else:
@@ -144,10 +148,13 @@ def execute_check(script_name, package_source, checks_manifest, candidate, candi
                 "Gate inputs changed during preparation")
         script = package / script_name
         mode = stat.S_IMODE(isolated.stat().st_mode)
-        command = ([launcher, "check", str(script), str(isolated)] if launcher
-                   else [sys.executable, "-I", "-B", str(script), str(isolated)])
-        code = run_process(command, cwd=home, input_text="", env=gate_environment(temp, gate_env),
-                           log=log, timeout=timeout)
+        if isinstance(launcher, Sandbox):
+            code = launcher.run(check_job(home, script_name, gate_env), input_text="", log=log, timeout=timeout)
+        else:
+            command = ([launcher, "check", str(script), str(isolated)] if launcher
+                       else [sys.executable, "-I", "-B", str(script), str(isolated)])
+            code = run_process(command, cwd=home, input_text="", env=gate_environment(temp, gate_env),
+                               log=log, timeout=timeout)
         intact = (inventory(package) == checks_manifest and inventory(isolated) == candidate_manifest
                   and stat.S_IMODE(isolated.stat().st_mode) == mode)
         return code, intact
@@ -552,11 +559,10 @@ class Runner:
                 (view / "review.md").write_text(review_prompt(profile, packet))
                 view_digest = fingerprint(inventory(view))
                 response = session / "response.json"
-                command = brain_command(brain, "reviewer", launcher, trust_host, response=response,
-                                        schema=schema, max_turns=review_max_turns)
                 log = directory / ("reviewer-" + uuid4().hex + ".log")
-                code = run_process(command, cwd=view, input_text=review_prompt(profile, packet),
-                                   env=brain_environment(brain, launcher), log=log, timeout=review_timeout)
+                code = launch(brain, "reviewer", launcher, trust_host, work=view,
+                              input_text=review_prompt(profile, packet), log=log, timeout=review_timeout,
+                              response=response, schema=schema, max_turns=review_max_turns)
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
                 output = response if response.is_file() else log
@@ -694,7 +700,7 @@ class Runner:
             # Choose and check every brain the job needs before it starts.
             ready = self.ready(state, contract)
             brain = selection.worker(ready["role"])
-            command = brain_command(brain, "worker", launcher, trust_host)
+            brain_command(brain, "worker", launcher, trust_host)
             reviewer = reviewer_for(ready) if "team" in state["bundle"] else None
             if reviewer:
                 brain_command(reviewer, "reviewer", launcher, trust_host, max_turns=review_max_turns)
@@ -706,9 +712,8 @@ class Runner:
                 attempt["child_pid"] = pid
                 self.save(state)
 
-            code = run_process(command, cwd=workspace, input_text=prompt,
-                               env=brain_environment(brain, launcher),
-                               log=log, timeout=job.get("timeout", 180), on_start=record_child)
+            code = launch(brain, "worker", launcher, trust_host, work=workspace, input_text=prompt, log=log,
+                          timeout=job.get("timeout", 180), on_start=record_child)
             attempt["worker_log"] = str(log.relative_to(self.root))
             if code != 0:
                 self.finish(state, "worker_failed", f"Worker brain {brain.name} exited {code}\n{read_tail(log)}",

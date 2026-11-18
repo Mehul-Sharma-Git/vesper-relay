@@ -35,22 +35,28 @@ class Adapter:
     binary = ""           # the agent CLI; a launcher receives this name and builds its own command
     capabilities = None
     credentials = ()      # host variables that carry this brain's login (never given to gates)
+    sandbox_hosts = ()    # the only hosts the brain may reach from the sandbox (HTTPS, through a proxy)
+    sandbox_env = ()      # (name, value) pairs set inside the sandbox
+    login_help = ""       # how to create the sandbox login named by capabilities.sandbox_login
 
     def executable(self):
         found = shutil.which(self.binary)
         require(found, f"Brain executable not found for adapter {self.name}: {self.binary}")
         return found
 
-    def worker_command(self, *, model=None, effort=None, max_turns=20):
+    # Every command takes ``program``: the CLI to start. None means this machine's
+    # executable; the sandbox passes the bare name found on the image's PATH.
+    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None):
         """Edit the approved paths in the workspace (the current directory); prompt on stdin."""
         raise NotImplementedError
 
-    def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20):
+    def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
+                         program=None):
         """Read-only review of the copy in the current directory. ``response`` is a file the
         brain may write its final reply to; ``schema`` is given only to strict-output brains."""
         raise NotImplementedError
 
-    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20):
+    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None):
         """Read-only consultation that returns a handoff as text."""
         raise NotImplementedError
 

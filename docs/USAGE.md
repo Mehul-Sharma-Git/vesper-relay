@@ -103,6 +103,15 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   override. Neither file may hold secrets: keys named like `api_key`, `token`,
   `secret`, `password` or `credential` are refused; use the macOS Keychain or
   `~/.config/vesper/secrets.env` (mode 600).
+- **Sandbox.** Brains, gates and reviewers run in a container: `sandbox.backend` in the
+  personal config (`docker` by default) or `--sandbox docker|podman|none` on `run`,
+  `review-candidate`, `consult`, `review-plan`, `repair-reproduce` and `repair-run`
+  (`submit` runs gates on the host unless you pass `--sandbox`). `vesper sandbox build`
+  builds the image from `sandbox/Dockerfile`; `vesper sandbox selftest` (or
+  `sh sandbox/selftest.sh`) tries to escape from every operation and passes only when every
+  attempt fails. `none` and `--trust-host` run on the host and warn every time; `--launcher
+  PATH` keeps a custom launcher. Sandboxed brains log in from the macOS Keychain (service
+  `vesper-relay`) or `~/.config/vesper/secrets.env` (mode 600); see START-HERE.md.
 - **Choose brains.** Any supported AI can do every role; one is enough. The
   adapters are `claude-code`, `codex` and `gemini-cli`. Name brains by purpose
   in the personal config (`[brains.strong] use = "claude-code"`, optional `model`

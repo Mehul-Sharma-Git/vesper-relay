@@ -5,9 +5,10 @@ import json
 from pathlib import Path
 import sys
 
-from builder.brains import ADAPTERS, LEGACY, Selection, legacy
+from builder.brains import ADAPTERS, LEGACY, Selection, legacy, load_settings
 from builder.contracts import BuilderError, read_json, require
 from builder.providers import check_launcher
+from builder.sandbox import BACKENDS, backend
 from builder.runner import Runner
 from builder.learning import record
 
@@ -42,6 +43,29 @@ def chosen(args, reviewer=False):
     return getattr(args, prefix + "brain")
 
 
+def boundary_options(parser, group=None):
+    """Where brains and gates run: a sandbox backend, an external launcher, or this machine."""
+    choice = group or parser.add_mutually_exclusive_group()
+    choice.add_argument("--sandbox", choices=BACKENDS,
+                        help="Sandbox backend (default: sandbox.backend in the config, which defaults to docker)")
+    choice.add_argument("--launcher", help="An external launcher: absolute path to an executable")
+    choice.add_argument("--trust-host", action="store_true", help="No sandbox, the same as --sandbox none (warns)")
+
+
+def resolve_boundary(args, default=True):
+    """(launcher or sandbox backend or None, trust_host). Without a flag the config's backend
+    applies when ``default``; otherwise nothing is chosen."""
+    if args.launcher:
+        return check_launcher(args.launcher), False
+    name = "none" if args.trust_host else args.sandbox
+    if name is None and default:
+        name = load_settings()["sandbox.backend"]
+    if name is None:
+        return None, False
+    engine = backend(name)
+    return (engine.check(), False) if engine else (None, True)
+
+
 def initialize(root, idea):
     root.mkdir(parents=True, exist_ok=True)
     if any(root.iterdir()):
@@ -63,15 +87,14 @@ def main():
     commands.add_parser("prepare")
     submit = commands.add_parser("submit")
     submit.add_argument("attempt")
-    submit.add_argument("--launcher")
+    boundary_options(submit)
     review_candidate = commands.add_parser("review-candidate")
     reviewer_input = review_candidate.add_mutually_exclusive_group()
     reviewer_input.add_argument("--report", type=Path)
     brain_options(review_candidate, group=reviewer_input)
     review_candidate.add_argument("--attest-independent", action="store_true")
     review_boundary = review_candidate.add_mutually_exclusive_group()
-    review_boundary.add_argument("--launcher")
-    review_boundary.add_argument("--trust-host", action="store_true")
+    boundary_options(review_candidate, group=review_boundary)
     review_limit_options(review_candidate)
     commands.add_parser("abandon").add_argument("attempt")
     commands.add_parser("retry").add_argument("--reason", required=True)
@@ -79,9 +102,7 @@ def main():
     commands.add_parser("export").add_argument("destination", type=Path)
     run = commands.add_parser("run")
     brain_options(run, reviewer=True)
-    trust = run.add_mutually_exclusive_group()
-    trust.add_argument("--launcher")
-    trust.add_argument("--trust-host", action="store_true")
+    boundary_options(run)
     review_limit_options(run)
     args = parser.parse_args()
     root = args.project.resolve()
@@ -100,15 +121,16 @@ def main():
                 if args.command == "approve":
                     result = engine.approve(args.digest)
                 elif args.command == "submit":
-                    result = engine.submit(args.attempt, check_launcher(args.launcher))
+                    # Supervised gates run on this machine unless a sandbox or launcher is chosen.
+                    result = engine.submit(args.attempt, resolve_boundary(args, default=False)[0])
                 elif args.command == "review-candidate":
                     if args.report:
                         require(args.report.stat().st_size <= 256_000, "Review report exceeds the size limit")
                         result = engine.review_candidate(read_json(args.report), external_attested=args.attest_independent)
                     else:
                         brain = Selection(reviewer=chosen(args)).reviewer()
-                        result = engine.review_candidate(brain=brain, launcher=check_launcher(args.launcher),
-                                                         trust_host=args.trust_host,
+                        launcher, trust_host = resolve_boundary(args)
+                        result = engine.review_candidate(brain=brain, launcher=launcher, trust_host=trust_host,
                                                          review_timeout=args.review_timeout,
                                                          review_max_turns=args.review_max_turns)
                 elif args.command == "abandon":
@@ -119,7 +141,8 @@ def main():
                     result = engine.export(args.destination.resolve())
                 elif args.command == "run":
                     selection = Selection(worker=chosen(args), reviewer=chosen(args, reviewer=True))
-                    result = engine.run(selection, check_launcher(args.launcher), trust_host=args.trust_host,
+                    launcher, trust_host = resolve_boundary(args)
+                    result = engine.run(selection, launcher, trust_host=trust_host,
                                         review_timeout=args.review_timeout,
                                         review_max_turns=args.review_max_turns)
                 else:
