@@ -20,7 +20,6 @@ when it is installed:
 
 Inside a sandbox it logs in with ``GEMINI_API_KEY``.
 """
-import json
 
 from ..contracts import BuilderError
 from .base import Adapter, Capabilities
@@ -53,25 +52,26 @@ class GeminiCli(Adapter):
         return self.command("plan", "text", model)
 
     @staticmethod
-    def wrapper(text):
-        try:
-            data = json.loads(text.strip())
-        except (ValueError, RecursionError):
-            return None
-        if isinstance(data, dict) and ("response" in data or "error" in data) and "verdict" not in data:
-            return data
-        return None
+    def envelope(data):
+        """True for the ``-o json`` envelope ({"response", "stats", "error"}), not a report."""
+        return isinstance(data, dict) and ("response" in data or "error" in data) and "verdict" not in data
 
     def parse_result(self, text):
-        data = self.wrapper(text)
-        if data is None:
-            return super().parse_result(text)
+        # The reviewer log merges stdout and stderr, so lines may surround the envelope:
+        # find it with the same tolerant search as a report, then decode what it carries.
+        data = super().parse_result(text)
+        if not self.envelope(data):
+            return data
         if data.get("error") or not isinstance(data.get("response"), str):
             raise BuilderError("Reviewer brain returned an error")
         return super().parse_result(data["response"])
 
     def usage(self, text):
-        data = self.wrapper(text) or {}
+        try:
+            data = super().parse_result(text)
+        except BuilderError:
+            return None
+        data = data if self.envelope(data) else {}
         models = (data.get("stats") or {}).get("models") if isinstance(data.get("stats"), dict) else None
         if not isinstance(models, dict):
             return None

@@ -391,7 +391,8 @@ class Runner:
 
     def manual_attempt(self, state, attempt_id):
         attempt = state["active"]
-        require(attempt and attempt["provider"] == "manual" and attempt["id"] == attempt_id,
+        require(attempt and attempt["provider"] == "manual" and "adapter" not in attempt
+                and attempt["id"] == attempt_id,
                 "No matching manual attempt is active")
         return attempt
 
@@ -683,7 +684,9 @@ class Runner:
                                       trust_host=trust_host, **limits)
                 state = self.state()
             else:
-                require(state["active"]["provider"] != "manual", "Submit or abandon the active manual attempt first")
+                active = state["active"]
+                require(active["provider"] != "manual" or "adapter" in active,
+                        "Submit or abandon the active manual attempt first")
                 self.finish(state, "interrupted", "Recovered after an interrupted runner", "interrupted")
         while self.ready(state, contract):
             if self.status()["status"] == "blocked":

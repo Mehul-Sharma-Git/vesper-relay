@@ -27,6 +27,8 @@ ADAPTERS = {adapter.name: adapter for adapter in (ClaudeCode(), Codex(), GeminiC
 LEGACY = {"claude": "claude-code", "codex": "codex"}
 # Every brain's login variables: never passed to gates.
 CREDENTIALS = frozenset(name for adapter in ADAPTERS.values() for name in adapter.credentials)
+# Values the core records for work no brain did: a manual attempt and an attested report.
+RESERVED = ("manual", "operator")
 CHOICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}")
 OPERATIONS = ("worker", "reviewer", "consult")
 
@@ -64,6 +66,7 @@ def load_settings(environ=os.environ):
 def resolve(name, settings):
     """A brain by name: a [brains.NAME] table in the config, else an adapter name."""
     require(isinstance(name, str) and name, "Name a brain")
+    require(name not in RESERVED, f"Brain name {name!r} is reserved; choose another name under [brains]")
     use = settings.get(f"brains.{name}.use")
     if use is not None:
         return brain(name, use, settings.get(f"brains.{name}.model"), settings.get(f"brains.{name}.effort"))

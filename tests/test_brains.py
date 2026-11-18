@@ -158,6 +158,28 @@ class AdapterTests(unittest.TestCase):
                          {"gemini-2.5-pro": {"prompt": 5, "candidates": 1}})
         self.assertIsNone(usage(Brain("codex", ADAPTERS["codex"]), text))
 
+    def test_gemini_envelope_is_unwrapped_inside_a_noisy_log(self):
+        # The reviewer log merges stdout and stderr, so lines may surround the envelope.
+        report = {"verdict": "approve", "summary": "ok"}
+        envelope = json.dumps({"response": "Done.\n```json\n" + json.dumps(report) + "\n```",
+                               "stats": {"models": {"flash": {"tokens": {"prompt": 2}}}}})
+        gemini = Brain("gemini-cli", ADAPTERS["gemini-cli"])
+        for text in ("Loaded cached credentials.\n" + envelope, envelope + "\n[WARN] slow network",
+                     "Loaded cached credentials.\n" + envelope + "\n[WARN] x"):
+            with self.subTest(text=text[:30]):
+                self.assertEqual(parse_result(gemini, text), report)
+                self.assertEqual(usage(gemini, text), {"flash": {"prompt": 2}})
+        with self.assertRaisesRegex(BuilderError, "returned an error"):
+            parse_result(gemini, "Loaded cached credentials.\n" + json.dumps({"error": {"message": "quota"}}))
+
+    def test_core_sentinel_names_are_reserved(self):
+        for name in ("manual", "operator"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(BuilderError, "reserved"):
+                    resolve(name, {f"brains.{name}.use": "codex"})
+                with self.assertRaisesRegex(BuilderError, "reserved"):
+                    Selection(settings={f"brains.{name}.use": "codex", "roles.frontend": name}).worker("frontend")
+
     def test_credentials_pass_only_to_their_own_brain_without_a_launcher(self):
         environ = {"PATH": "/bin", "HOME": "/h", "ANTHROPIC_API_KEY": "a", "OPENAI_API_KEY": "o",
                    "GEMINI_API_KEY": "g", "PILOT_SECRET": "s"}
