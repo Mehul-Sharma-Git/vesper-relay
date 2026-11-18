@@ -139,9 +139,13 @@ class Container(Sandbox):
 
     def __init__(self, image=None):
         self.image = image
+        self.image_id = None  # what check() resolved the tag to; jobs run this exact image
 
     def tag(self):
         return self.image or image_tag()
+
+    def ref(self):
+        return self.image_id or self.tag()
 
     def hardening(self):
         uid, gid = (os.getuid(), os.getgid()) if os.getuid() != 0 else (10001, 10001)
@@ -174,7 +178,7 @@ class Container(Sandbox):
             argv += ["-e", "NO_PROXY=localhost,127.0.0.1", "-e", "no_proxy=localhost,127.0.0.1"]
         for key in job.secrets:
             argv += ["-e", key]  # the value comes from the engine process's environment
-        return argv + [self.tag(), *job.argv]
+        return argv + [self.ref(), *job.argv]
 
     def cli_environment(self, job, environ=os.environ, store=None):
         """The engine process's environment: its own settings plus the job's login values."""
@@ -214,15 +218,26 @@ class Container(Sandbox):
         require(program, f"{self.program} not found on PATH: install it, start it, or choose another sandbox "
                          "(--sandbox docker|podman|none)")
         self.program = program
-        result = subprocess.run([program, "image", "inspect", self.tag()], capture_output=True, text=True,
-                                env={key: os.environ[key] for key in ENGINE_ENV if key in os.environ}, timeout=120)
+        env = {key: os.environ[key] for key in ENGINE_ENV if key in os.environ}
+
+        def engine(*args):
+            return subprocess.run([program, *args], capture_output=True, text=True, env=env, timeout=120)
+
+        result = engine("image", "inspect", "--format", "{{.Id}}", self.tag())
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
-            require("no such" not in detail.lower() and "not found" not in detail.lower()
-                    and "unknown" not in detail.lower(),
+            require(any(word in detail.lower() for word in ("no such", "not found", "unknown")),
+                    f"{self.name} could not be reached (is it running?): {detail[:400]}")
+            # Docker Desktop 29.2 (containerd image store) at times answers "No such image" for a
+            # tag that `image ls` lists, while the image ID still resolves: use the listed ID.
+            listed = engine("image", "ls", "-q", "--no-trunc", self.tag()).stdout.split()
+            result = engine("image", "inspect", "--format", "{{.Id}}", listed[0]) if len(listed) == 1 else None
+            require(result is not None and result.returncode == 0,
                     f"Sandbox image {self.tag()} is not built for {self.name}: run "
                     f"`vesper sandbox build --backend {self.name}`")
-            require(False, f"{self.name} could not be reached (is it running?): {detail[:400]}")
+        image_id = result.stdout.strip()
+        require(re.fullmatch(r"sha256:[0-9a-f]+", image_id), f"{self.name} gave no image ID for {self.tag()}")
+        self.image_id = image_id
         return self
 
     def start_proxy(self, job, name, env, cleanup):
@@ -237,7 +252,7 @@ class Container(Sandbox):
         for path in (settings, settings / "tinyproxy.conf", settings / "filter"):
             path.chmod(0o755 if path.is_dir() else 0o644)
         self.engine(env, "run", "-d", "--rm", "--name", proxy, *self.hardening(), "--network", self.open_network,
-                    *self.mount(settings, "/etc/vesper-proxy", True), self.tag(),
+                    *self.mount(settings, "/etc/vesper-proxy", True), self.ref(),
                     "tinyproxy", "-d", "-c", "/etc/vesper-proxy/tinyproxy.conf", check=True)
         cleanup.append(("rm", "-f", proxy))
         self.engine(env, "network", "connect", network, proxy, check=True)

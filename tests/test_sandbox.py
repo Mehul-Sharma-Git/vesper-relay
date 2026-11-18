@@ -72,6 +72,46 @@ class ArgumentTests(unittest.TestCase):
                     if engine.name == "podman":
                         self.assertIn("--userns=keep-id", argv)
 
+    def fake_engine(self, script):
+        bin_dir = self.root / "engine-bin"
+        bin_dir.mkdir(exist_ok=True)
+        fake = bin_dir / "docker"
+        fake.write_text("#!/bin/sh\n" + script)
+        fake.chmod(0o700)
+        return mock.patch.dict(os.environ, {"PATH": str(bin_dir)})
+
+    def test_jobs_run_the_image_id_the_check_resolved(self):
+        with self.fake_engine('case "$*" in *"inspect"*) echo sha256:feed;; *) exit 1;; esac\n'):
+            engine = Docker().check()
+        job = check_job(self.work, "gate.py")
+        argv = self.build(engine, job)
+        self.assertNotIn(image_tag(), argv)
+        self.assertEqual(argv[argv.index("sha256:feed") + 1:], list(job.argv))
+
+    def test_a_listed_image_that_inspect_misses_is_used_by_id(self):
+        # Docker Desktop 29.2 (containerd image store) at times answers "No such image" to
+        # `image inspect <tag>` while `image ls` lists the tag; inspect by ID still works.
+        script = ('case "$*" in\n'
+                  '  *"inspect"*"sha256:feed"*) echo sha256:feed;;\n'
+                  '  *"inspect"*) echo "Error response from daemon: No such image: x" >&2; exit 1;;\n'
+                  '  *"image ls -q --no-trunc"*) echo sha256:feed;;\n'
+                  '  *) exit 1;;\nesac\n')
+        with self.fake_engine(script):
+            engine = Docker().check()
+        self.assertIn("sha256:feed", self.build(engine, check_job(self.work, "gate.py")))
+        missing = script.replace('  *"image ls -q --no-trunc"*) echo sha256:feed;;\n', "")
+        with self.fake_engine(missing), self.assertRaisesRegex(BuilderError, "vesper sandbox build"):
+            Docker().check()
+
+    def test_image_has_python_playwright_and_its_chromium(self):
+        # Gates are Python scripts (python3 -I in the image), so the image carries Python
+        # Playwright at the Node version, with the Chromium build that package expects.
+        text = (ROOT / "sandbox" / "Dockerfile").read_text()
+        self.assertIn('"playwright==${PLAYWRIGHT_VERSION}"', text)
+        self.assertIn("python3 -m playwright install chromium", text)
+        self.assertRegex(text, r'"greenlet==\$\{GREENLET_VERSION\}"')
+        self.assertRegex(text, r"ARG GREENLET_VERSION=\d+\.\d+\.\d+")
+
     def test_mounts_and_networks_follow_the_operation_table(self):
         docker = Docker()
         worker = brain_job(Brain("claude-code", ADAPTERS["claude-code"]), "worker", self.work)
@@ -314,6 +354,25 @@ class SandboxSelftest(unittest.TestCase):
         result = command("submit", attempt["id"], "--sandbox", "docker")
         self.assertEqual(result["outcome"], "awaiting_review", result)
         self.assertEqual([(item["id"], item["exit_code"]) for item in result["checks"]], [("G1", 0), ("G2", 0)])
+
+    def test_python_playwright_drives_chromium_in_a_gate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            (home / "checks").mkdir()
+            (home / "candidate").mkdir()
+            (home / "checks" / "gate.py").write_text(
+                "from playwright.sync_api import sync_playwright\n"
+                "with sync_playwright() as p:\n"
+                "    browser = p.chromium.launch()\n"
+                "    page = browser.new_page()\n"
+                "    page.set_content('<h1>ok</h1>')\n"
+                "    assert page.inner_text('h1') == 'ok'\n"
+                "    browser.close()\n"
+                "print('chromium ok')\n")
+            log = home / "gate.log"
+            code = Docker().check().run(check_job(home, "gate.py"), input_text="", log=log, timeout=180)
+            self.assertEqual(code, 0, log.read_text())
+            self.assertIn("chromium ok", log.read_text())
 
     def test_selftest_passes(self):
         result = subprocess.run(["sh", str(ROOT / "sandbox" / "selftest.sh"), "docker"],
