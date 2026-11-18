@@ -122,9 +122,10 @@ class RunCheckDefaultTests(unittest.TestCase):
 
     def test_defaults_and_explicit_timeouts(self):
         self.assertEqual(self.timeout_for({"id": "G1", "script": "g.py"}), 45)
-        self.assertEqual(self.timeout_for({"id": "VESPER_REGRESSION", "script": "vesper_regression.py"}), 300)
+        # The baseline regression runs Vesper's whole suite, which passed 300 s on a Mac (P1-G).
+        self.assertEqual(self.timeout_for({"id": "VESPER_REGRESSION", "script": "vesper_regression.py"}), 900)
         self.assertEqual(self.timeout_for({"id": "G1", "script": "g.py", "timeout": 60}), 60)
-        self.assertEqual(self.timeout_for({"id": "VESPER_REGRESSION", "script": "v.py", "timeout": 900}), 900)
+        self.assertEqual(self.timeout_for({"id": "VESPER_REGRESSION", "script": "v.py", "timeout": 1200}), 1200)
 
 
 class ReviewerLimitTests(unittest.TestCase):
