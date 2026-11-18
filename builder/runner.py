@@ -19,6 +19,9 @@ from .providers import review_limits, worker_prompt
 from .review_gate import needs_security, prompt as review_prompt, report_schema, validate_report, write_diff
 from .sandbox import Sandbox, check_job, command_job
 
+# VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
+REGRESSION_TIMEOUT = 900
+
 
 def stamp():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -644,7 +647,7 @@ class Runner:
         logs = directory / "logs"
         logs.mkdir(exist_ok=True)
         log = logs / (check["id"] + ".log")
-        limit = check.get("timeout", 300 if check["id"] == "VESPER_REGRESSION" else 45)
+        limit = check.get("timeout", REGRESSION_TIMEOUT if check["id"] == "VESPER_REGRESSION" else 45)
         if "command" in check:
             code, intact = execute_command_check(check["command"], check.get("overlay"),
                                                  self.approval(state) / "checks", state["bundle"]["checks"],
