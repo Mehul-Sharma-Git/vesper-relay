@@ -109,7 +109,7 @@ def validate_repair(contract, packet):
     require(isinstance(packet, dict), "Invalid repair metadata")
     paths = repair_paths(packet.get("paths"))
     validate_failure_id(packet.get("failure_id"))
-    checks = {item["id"]: item["script"] for item in contract["checks"]}
+    checks = {item["id"]: item.get("script") for item in contract["checks"]}
     require(checks.get("VESPER_REPRO") == REPRO and checks.get("VESPER_REGRESSION") == "vesper_regression.py",
             "Repair requires the independent reproducer and baseline regression gates")
     jobs = contract["jobs"]
