@@ -7,6 +7,11 @@ Tools (P1-T10): read is ``Read``, edit ``Edit``, write ``Write``, search ``Glob,
 shell ``Bash``. ``--tools`` limits the built-in tools to that list and ``--allowedTools``
 lets them run without a prompt.
 
+``vesper doctor`` (P1-T11) checks these flags against ``claude --help``. ``--max-turns`` is
+accepted but not listed there (Claude Code 2.1.327, the image's pinned version), so it is
+declared hidden. ``--restricted`` is listed there, but Claude Code 2.1.81 rejects it
+("unknown option"), so a host CLI that old fails ``vesper doctor`` (finding 37).
+
 Inside a sandbox it logs in with ``CLAUDE_CODE_OAUTH_TOKEN`` from ``claude setup-token``:
 the Mac keeps the normal login in the Keychain, which a sandbox cannot reach.
 """
@@ -35,6 +40,8 @@ class ClaudeCode(Adapter):
     sandbox_env = (("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"), ("DISABLE_AUTOUPDATER", "1"))
     login_help = ("run `claude setup-token` once, then store the token: security add-generic-password "
                   "-s vesper-relay -a CLAUDE_CODE_OAUTH_TOKEN -w (or add it to ~/.config/vesper/secrets.env)")
+    install_help = "npm install -g @anthropic-ai/claude-code"
+    hidden_flags = ("--max-turns",)
 
     def command(self, tools, output, model, effort, max_turns, program):
         choice = (["--model", model] if model else []) + (["--effort", effort] if effort else [])

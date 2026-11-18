@@ -44,6 +44,11 @@ class Adapter:
     sandbox_hosts = ()    # the only hosts the brain may reach from the sandbox (HTTPS, through a proxy)
     sandbox_env = ()      # (name, value) pairs set inside the sandbox
     login_help = ""       # how to create the sandbox login named by capabilities.sandbox_login
+    install_help = ""     # how to install the CLI on this machine
+    # `vesper doctor` runs ``binary *help_command`` and checks that every flag the adapter's
+    # commands use is still listed, except ``hidden_flags``: accepted but not in the help text.
+    help_command = ("--help",)
+    hidden_flags = ()
 
     def executable(self):
         found = shutil.which(self.binary)

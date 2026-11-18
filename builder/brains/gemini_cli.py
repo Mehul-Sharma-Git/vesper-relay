@@ -28,6 +28,9 @@ confirmation"; marked deprecated in favour of policy files, still accepted by th
 CLI; ``vesper doctor`` re-checks it). Reviewers and consultants keep ``plan`` mode, so they
 never edit or write; the docs do not say whether ``plan`` mode honours the shell allowance.
 
+``vesper doctor`` (P1-T11) checks these flags against ``gemini --help``; all are listed in
+Gemini CLI 0.68.0, the image's pinned version.
+
 Inside a sandbox it logs in with ``GEMINI_API_KEY``.
 """
 
@@ -48,6 +51,7 @@ class GeminiCli(Adapter):
     sandbox_hosts = ("generativelanguage.googleapis.com", "cloudcode-pa.googleapis.com", "oauth2.googleapis.com")
     login_help = ("create a Gemini API key, then store it: security add-generic-password -s vesper-relay "
                   "-a GEMINI_API_KEY -w (or add it to ~/.config/vesper/secrets.env)")
+    install_help = "npm install -g @google/gemini-cli"
     credentials = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
                    "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_CLI_HOME")
 
