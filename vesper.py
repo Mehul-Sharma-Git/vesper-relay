@@ -134,7 +134,7 @@ def consult(project, args):
                   + render(role) + "\n\nConsultation task:\n" + args.task)
         response, log = directory / "response.md", directory / "consult.log"
         code = launch(brain, "consult", launcher, trust_host, work=workspace, input_text=prompt, log=log,
-                      timeout=180, response=response)
+                      timeout=180, response=response, role=args.role)
         require(code == 0, f"Consultation failed with exit {code}")
         require(inventory(workspace) == before, "Consultation changed its read-only baseline copy")
         report = response if response.is_file() else log

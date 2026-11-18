@@ -60,8 +60,8 @@ check "inventory rejects linked or special paths" "P1-T9" \
     grep -q "Linked or special path is unsupported" builder/contracts.py
 check "contract build: ignored top-level dirs and a setup step before the first command gate (launcher op setup; P1-T6)" "P1-T9, P4-T8" \
     sh -c 'grep -q "def validate_build" builder/contracts.py && grep -q "def inventory(root, ignore=())" builder/contracts.py && grep -q "def run_setup" builder/runner.py && grep -q "launch_command(\"setup\"" builder/runner.py && grep -q "Build setup changed tracked files" builder/runner.py'
-check "workers get file tools only (Claude Code Read/Edit/Write/Glob/Grep; no shell until P1-T10)" "P1-T10" \
-    grep -q 'WRITE_TOOLS = "Read,Edit,Write,Glob,Grep"' builder/brains/claude_code.py
+check "role tools in PROFILES; shell (Claude Code Bash, Codex danger-full-access, Gemini run_shell_command) only inside a real sandbox backend (P1-T10)" "P3-T5" \
+    sh -c 'grep -q "^def tools(brain, operation, role=None, sandboxed=False):" builder/brains/__init__.py && grep -q "(\"shell\", (\"Bash\",))" builder/brains/claude_code.py && grep -q "^REVIEWER_TOOLS = (\"read\", \"search\", \"shell\")" builder/team.py'
 check "--brain NAME (config brain or adapter) on run/review-candidate; --provider claude|codex a deprecated alias (P1-T8)" "P1-T11, P5-T1" \
     sh -c 'grep -q "def brain_options" build_local.py && grep -q "brain_options(run, reviewer=True)" build_local.py && grep -q "^LEGACY = {\"claude\": \"claude-code\", \"codex\": \"codex\"}" builder/brains/__init__.py'
 check "sandbox backends docker (default)/podman/none in builder/sandbox/; runner hands jobs to the backend (P1-T9)" "P1-T10, P1-T11, P5-T2" \

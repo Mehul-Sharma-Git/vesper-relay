@@ -7,6 +7,12 @@ command flag > config > fallback. One brain is enough for every role: the review
 independence comes from a fresh process, a read-only copy, no access to the worker's
 reasoning and its own checklist, not from a different AI.
 
+Tools (P1-T10): each role lists its tools in ``team.PROFILES``. ``tools`` grants them for
+one brain process: shell only inside a real sandbox backend (docker, podman) and only for an
+adapter that can run commands; never edit or write for a reviewer or consultant. With no
+sandbox, or through an external launcher (which builds its own command), tools stay as
+before P1-T10.
+
 Brains of kind 1 (the host assistant in supervised mode) need no adapter: they drive Vesper
 through its commands (``prepare``/``submit``, ``review-candidate --report``).
 """
@@ -19,6 +25,7 @@ from typing import NamedTuple
 from uuid import uuid4
 
 from ..contracts import require
+from ..team import CONSULT_TOOLS, PROFILES, REVIEWER_TOOLS, TOOLS, WRITER_TOOLS, tools as role_tools
 from .base import Adapter, Capabilities
 from .claude_code import ClaudeCode
 from .codex import Codex
@@ -33,6 +40,9 @@ CREDENTIALS = frozenset(name for adapter in ADAPTERS.values() for name in adapte
 RESERVED = ("manual", "operator")
 CHOICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}")
 OPERATIONS = ("worker", "reviewer", "consult")
+# The tools an operation gets when no role is named.
+DEFAULT_TOOLS = {"worker": WRITER_TOOLS, "reviewer": REVIEWER_TOOLS, "consult": CONSULT_TOOLS}
+READ_ONLY = frozenset({"edit", "write"})  # removed from every reviewer and consultant
 
 
 class Brain(NamedTuple):
@@ -122,10 +132,35 @@ class Selection:
         return fallback()
 
 
-def arguments(brain, operation, *, response=None, schema=None, max_turns=20, program=None):
-    """The brain's own command line for one operation, adapted to its capabilities."""
+def tools(brain, operation, role=None, sandboxed=False):
+    """The tool names one brain process gets: the role's list (the operation's default for no
+    role, or for a contract without a team whose job names a role outside the catalogue),
+    without edit or write unless it is a worker, and without shell unless ``sandboxed`` (a real
+    sandbox backend runs it) and the adapter can run commands."""
+    require(operation in OPERATIONS, f"Unknown brain operation {operation}")
+    granted = set(role_tools(role) if role in PROFILES else DEFAULT_TOOLS[operation])
+    if operation != "worker":
+        granted -= READ_ONLY
+    if not (sandboxed and brain.adapter.capabilities.run_shell):
+        granted.discard("shell")
+    return frozenset(granted)
+
+
+granted_tools = tools
+
+
+def arguments(brain, operation, *, response=None, schema=None, max_turns=20, program=None, tools=None):
+    """The brain's own command line for one operation, adapted to its capabilities. ``tools``
+    are granted tool names; None means the host grant (no shell)."""
     adapter = brain.adapter
-    choice = {"model": brain.model, "effort": brain.effort, "max_turns": max_turns, "program": program}
+    selected = granted_tools(brain, operation) if tools is None else frozenset(tools)
+    require(selected <= set(TOOLS), "Unknown tools: " + ", ".join(sorted(selected - set(TOOLS))))
+    if operation != "worker":
+        selected -= READ_ONLY
+    if not adapter.capabilities.run_shell:
+        selected -= {"shell"}
+    choice = {"model": brain.model, "effort": brain.effort, "max_turns": max_turns, "program": program,
+              "tools": selected}
     if operation == "worker":
         return adapter.worker_command(**choice)
     if operation == "reviewer":
@@ -134,20 +169,22 @@ def arguments(brain, operation, *, response=None, schema=None, max_turns=20, pro
     return adapter.consult_command(response=response, **choice)
 
 
-def job(brain, operation, work, *, out=None, schema=None, max_turns=20):
-    """The sandbox job for one brain process: its CLI by bare name, the reply in /out."""
+def job(brain, operation, work, *, out=None, schema=None, max_turns=20, role=None):
+    """The sandbox job for one brain process: its CLI by bare name, the reply in /out, and the
+    role's tools with shell (a real sandbox backend runs every job)."""
     from ..providers import review_limits
     from ..sandbox import agent_job
     review_limits(max_turns=max_turns)
     require(operation in OPERATIONS, f"Unknown brain operation {operation}")
     adapter = brain.adapter
     argv = arguments(brain, operation, response="/out/response.json" if out is not None else None,
-                     schema=schema, max_turns=max_turns, program=adapter.binary)
+                     schema=schema, max_turns=max_turns, program=adapter.binary,
+                     tools=tools(brain, operation, role, sandboxed=True))
     return agent_job(operation, argv, work, out=out, login=adapter.capabilities.sandbox_login,
                      hosts=adapter.sandbox_hosts, env=adapter.sandbox_env, login_help=adapter.login_help)
 
 
-def command(brain, operation, launcher, trust_host, *, response=None, schema=None, max_turns=20):
+def command(brain, operation, launcher, trust_host, *, response=None, schema=None, max_turns=20, role=None):
     """Check that the brain can start and return its argv: a launcher gets ``<operation> <cli>`` and
     builds the command itself (it finds the schema as review.schema.json), a sandbox backend gets
     a job (its login is checked here), and the host gets the CLI directly."""
@@ -157,23 +194,24 @@ def command(brain, operation, launcher, trust_host, *, response=None, schema=Non
     require(operation in OPERATIONS, f"Unknown brain operation {operation}")
     require(launcher or trust_host, "Select --launcher PATH or explicitly opt into --trust-host")
     if isinstance(launcher, Sandbox):
-        prepared = job(brain, operation, Path("/"), max_turns=max_turns)
+        prepared = job(brain, operation, Path("/"), max_turns=max_turns, role=role)
         launcher.preflight(prepared)
         return list(prepared.argv)
     if launcher:
         return [check_launcher(launcher), operation, brain.adapter.binary]
-    return arguments(brain, operation, response=response, schema=schema, max_turns=max_turns)
+    return arguments(brain, operation, response=response, schema=schema, max_turns=max_turns,
+                     tools=tools(brain, operation, role))
 
 
 def launch(brain, operation, launcher, trust_host, *, work, input_text, log, timeout, response=None, schema=None,
-           max_turns=20, on_start=None):
+           max_turns=20, on_start=None, role=None):
     """Run one brain process in ``work`` and return its exit status. A reply the brain writes to a
     file arrives at ``response``."""
     from ..process import run_process
     from ..sandbox import Sandbox
     if not isinstance(launcher, Sandbox):
         argv = command(brain, operation, launcher, trust_host, response=response, schema=schema,
-                       max_turns=max_turns)
+                       max_turns=max_turns, role=role)
         return run_process(argv, cwd=work, input_text=input_text, env=environment(brain, launcher), log=log,
                            timeout=timeout, on_start=on_start or (lambda _: None))
     out = None
@@ -181,7 +219,7 @@ def launch(brain, operation, launcher, trust_host, *, work, input_text, log, tim
         out = Path(response).parent / ("out-" + uuid4().hex)
         out.mkdir()
     try:
-        code = launcher.run(job(brain, operation, work, out=out, schema=schema, max_turns=max_turns),
+        code = launcher.run(job(brain, operation, work, out=out, schema=schema, max_turns=max_turns, role=role),
                             input_text=input_text, log=log, timeout=timeout, on_start=on_start)
         reply = out / "response.json" if out else None
         if reply and reply.is_file() and not reply.is_symlink():
@@ -207,4 +245,4 @@ def usage(brain, text):
 
 __all__ = ["ADAPTERS", "Brain", "Capabilities", "CREDENTIALS", "LEGACY", "Selection", "arguments", "brain",
            "command", "environment", "job", "launch", "legacy", "load_settings", "parse_result", "resolve",
-           "usage"]
+           "tools", "usage"]

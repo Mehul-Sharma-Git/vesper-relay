@@ -18,14 +18,25 @@ when it is installed:
   ``model.maxSessionTurns`` setting; headless exit code 53 is "turn limit exceeded"). The
   wall-time limit bounds it.
 
+Tools (P1-T10): file reading, search and (for ``auto_edit``) edits come with the approval
+mode. Shell is the ``run_shell_command`` tool ("Shell tool (`run_shell_command`)",
+docs/tools/shell.md); by default it needs a confirmation, which headless mode treats as a
+deny (docs/reference/policy-engine.md: "In non-interactive mode, this is treated as
+`deny`"). When shell is granted (only inside a Vesper sandbox) the command adds
+``--allowed-tools run_shell_command`` ("Tools that are allowed to run without
+confirmation"; marked deprecated in favour of policy files, still accepted by the pinned
+CLI; ``vesper doctor`` re-checks it). Reviewers and consultants keep ``plan`` mode, so they
+never edit or write; the docs do not say whether ``plan`` mode honours the shell allowance.
+
 Inside a sandbox it logs in with ``GEMINI_API_KEY``.
 """
 
 from ..contracts import BuilderError
-from .base import Adapter, Capabilities
+from .base import READ_TOOLS, WORKER_TOOLS, Adapter, Capabilities
 
 CLOSING = "Follow the instructions above, which came on standard input."
 NO_MCP = ["--allowed-mcp-server-names", "vesper-none"]
+SHELL = ["--allowed-tools", "run_shell_command"]
 
 
 class GeminiCli(Adapter):
@@ -40,20 +51,22 @@ class GeminiCli(Adapter):
     credentials = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
                    "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_CLI_HOME")
 
-    def command(self, mode, output, model, program):
+    def command(self, mode, output, model, program, tools):
         choice = ["-m", model] if model else []
-        return [program or self.executable(), "--approval-mode", mode, "--output-format", output, *NO_MCP, *choice,
-                "-p", CLOSING]
+        shell = SHELL if "shell" in tools else []
+        return [program or self.executable(), "--approval-mode", mode, "--output-format", output, *NO_MCP, *shell,
+                *choice, "-p", CLOSING]
 
-    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None):
-        return self.command("auto_edit", "text", model, program)
+    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None, tools=WORKER_TOOLS):
+        return self.command("auto_edit", "text", model, program, tools)
 
     def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
-                         program=None):
-        return self.command("plan", "json", model, program)
+                         program=None, tools=READ_TOOLS):
+        return self.command("plan", "json", model, program, tools)
 
-    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None):
-        return self.command("plan", "text", model, program)
+    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None,
+                        tools=READ_TOOLS):
+        return self.command("plan", "text", model, program, tools)
 
     @staticmethod
     def envelope(data):

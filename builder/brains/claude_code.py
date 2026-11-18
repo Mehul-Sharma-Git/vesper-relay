@@ -3,15 +3,25 @@
 ``--strict-mcp-config``/``--mcp-config``, ``--max-turns``, ``--output-format json``,
 ``--json-schema``, ``--model``, ``--effort`` (low, medium, high, max).
 
+Tools (P1-T10): read is ``Read``, edit ``Edit``, write ``Write``, search ``Glob,Grep`` and
+shell ``Bash``. ``--tools`` limits the built-in tools to that list and ``--allowedTools``
+lets them run without a prompt.
+
 Inside a sandbox it logs in with ``CLAUDE_CODE_OAUTH_TOKEN`` from ``claude setup-token``:
 the Mac keeps the normal login in the Keychain, which a sandbox cannot reach.
 """
 import json
 
-from .base import Adapter, Capabilities
+from .base import READ_TOOLS, WORKER_TOOLS, Adapter, Capabilities
 
-WRITE_TOOLS = "Read,Edit,Write,Glob,Grep"
-READ_TOOLS = "Read,Glob,Grep"
+# Each Vesper tool name as Claude Code tools, in a fixed order.
+NAMES = (("read", ("Read",)), ("edit", ("Edit",)), ("write", ("Write",)), ("search", ("Glob", "Grep")),
+         ("shell", ("Bash",)))
+
+
+def tool_list(tools, read_only=False):
+    granted = set(tools) - ({"edit", "write"} if read_only else set())
+    return ",".join(name for tool, names in NAMES if tool in granted for name in names)
 
 
 class ClaudeCode(Adapter):
@@ -32,18 +42,19 @@ class ClaudeCode(Adapter):
                 '{"mcpServers":{}}', "--permission-mode", "dontAsk", "--tools", tools,
                 "--allowedTools", tools, "--max-turns", str(max_turns), *output, *choice]
 
-    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None):
-        return self.command(WRITE_TOOLS, [], model, effort, max_turns, program)
+    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None, tools=WORKER_TOOLS):
+        return self.command(tool_list(tools), [], model, effort, max_turns, program)
 
     def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
-                         program=None):
+                         program=None, tools=READ_TOOLS):
         output = ["--output-format", "json"]
         if schema is not None:
             output += ["--json-schema", json.dumps(schema, separators=(",", ":"))]
-        return self.command(READ_TOOLS, output, model, effort, max_turns, program)
+        return self.command(tool_list(tools, read_only=True), output, model, effort, max_turns, program)
 
-    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None):
-        return self.command(READ_TOOLS, [], model, effort, max_turns, program)
+    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None,
+                        tools=READ_TOOLS):
+        return self.command(tool_list(tools, read_only=True), [], model, effort, max_turns, program)
 
     def usage(self, text):
         try:
