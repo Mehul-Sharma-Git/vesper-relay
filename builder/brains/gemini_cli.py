@@ -34,22 +34,26 @@ class GeminiCli(Adapter):
     capabilities = Capabilities(edit_files=True, run_shell=True, strict_output=False, model_select=True,
                                 effort_select=False, usage_report=True,
                                 sandbox_login=("env", "GEMINI_API_KEY"))
+    sandbox_hosts = ("generativelanguage.googleapis.com", "cloudcode-pa.googleapis.com", "oauth2.googleapis.com")
+    login_help = ("create a Gemini API key, then store it: security add-generic-password -s vesper-relay "
+                  "-a GEMINI_API_KEY -w (or add it to ~/.config/vesper/secrets.env)")
     credentials = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
                    "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_CLI_HOME")
 
-    def command(self, mode, output, model):
+    def command(self, mode, output, model, program):
         choice = ["-m", model] if model else []
-        return [self.executable(), "--approval-mode", mode, "--output-format", output, *NO_MCP, *choice,
+        return [program or self.executable(), "--approval-mode", mode, "--output-format", output, *NO_MCP, *choice,
                 "-p", CLOSING]
 
-    def worker_command(self, *, model=None, effort=None, max_turns=20):
-        return self.command("auto_edit", "text", model)
+    def worker_command(self, *, model=None, effort=None, max_turns=20, program=None):
+        return self.command("auto_edit", "text", model, program)
 
-    def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20):
-        return self.command("plan", "json", model)
+    def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
+                         program=None):
+        return self.command("plan", "json", model, program)
 
-    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20):
-        return self.command("plan", "text", model)
+    def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None):
+        return self.command("plan", "text", model, program)
 
     @staticmethod
     def envelope(data):

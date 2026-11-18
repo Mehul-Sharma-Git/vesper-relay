@@ -114,7 +114,7 @@ class PlanCritiqueDecodeTests(unittest.TestCase):
         launcher.chmod(0o700)
         template = case.report()
 
-        def fake_run(command, *, cwd, input_text, env, log, timeout):
+        def fake_run(command, *, cwd, input_text, env, log, timeout, **_):
             self.assertEqual(command[1:], ["reviewer", "claude"])
             identity = re.search(r'"reviewer": "(reviewer-[0-9a-f]+)"', input_text).group(1)
             report = {**template, "reviewer": identity}

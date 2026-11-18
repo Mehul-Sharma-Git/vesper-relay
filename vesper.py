@@ -10,15 +10,14 @@ import sys
 from uuid import uuid4
 import tempfile
 
-from build_local import brain_options, chosen, initialize, review_limit_options
-from builder.brains import Selection, command as brain_command, environment as brain_environment
+from build_local import (boundary_options, brain_options, chosen, initialize, resolve_boundary,
+                         review_limit_options)
+from builder.brains import Selection, launch
 from builder.contracts import BuilderError, fingerprint, inventory, read_json, require
 from builder.git_bridge import apply_change, change, repository, seed_repository
 from builder.learning import RULES, guidance, memory, promote, record, record_repair, state_home, summary
 from builder.maintenance import MAINTENANCE_GATE
 from builder.runner import Runner, atomic_json, copy_tree
-from builder.process import run_process
-from builder.providers import check_launcher
 from builder.repair import commit_repair, draft as draft_repair, incident_report, repair_paths, reproduce, validate_failure_id
 from builder.team import catalog, profile, render
 
@@ -114,21 +113,18 @@ def runs(repo):
     return {"runs": output}
 
 
-def boundary(parser):
-    options = parser.add_mutually_exclusive_group(required=True)
-    options.add_argument("--launcher")
-    options.add_argument("--trust-host", action="store_true")
-
-
 def consult(project, args):
     role = profile(args.role, args.skill)
     require(role["access"] != "review", "Use review-candidate for independent review")
     require(args.task.strip(), "Describe the consultation task")
-    launcher = check_launcher(args.launcher)
     brain = Selection(worker=chosen(args)).worker(args.role)
     seed = project / "seed"
     require(seed.is_dir(), "Initialize a project before consulting a specialist")
-    with tempfile.TemporaryDirectory(prefix="vesper-consult-") as temporary:
+    launcher, trust_host = resolve_boundary(args)
+    # Inside the run, so a sandbox engine that shares only the home directory can mount it.
+    control = project / ".builder"
+    control.mkdir(mode=0o700, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="consult-", dir=control) as temporary:
         directory = Path(temporary)
         workspace = directory / "workspace"
         copy_tree(seed, workspace)
@@ -137,9 +133,8 @@ def consult(project, args):
                   "handoff for the planner. Do not edit files or perform external actions.\n\n"
                   + render(role) + "\n\nConsultation task:\n" + args.task)
         response, log = directory / "response.md", directory / "consult.log"
-        command = brain_command(brain, "consult", launcher, args.trust_host, response=response)
-        code = run_process(command, cwd=workspace, input_text=prompt,
-                           env=brain_environment(brain, launcher), log=log, timeout=180)
+        code = launch(brain, "consult", launcher, trust_host, work=workspace, input_text=prompt, log=log,
+                      timeout=180, response=response)
         require(code == 0, f"Consultation failed with exit {code}")
         require(inventory(workspace) == before, "Consultation changed its read-only baseline copy")
         report = response if response.is_file() else log
@@ -150,21 +145,21 @@ def consult(project, args):
 
 def repair_result(runner, args):
     if args.command == "repair-reproduce":
-        return reproduce(runner, check_launcher(args.launcher), args.trust_host)
+        return reproduce(runner, *resolve_boundary(args))
     if args.command == "repair-run":
-        launcher = check_launcher(args.launcher)
-        require(launcher, "Vesper repairs require a confined launcher")
+        launcher, trust_host = resolve_boundary(args)
+        require(launcher, "Vesper repairs require a confined launcher or sandbox")
         selection = Selection(worker=chosen(args), reviewer=chosen(args, reviewer=True))
         if not runner.state_file.is_file():
             draft = runner.review()
             require(draft["digest"] == args.digest, "Repair plan digest changed")
-            reproduce(runner, launcher, args.trust_host)
+            reproduce(runner, launcher, trust_host)
             runner.approve(args.digest)
         state = runner.state()
         require(state["digest"] == args.digest and "repair" in state["bundle"]
                 and Path(state["bundle"]["intake"]["repository"]["path"]) == ROOT,
                 "The approved repair digest or source repository changed")
-        status = runner.run(selection, launcher, trust_host=args.trust_host)
+        status = runner.run(selection, launcher, trust_host=trust_host)
         if status["status"] != "complete" or not args.commit:
             return status
         _, review = change(runner, runner.state(), state["bundle"]["intake"]["repository"])
@@ -201,18 +196,16 @@ def main():
     choice.add_argument("--report", type=Path)
     brain_options(plan_review, group=choice)
     plan_review.add_argument("--attest-independent", action="store_true")
-    execution = plan_review.add_mutually_exclusive_group()
-    execution.add_argument("--launcher")
-    execution.add_argument("--trust-host", action="store_true")
+    boundary_options(plan_review)
     review_limit_options(plan_review)
     commands.add_parser("incidents")
-    boundary(commands.add_parser("repair-reproduce"))
+    boundary_options(commands.add_parser("repair-reproduce"))
     commands.add_parser("repair-commit").add_argument("--digest", required=True)
     repair_run = commands.add_parser("repair-run")
     repair_run.add_argument("--digest", required=True)
     brain_options(repair_run, reviewer=True)
     repair_run.add_argument("--commit", action="store_true", help="Commit the reviewed result to a local repair branch")
-    boundary(repair_run)
+    boundary_options(repair_run)
     roles = commands.add_parser("roles")
     roles.add_argument("--role", choices=tuple(catalog()))
     roles.add_argument("--skill", action="append", default=[])
@@ -222,7 +215,7 @@ def main():
     advice.add_argument("--skill", action="append", default=[])
     advice.add_argument("--task", required=True)
     brain_options(advice)
-    boundary(advice)
+    boundary_options(advice)
     commands.add_parser("learn").add_argument("--promote", choices=tuple(RULES))
     commands.add_parser("review-change")
     commands.add_parser("patch")
@@ -234,6 +227,15 @@ def main():
     shown.add_argument("--repo", type=Path, help="Repository whose vesper.toml applies (default: .)")
     shown.add_argument("--set", dest="flags", action="append", default=[], metavar="KEY=VALUE",
                        help="Override one key, as a command flag would")
+    sandbox = commands.add_parser("sandbox", help="Build or test the sandbox image").add_subparsers(
+        dest="action", required=True)
+    built = sandbox.add_parser("build", help="Build the sandbox image for this machine")
+    built.add_argument("--backend", choices=("docker", "podman"),
+                       help="Container engine (default: sandbox.backend in the config)")
+    built.add_argument("--platform", help="Target platform, for example linux/amd64")
+    tested = sandbox.add_parser("selftest", help="Try to escape from every operation; all attempts must fail")
+    tested.add_argument("--backend", choices=("docker", "podman"),
+                        help="Container engine (default: sandbox.backend in the config)")
     commands.add_parser("root")
     commands.add_parser("runs").add_argument("--repo", type=Path)
     for name in sorted(CORE):
@@ -271,9 +273,10 @@ def main():
                     require(not args.report.is_symlink() and args.report.stat().st_size <= 256_000,
                             "Invalid plan review report")
                 brain = None if args.report else Selection(reviewer=chosen(args)).reviewer()
+                launcher, trust_host = (None, False) if args.report else resolve_boundary(args)
                 result = review_plan(runner, report=read_json(args.report) if args.report else None,
                                      external_attested=args.attest_independent, brain=brain,
-                                     launcher=check_launcher(args.launcher), trust_host=args.trust_host,
+                                     launcher=launcher, trust_host=trust_host,
                                      review_timeout=args.review_timeout, review_max_turns=args.review_max_turns)
         elif args.command == "incidents":
             require(args.project, "Pass --project PATH before the command")
@@ -286,6 +289,19 @@ def main():
         elif args.command == "config":
             from builder.config import show
             result = show(args.config, args.repo, args.flags)
+        elif args.command == "sandbox":
+            from builder.brains import load_settings
+            from builder.sandbox import backend, selftest
+            name = args.backend or load_settings()["sandbox.backend"]
+            require(name != "none", "sandbox.backend is none: pass --backend docker or --backend podman")
+            if args.action == "selftest":
+                return selftest.run(name)
+            engine = backend(name)
+            code = engine.build(args.platform)
+            result = {"backend": name, "image": engine.tag(), "exit_code": code}
+            if code:
+                print(json.dumps(result, indent=2))
+                return 1
         elif args.command == "root":
             result = {"checkout": str(ROOT)}
         elif args.command == "runs":

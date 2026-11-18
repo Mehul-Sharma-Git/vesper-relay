@@ -20,6 +20,11 @@ class VesperTests(unittest.TestCase):
         self.repo.mkdir()
         self.env = dict(os.environ, VESPER_STATE_DIR=str(self.root / "state"),
                         HOME=str(self.root / "home"))
+        self.env.pop("VESPER_CONFIG", None)
+        # Stand-in CLIs and trusted fixture gates: run on the host (sandbox none, which warns).
+        config = self.root / "home" / ".config" / "vesper" / "config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text('[sandbox]\nbackend = "none"\n')
         self.git("init", "-q")
         self.git("config", "user.email", "test@example.com")
         self.git("config", "user.name", "Test")

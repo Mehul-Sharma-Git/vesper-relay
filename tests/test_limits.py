@@ -192,13 +192,13 @@ class ReviewCandidateLimitTests(unittest.TestCase):
         _, preview = self.submit(command)
         seen = {}
 
-        def fake_run(command, *, cwd, input_text, env, log, timeout):
+        def fake_run(command, *, cwd, input_text, env, log, timeout, **_):
             seen.update(turns=command[command.index("--max-turns") + 1], timeout=timeout)
             log.write_text(json.dumps(verdict(preview)))
             return 0
 
         with mock.patch("builder.brains.base.shutil.which", return_value="/usr/local/bin/claude"), \
-                mock.patch("builder.runner.run_process", fake_run), \
+                mock.patch("builder.process.run_process", fake_run), \
                 mock.patch.dict(os.environ, {"VESPER_STATE_DIR": self.env["VESPER_STATE_DIR"]}):
             result = Runner(project).review_candidate(brain=CLAUDE, trust_host=True,
                                                       review_timeout=600, review_max_turns=7)
@@ -228,7 +228,7 @@ class ReviewPlanLimitTests(unittest.TestCase):
         template = self.case.report()
         seen = {}
 
-        def fake_run(command, *, cwd, input_text, env, log, timeout):
+        def fake_run(command, *, cwd, input_text, env, log, timeout, **_):
             identity = re.search(r'"reviewer": "(reviewer-[0-9a-f]+)"', input_text).group(1)
             seen.update(turns=command[command.index("--max-turns") + 1], timeout=timeout)
             log.write_text(json.dumps({**template, "reviewer": identity}))

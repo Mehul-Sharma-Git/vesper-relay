@@ -7,15 +7,27 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = [sys.executable, str(ROOT / "build_local.py")]
+
+
+def host_config(directory):
+    """A private config that runs gates and brains on the host (sandbox none, which warns):
+    these tests use stand-in CLIs and trusted fixture gates, and need no container engine."""
+    path = Path(directory) / "vesper-test-config.toml"
+    path.write_text('[sandbox]\nbackend = "none"\n')
+    return str(path)
 
 
 class BuilderTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        environ = mock.patch.dict(os.environ, {"VESPER_CONFIG": host_config(temp.name)})
+        environ.start()
+        self.addCleanup(environ.stop)
         self.project = Path(temp.name) / "project"
         self.command("init", "--idea", "Write two files")
         (self.project / "plan" / "product.md").write_text("# Approved idea\n")
@@ -195,7 +207,13 @@ class BuilderTests(unittest.TestCase):
 
     def test_provider_dispatch_checks_protocol_and_uses_fresh_scoped_jobs(self):
         self.approve()
-        self.command("run", "--brain", "codex", code=2)
+        # A sandbox whose engine isn't installed stops the run before any attempt.
+        empty = self.project.parent / "empty-bin"
+        empty.mkdir()
+        stderr = self.command("run", "--brain", "codex", "--sandbox", "docker", code=2,
+                              env=dict(os.environ, PATH=str(empty)))
+        self.assertIn("docker not found", stderr)
+        self.assertEqual(self.command("status")["attempts"], [])
         env = self.provider_environment(
             "from pathlib import Path\nimport sys\n"
             "assert '--skip-git-repo-check' in sys.argv and sys.argv[-1] == '-'\n"

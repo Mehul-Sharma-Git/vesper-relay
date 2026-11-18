@@ -13,8 +13,10 @@ through its commands (``prepare``/``submit``, ``review-candidate --report``).
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 from typing import NamedTuple
+from uuid import uuid4
 
 from ..contracts import require
 from .base import Adapter, Capabilities
@@ -120,24 +122,74 @@ class Selection:
         return fallback()
 
 
-def command(brain, operation, launcher, trust_host, *, response=None, schema=None, max_turns=20):
-    """The argv for one brain process. A launcher gets ``<operation> <cli>`` and builds the
-    command itself (it finds the schema as review.schema.json), so max_turns reaches only a
-    direct brain."""
-    from ..providers import check_launcher, review_limits
-    review_limits(max_turns=max_turns)
-    require(operation in OPERATIONS, f"Unknown brain operation {operation}")
-    require(launcher or trust_host, "Select --launcher PATH or explicitly opt into --trust-host")
+def arguments(brain, operation, *, response=None, schema=None, max_turns=20, program=None):
+    """The brain's own command line for one operation, adapted to its capabilities."""
     adapter = brain.adapter
-    if launcher:
-        return [check_launcher(launcher), operation, adapter.binary]
-    choice = {"model": brain.model, "effort": brain.effort, "max_turns": max_turns}
+    choice = {"model": brain.model, "effort": brain.effort, "max_turns": max_turns, "program": program}
     if operation == "worker":
         return adapter.worker_command(**choice)
     if operation == "reviewer":
         return adapter.reviewer_command(response=response,
                                         schema=schema if adapter.capabilities.strict_output else None, **choice)
     return adapter.consult_command(response=response, **choice)
+
+
+def job(brain, operation, work, *, out=None, schema=None, max_turns=20):
+    """The sandbox job for one brain process: its CLI by bare name, the reply in /out."""
+    from ..providers import review_limits
+    from ..sandbox import agent_job
+    review_limits(max_turns=max_turns)
+    require(operation in OPERATIONS, f"Unknown brain operation {operation}")
+    adapter = brain.adapter
+    argv = arguments(brain, operation, response="/out/response.json" if out is not None else None,
+                     schema=schema, max_turns=max_turns, program=adapter.binary)
+    return agent_job(operation, argv, work, out=out, login=adapter.capabilities.sandbox_login,
+                     hosts=adapter.sandbox_hosts, env=adapter.sandbox_env, login_help=adapter.login_help)
+
+
+def command(brain, operation, launcher, trust_host, *, response=None, schema=None, max_turns=20):
+    """Check that the brain can start and return its argv: a launcher gets ``<operation> <cli>`` and
+    builds the command itself (it finds the schema as review.schema.json), a sandbox backend gets
+    a job (its login is checked here), and the host gets the CLI directly."""
+    from ..providers import check_launcher, review_limits
+    from ..sandbox import Sandbox
+    review_limits(max_turns=max_turns)
+    require(operation in OPERATIONS, f"Unknown brain operation {operation}")
+    require(launcher or trust_host, "Select --launcher PATH or explicitly opt into --trust-host")
+    if isinstance(launcher, Sandbox):
+        prepared = job(brain, operation, Path("/"), max_turns=max_turns)
+        launcher.preflight(prepared)
+        return list(prepared.argv)
+    if launcher:
+        return [check_launcher(launcher), operation, brain.adapter.binary]
+    return arguments(brain, operation, response=response, schema=schema, max_turns=max_turns)
+
+
+def launch(brain, operation, launcher, trust_host, *, work, input_text, log, timeout, response=None, schema=None,
+           max_turns=20, on_start=None):
+    """Run one brain process in ``work`` and return its exit status. A reply the brain writes to a
+    file arrives at ``response``."""
+    from ..process import run_process
+    from ..sandbox import Sandbox
+    if not isinstance(launcher, Sandbox):
+        argv = command(brain, operation, launcher, trust_host, response=response, schema=schema,
+                       max_turns=max_turns)
+        return run_process(argv, cwd=work, input_text=input_text, env=environment(brain, launcher), log=log,
+                           timeout=timeout, on_start=on_start or (lambda _: None))
+    out = None
+    if response is not None:
+        out = Path(response).parent / ("out-" + uuid4().hex)
+        out.mkdir()
+    try:
+        code = launcher.run(job(brain, operation, work, out=out, schema=schema, max_turns=max_turns),
+                            input_text=input_text, log=log, timeout=timeout, on_start=on_start)
+        reply = out / "response.json" if out else None
+        if reply and reply.is_file() and not reply.is_symlink():
+            os.replace(reply, response)
+        return code
+    finally:
+        if out:
+            shutil.rmtree(out, ignore_errors=True)
 
 
 def environment(brain, launcher):
@@ -153,5 +205,6 @@ def usage(brain, text):
     return brain.adapter.usage(text) if brain.adapter.capabilities.usage_report else None
 
 
-__all__ = ["ADAPTERS", "Brain", "Capabilities", "CREDENTIALS", "LEGACY", "Selection", "brain", "command",
-           "environment", "legacy", "load_settings", "parse_result", "resolve", "usage"]
+__all__ = ["ADAPTERS", "Brain", "Capabilities", "CREDENTIALS", "LEGACY", "Selection", "arguments", "brain",
+           "command", "environment", "job", "launch", "legacy", "load_settings", "parse_result", "resolve",
+           "usage"]
