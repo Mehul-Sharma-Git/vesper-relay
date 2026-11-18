@@ -170,9 +170,21 @@ class ConfigTests(unittest.TestCase):
                 self.assertIn("Keychain", message)
                 self.assertIn("secrets.env", message)
         self.refused("looks like a secret", project="[hosting]\nrender_api_key = 'x'\n")
-        with self.assertRaises(BuilderError) as caught:
-            parse_flag("tools.npm_token=abc")
-        self.assertIn("looks like a secret", str(caught.exception))
+        for flag in ("tools.npm_token=abc", 'tools.gh={token="x"}', 'tools.list=[{api_key="x"}]',
+                     'tools.gh={auth={password="x"}}'):
+            with self.subTest(flag=flag), self.assertRaises(BuilderError) as caught:
+                parse_flag(flag)
+            self.assertIn("looks like a secret", str(caught.exception))
+
+    def test_a_table_flag_merges_leaf_by_leaf(self):
+        values = self.load(PERSONAL, flags=[parse_flag('brains.reviewer={use="codex"}')])["values"]
+        self.assertEqual(values["brains.reviewer.use"], {"value": "codex", "source": "flag"})
+        self.assertEqual(values["brains.reviewer.model"]["source"], "personal")
+        self.assertNotIn("brains.reviewer", values)
+
+    def test_a_flag_value_is_one_line(self):
+        with self.assertRaises(BuilderError):
+            parse_flag("limits.review_timeout=1\nlimits.review_max_turns=2")
 
     def test_ordinary_words_containing_key_letters_are_allowed(self):
         values = self.load("[defaults]\nkeyboard_layout = 'us'\n[paths]\nkeystore_dir = '/k'\n")["values"]

@@ -37,6 +37,7 @@ DEFAULTS = {
 }
 
 SANDBOX_BACKENDS = ("docker", "podman", "none")
+FLAG = "a command flag"
 SECRET_WORDS = ("token", "secret", "password", "credential")
 SECRET_STORE = ("Config files hold no secrets: store it in the macOS Keychain or in "
                 "~/.config/vesper/secrets.env (readable only by you, mode 600)")
@@ -121,13 +122,19 @@ def parse_flag(text):
     key = key.strip()
     parts = key.split(".")
     require(sep and len(parts) >= 2 and all(parts), f"Config flag must be SECTION.KEY=VALUE: {text}")
+    require("\n" not in raw and "\r" not in raw, f"Config flag value must be one line: {key}")
     require(parts[0] in LEVELS, f"Unknown config section [{parts[0]}] in flag {text}")
     for index in range(1, len(parts) + 1):
-        refuse_secret(".".join(parts[:index]), "a command flag")
+        refuse_secret(".".join(parts[:index]), FLAG)
     try:
         value = tomllib.loads(f"v = {raw}")["v"]
     except tomllib.TOMLDecodeError:
         value = raw
+    # An inline table or array is scanned exactly like the same value in a file.
+    if isinstance(value, dict):
+        flatten(value, key, FLAG, {})
+    elif isinstance(value, list):
+        scan_list(value, key, FLAG)
     return key, value
 
 
@@ -171,7 +178,9 @@ def load_config(personal, project, flags=(), explicit=False):
         for key, value in values.items():
             effective[key] = {"value": value, "source": level, "file": str(path)}
     for key, value in flags:
-        effective[key] = {"value": value, "source": "flag"}
+        leaves = flatten(value, key, FLAG, {}) if isinstance(value, dict) else {key: value}
+        for leaf, leaf_value in leaves.items():
+            effective[leaf] = {"value": leaf_value, "source": "flag"}
     validate({key: entry["value"] for key, entry in effective.items()})
     return {"files": files, "values": dict(sorted(effective.items()))}
 
