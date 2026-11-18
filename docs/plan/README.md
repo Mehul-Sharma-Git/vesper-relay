@@ -177,7 +177,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P1-T8 | Brain adapter interface: Claude Code, Codex, Gemini CLI | P1-T2, P1-T7 | L | done |
 | P1-T9 | Pluggable sandbox: Docker and Podman backends, selftest | P1-T5, P1-T8 | L | done |
 | P1-T10 | Worker tool layer (shell only inside the sandbox) | P1-T9 | M | done |
-| P1-T11 | `vesper setup` wizard and `vesper doctor` | P1-T9 | M | todo |
+| P1-T11 | `vesper setup` wizard and `vesper doctor` | P1-T9 | M | doing |
 | P1-G | Phase 1 gate: Pocket Todo unattended in the sandbox with one AI | P1-T1..T11 | M | todo |
 | P2-T1 | Gate logs, scripts and artifacts in the review copy | P1-G | S | todo |
 | P2-T2 | Human-only approvals, enforced in every door | P1-G | M | todo |
