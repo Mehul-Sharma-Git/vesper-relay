@@ -54,9 +54,9 @@ python3 -B build_local.py --project ~/my-product submit ATTEMPT_ID
 python3 -B build_local.py --project ~/my-product status
 ```
 
-Repeat until complete. Only the runner publishes snapshots. Submit executes
-the approved checks on the host by default, so use this mode with trusted
-code and trusted checks, or add `--sandbox docker` (or the isolation launcher below).
+Repeat until complete. Only the runner publishes snapshots. Submit runs the
+approved checks in the sandbox (below); `--sandbox none` runs them on this machine,
+with a warning, for trusted code and trusted checks only.
 Managed team jobs pause at `awaiting_review`. Follow the separate review step
 in [the RC1 guide](docs/RC1.md) before preparing the next job.
 

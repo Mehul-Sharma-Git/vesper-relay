@@ -105,8 +105,7 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `~/.config/vesper/secrets.env` (mode 600).
 - **Sandbox.** Brains, gates and reviewers run in a container: `sandbox.backend` in the
   personal config (`docker` by default) or `--sandbox docker|podman|none` on `run`,
-  `review-candidate`, `consult`, `review-plan`, `repair-reproduce` and `repair-run`
-  (`submit` runs gates on the host unless you pass `--sandbox`). `vesper sandbox build`
+  `submit`, `review-candidate`, `consult`, `review-plan`, `repair-reproduce` and `repair-run`. `vesper sandbox build`
   builds the image from `sandbox/Dockerfile`; `vesper sandbox selftest` (or
   `sh sandbox/selftest.sh`) tries to escape from every operation and passes only when every
   attempt fails. `none` and `--trust-host` run on the host and warn every time; `--launcher

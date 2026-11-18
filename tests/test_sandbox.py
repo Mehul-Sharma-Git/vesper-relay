@@ -111,8 +111,12 @@ class ArgumentTests(unittest.TestCase):
         codex = brain_job(Brain("codex", ADAPTERS["codex"]), "worker", self.work)
         self.assertEqual(codex.secrets, ())
         login = Path("~/.codex/auth.json").expanduser()
-        self.assertIn(f"type=bind,source={login},target=/home/vesper/.codex/auth.json,readonly",
+        self.assertIn(f"type=bind,source={login},target=/run/vesper-login/auth.json,readonly",
                       value_after(self.build(Docker(), codex), "--mount"))
+        # The read-only login is copied into the private home before the CLI starts.
+        self.assertEqual(codex.argv[:2], ("sh", "-c"))
+        self.assertEqual(codex.argv[3:6], ("vesper-login", ".codex/auth.json", "/run/vesper-login/auth.json"))
+        self.assertEqual(codex.argv[6:8], ("codex", "exec"))
         store = self.root / "secrets.env"
         store.write_text("CLAUDE_CODE_OAUTH_TOKEN=sk-test-value\n")
         store.chmod(0o600)
@@ -224,7 +228,7 @@ class RunnerSandboxTests(unittest.TestCase):
         worker, check, reviewer = fake.jobs
         self.assertFalse(worker.work_readonly)
         self.assertTrue(check.work_readonly and reviewer.work_readonly)
-        self.assertEqual(reviewer.argv[0], "codex")
+        self.assertIn("codex", reviewer.argv)
         self.assertEqual(result["attempts"][-1]["review"]["adapter"], "codex")
 
 
@@ -238,7 +242,7 @@ class CommandLineTests(unittest.TestCase):
     def test_none_backend_warns_on_every_run(self):
         _, command = self.plan()
         self.approve(command)
-        self.env["PATH"] = os.defpath
+        self.env["PATH"] = self.empty_path()
         for flags in (("--sandbox", "none"), ("--trust-host",)):
             with self.subTest(flags=flags):
                 error = command("run", "--brain", "codex", *flags, code=2)
@@ -247,14 +251,22 @@ class CommandLineTests(unittest.TestCase):
     def test_default_backend_comes_from_the_config_and_needs_its_engine(self):
         _, command = self.plan()
         self.approve(command)
-        self.env["PATH"] = os.defpath
-        self.assertIn("docker not found", command("run", "--brain", "codex", code=2))
+        self.env["PATH"] = self.empty_path()
         config = Path(self.env["HOME"]) / ".config" / "vesper" / "config.toml"
-        config.parent.mkdir(parents=True)
+        config.unlink()  # the built-in default: docker
+        self.assertIn("docker not found", command("run", "--brain", "codex", code=2))
+        attempt = command("prepare")
+        self.assertIn("docker not found", command("submit", attempt["id"], code=2))
+        command("abandon", attempt["id"])
         config.write_text('[sandbox]\nbackend = "podman"\n')
         self.assertIn("podman not found", command("run", "--brain", "codex", code=2))
         self.assertIn("docker not found", command("run", "--brain", "codex", "--sandbox", "docker", code=2))
-        self.assertEqual(command("status")["attempts"], [])
+        self.assertEqual([item["outcome"] for item in command("status")["attempts"]], ["interrupted"])
+
+    def empty_path(self):
+        empty = self.root / "empty-bin"
+        empty.mkdir(exist_ok=True)
+        return str(empty)
 
     def test_missing_image_names_the_build_command(self):
         bin_dir = self.root / "bin"
@@ -262,9 +274,10 @@ class CommandLineTests(unittest.TestCase):
         fake = bin_dir / "docker"
         fake.write_text("#!/bin/sh\necho 'Error response from daemon: No such image: x' >&2\nexit 1\n")
         fake.chmod(0o700)
-        self.env["PATH"] = str(bin_dir) + os.pathsep + os.defpath
         _, command = self.plan()
         self.approve(command)
+        self.env["PATH"] = str(bin_dir)
+        (Path(self.env["HOME"]) / ".config" / "vesper" / "config.toml").unlink()
         self.assertIn("vesper sandbox build", command("run", "--brain", "codex", code=2))
         fake.write_text("#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n")
         self.assertIn("docker could not be reached", command("run", "--brain", "codex", code=2))

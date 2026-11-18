@@ -30,25 +30,25 @@ def replay(destination):
     command("approve", "--digest", reviewed["digest"])
     bad_backend = command("prepare")
     (Path(bad_backend["workspace"]) / "server.py").write_text("raise SystemExit('Injected startup fault')\n")
-    result = command("submit", bad_backend["id"], exit_code=1)
+    result = command("submit", bad_backend["id"], "--sandbox", "none", exit_code=1)
     assert result["outcome"] == "rejected" and result["checks"][0]["id"] == "G_API"
     assert command("status")["completed"] == []
 
     backend = command("prepare")
     shutil.copy2(EXAMPLES / "stockroom-app" / "server.py", Path(backend["workspace"]) / "server.py")
-    assert command("submit", backend["id"])["outcome"] == "accepted"
+    assert command("submit", backend["id"], "--sandbox", "none")["outcome"] == "accepted"
     assert command("status")["completed"] == ["J_API"]
 
     bad_frontend = command("prepare")
     (Path(bad_frontend["workspace"]) / "server.py").write_text("raise SystemExit('Outside frontend scope')\n")
-    result = command("submit", bad_frontend["id"], exit_code=1)
+    result = command("submit", bad_frontend["id"], "--sandbox", "none", exit_code=1)
     assert "outside job scope" in result["reason"]
     assert command("status")["completed"] == ["J_API"]
 
     frontend = command("prepare")
     for name in ("index.html", "styles.css", "app.js"):
         shutil.copy2(EXAMPLES / "stockroom-app" / name, Path(frontend["workspace"]) / name)
-    result = command("submit", frontend["id"])
+    result = command("submit", frontend["id"], "--sandbox", "none")
     assert [item["id"] for item in result["checks"]] == ["G_API", "G_UI"]
     status = command("status")
     assert status["status"] == "complete" and status["completed"] == ["J_API", "J_UI"]

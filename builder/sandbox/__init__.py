@@ -45,6 +45,9 @@ NETWORKS = {"worker": "egress", "reviewer": "egress", "consult": "egress",
 ENGINE_ENV = ("PATH", "HOME", "LANG", "TMPDIR", "USER", "LOGNAME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME",
               "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY",
               "CONTAINER_HOST", "CONTAINERS_CONF")
+LOGIN_DIR = "/run/vesper-login"
+# Copies a read-only login file into the private home, so the CLI can write next to it.
+LOGIN_COPY = 'mkdir -p "$(dirname "$HOME/$1")" && cp "$2" "$HOME/$1" && shift 2 && exec "$@"'
 HOST_NAME = re.compile(r"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
 
 
@@ -79,7 +82,10 @@ def agent_job(operation, argv, work, *, out=None, login=None, hosts=(), env=(), 
             names = (value,)
         else:
             require(value.startswith("~/"), f"A login file must live under the home directory: {value}")
-            mounts.append((Path(value).expanduser(), f"{HOME}/{value[2:]}", True))
+            source = f"{LOGIN_DIR}/{Path(value).name}"
+            mounts.append((Path(value).expanduser(), source, True))
+            # The host file is never written; a token the CLI refreshes stays in the sandbox.
+            argv = ("sh", "-c", LOGIN_COPY, "vesper-login", value[2:], source, *argv)
     return Job(operation, tuple(argv), Path(work), operation != "worker", tuple(mounts), tuple(env), names,
                tuple(hosts), NETWORKS[operation], login_help)
 
@@ -178,7 +184,7 @@ class Container(Sandbox):
             require(value, f"No sandbox login {key}: {job.login_help}")
             env[key] = value
         for source, target, _ in job.mounts:
-            if target.startswith(HOME + "/"):
+            if target.startswith(LOGIN_DIR + "/"):
                 require(source.is_file(), f"No sandbox login file {source}: {job.login_help}")
         return env
 
@@ -193,7 +199,8 @@ class Container(Sandbox):
                             "Allow 0.0.0.0/0", "ConnectPort 443", "FilterType ere", "FilterURLs Off",
                             "FilterDefaultDeny Yes", 'Filter "/etc/vesper-proxy/filter"', "LogLevel Notice",
                             "DisableViaHeader Yes", ""))
-        filters = "".join("^" + re.escape(host) + "$\n" for host in hosts)
+        # Host names hold only letters, digits, "-" and "."; escape the dots (POSIX ERE has no "\\-").
+        filters = "".join("^" + host.replace(".", "\\.") + "$\n" for host in hosts)
         return config, filters
 
     def engine(self, env, *args, check=False):

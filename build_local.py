@@ -121,8 +121,8 @@ def main():
                 if args.command == "approve":
                     result = engine.approve(args.digest)
                 elif args.command == "submit":
-                    # Supervised gates run on this machine unless a sandbox or launcher is chosen.
-                    result = engine.submit(args.attempt, resolve_boundary(args, default=False)[0])
+                    # Supervised gates run sandboxed too: the config's backend unless a flag chooses.
+                    result = engine.submit(args.attempt, resolve_boundary(args)[0])
                 elif args.command == "review-candidate":
                     if args.report:
                         require(args.report.stat().st_size <= 256_000, "Review report exceeds the size limit")
