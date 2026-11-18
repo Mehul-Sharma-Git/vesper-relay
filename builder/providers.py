@@ -1,8 +1,10 @@
-"""External agent command construction. Provider output is diagnostic only."""
+"""Shared pieces for brain processes: launcher check, review limits and the worker prompt.
+
+The commands for each kind of AI live in ``builder/brains/`` (P1-T8). Brain output is
+diagnostic only."""
 import json
 import os
 from pathlib import Path
-import shutil
 
 from .contracts import require, reviewed_text
 from .playbook import matching_guidance
@@ -21,44 +23,6 @@ def review_limits(timeout=180, max_turns=20):
     require(type(timeout) is int and 1 <= timeout <= 1800, "Review timeout must be 1 to 1800 seconds")
     require(type(max_turns) is int and 1 <= max_turns <= 100, "Review max turns must be 1 to 100")
     return timeout, max_turns
-
-
-def provider_command(name, launcher, trust_host, *, operation="worker", response=None, schema=None,
-                     max_turns=20):
-    # A launcher finds the schema as review.schema.json in its CWD and passes it on itself.
-    # It also builds its own provider command, so max_turns reaches only a direct provider.
-    review_limits(max_turns=max_turns)
-    require(launcher or trust_host, "Select --launcher PATH or explicitly opt into --trust-host")
-    if launcher:
-        return [check_launcher(launcher), operation, name]
-    binary = shutil.which(name)
-    require(binary, f"Provider executable not found: {name}")
-    if name == "codex":
-        mode = "workspace-write" if operation == "worker" else "read-only"
-        output = ["--output-last-message", str(response)] if response else []
-        return [binary, "exec", "-c", 'approval_policy="never"', "--skip-git-repo-check",
-                "--sandbox", mode, "--ignore-user-config", *output, "-"]
-    tools = "Read,Edit,Write,Glob,Grep" if operation == "worker" else "Read,Glob,Grep"
-    output = ["--output-format", "json"] if operation == "reviewer" else []
-    if operation == "reviewer" and schema is not None:
-        output += ["--json-schema", json.dumps(schema, separators=(",", ":"))]
-    return [binary, "--restricted", "-p", "--strict-mcp-config", "--mcp-config",
-            '{"mcpServers":{}}', "--permission-mode", "dontAsk", "--tools", tools,
-            "--allowedTools", tools, "--max-turns", str(max_turns), *output]
-
-
-# Provider login material. Workers and reviewers on the host get these; gates never do.
-PROVIDER_CREDENTIALS = {
-    "codex": ("OPENAI_API_KEY", "CODEX_HOME"),
-    "claude": ("ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"),
-}
-
-
-def provider_environment(name, launcher):
-    keys = {"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "LOGNAME"}
-    if not launcher:
-        keys.update(PROVIDER_CREDENTIALS["codex" if name == "codex" else "claude"])
-    return {key: value for key, value in os.environ.items() if key in keys}
 
 
 def worker_prompt(contract, job, plans, manifest, failure, intake=None, specialist=None, planning=None):

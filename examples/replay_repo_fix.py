@@ -97,7 +97,7 @@ report.update(verdict="approve", summary="The candidate restores the existing pa
 print(json.dumps(report))
 ''')
     reviewer.chmod(0o700)
-    assert run("review-candidate", "--provider", "codex", "--launcher", str(reviewer))["outcome"] == "accepted"
+    assert run("review-candidate", "--brain", "codex", "--launcher", str(reviewer))["outcome"] == "accepted"
     review = run("review-change")
     assert review["files"] == ["server.py"]
     assert server.read_text() == broken

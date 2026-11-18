@@ -150,7 +150,7 @@ def replay(destination):
     assert proof['defect']['outcome'] == 'reproduced' and proof['digest'] == approved
     print('Named start/runs workflow reproduced on the frozen faulty baseline.', flush=True)
     repair('approve', '--digest', approved)
-    status = json.loads(repair('run', '--provider', 'codex', '--reviewer-provider', 'claude',
+    status = json.loads(repair('run', '--brain', 'codex', '--reviewer-brain', 'claude-code',
                                '--launcher', str(launcher)))
     assert status['status'] == 'complete'
     reviewed = json.loads(repair('review-change'))

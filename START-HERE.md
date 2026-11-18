@@ -62,12 +62,16 @@ in [the RC1 guide](docs/RC1.md) before preparing the next job.
 
 ### Automatic mode
 
-With a supported, authenticated provider CLI installed:
+With a supported, authenticated agent CLI installed (Claude Code, Codex or Gemini CLI):
 
 ```sh
-python3 -B build_local.py --project ~/my-product run --provider codex --launcher /absolute/path/to/launcher
-# Or select --provider claude. The native Claude adapter expects v2.1.248+.
+python3 -B build_local.py --project ~/my-product run --brain codex --launcher /absolute/path/to/launcher
+# Or --brain claude-code (Claude Code v2.1.248+) or --brain gemini-cli, or a brain named in
+# ~/.config/vesper/config.toml. Add --reviewer-brain NAME for a different reviewer.
 ```
+
+A launcher is called as `LAUNCHER worker|reviewer|consult CLI` (with `CLI` one of
+`claude`, `codex`, `gemini`) and builds that CLI's command itself.
 
 For a trusted local experiment, explicitly replace `--launcher …` with
 `--trust-host`. The direct Codex adapter requests workspace-write. The direct
@@ -81,12 +85,12 @@ The launcher is a user-configured executable. Its interface is:
 
 | Invocation | Working directory and inputs | Expected boundary |
 |---|---|---|
-| `launcher worker codex` or `launcher worker claude` | CWD is the disposable work copy. The job brief arrives on stdin. | Give the provider the candidate as its writable project. Limit other mounts and network access to those needed for the selected provider. |
+| `launcher worker CLI` (`claude`, `codex` or `gemini`) | CWD is the disposable work copy. The job brief arrives on stdin. | Give the brain the candidate as its writable project. Limit other mounts and network access to those needed for the selected brain. |
 | `launcher check /path/to/gate.py /path/to/candidate` | CWD is a temporary gate directory. Gate inputs are in the script's parent directory. | Run Python with the gate package and candidate mounted read-only. Give it separate temporary space. Permit loopback inside the isolated environment for checks that start a server. |
 | `launcher check-command /path/to/work -- PROGRAM ARGS...` | CWD is `/path/to/work`, a throwaway copy of the candidate with the check's overlay already copied in. `PROGRAM` is a bare name, never a path. | Mount the work copy writable and nothing from `checks/` or the verified candidate. Resolve `PROGRAM` on the sandbox's own `PATH`, run it with the given arguments in the work copy, and give it separate temporary space. Permit loopback as for `check`. When the contract has build setup, `GOMODCACHE` and `PNPM_STORE_DIR` name the run's dependency cache: mount it read-only. |
 | `launcher setup /path/to/work -- PROGRAM ARGS...` | CWD is `/path/to/work`, a throwaway copy of the candidate. Runs once per verification, before the first command gate, for each command in the contract's `build.setup`. `PNPM_STORE_DIR` and `GOMODCACHE` name the run's dependency cache. | The only gate-side step that may have network access. Mount the work copy and the two cache directories writable, nothing else. Resolve `PROGRAM` as for `check-command`. |
-| `launcher reviewer codex` or `launcher reviewer claude` | CWD contains the baseline, candidate, frozen plan, diff, and check evidence (for a plan critique: `plan/`, `checks/` and `seed/`), plus `review.schema.json`, the JSON Schema the verdict must match. The review prompt arrives on stdin. | Mount the review copy read-only. Pass `review.schema.json` to the provider's structured-output option where it has one (Claude Code: `--json-schema "$(cat review.schema.json)"`). Return the JSON verdict on stdout. Exclude the writer workspace and accepted snapshots. |
-| `launcher consult codex` or `launcher consult claude` | CWD is a copy of the baseline. The specialist brief and requested handoff arrive on stdin. | Mount the baseline read-only and return the handoff on stdout. |
+| `launcher reviewer CLI` | CWD contains the baseline, candidate, frozen plan, diff, and check evidence (for a plan critique: `plan/`, `checks/` and `seed/`), plus `review.schema.json`, the JSON Schema the verdict must match. The review prompt arrives on stdin. | Mount the review copy read-only. Pass `review.schema.json` to the brain's structured-output option where it has one (Claude Code: `--json-schema "$(cat review.schema.json)"`). Return the JSON verdict on stdout. Exclude the writer workspace and accepted snapshots. |
+| `launcher consult CLI` | CWD is a copy of the baseline. The specialist brief and requested handoff arrive on stdin. | Mount the baseline read-only and return the handoff on stdout. |
 
 A launcher returns the provider or gate exit status. Launchers and their OS
 isolation are supplied and validated by the operator. A launcher can also

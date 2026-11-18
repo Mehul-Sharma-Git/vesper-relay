@@ -5,8 +5,9 @@ import json
 from pathlib import Path
 import sys
 
+from builder.brains import ADAPTERS, LEGACY, Selection, legacy
 from builder.contracts import BuilderError, read_json, require
-from builder.providers import check_launcher, provider_command
+from builder.providers import check_launcher
 from builder.runner import Runner
 from builder.learning import record
 
@@ -16,6 +17,29 @@ def review_limit_options(parser):
                         help="Reviewer wall-time limit, 1 to 1800 seconds (default 180)")
     parser.add_argument("--review-max-turns", type=int, default=20, metavar="N",
                         help="Reviewer agent turn limit, 1 to 100 (default 20)")
+
+
+def brain_options(parser, reviewer=False, group=None):
+    """--brain NAME (and --reviewer-brain NAME), each with its deprecated --provider alias."""
+    choice = group or parser.add_mutually_exclusive_group()
+    choice.add_argument("--brain", metavar="NAME",
+                        help="A brain named under [brains] in the config, or an adapter: " + ", ".join(ADAPTERS)
+                        + " (default: [roles] in the config)")
+    choice.add_argument("--provider", choices=tuple(LEGACY), help="Deprecated alias of --brain")
+    if reviewer:
+        second = parser.add_mutually_exclusive_group()
+        second.add_argument("--reviewer-brain", metavar="NAME",
+                            help="The reviewer's brain (default: [roles] reviewer, then the worker's brain)")
+        second.add_argument("--reviewer-provider", choices=tuple(LEGACY), help="Deprecated alias of --reviewer-brain")
+
+
+def chosen(args, reviewer=False):
+    """The brain flag's value: a brain name, a Brain from a deprecated alias, or None."""
+    prefix = "reviewer_" if reviewer else ""
+    provider = getattr(args, prefix + "provider")
+    if provider:
+        return legacy(provider, "--reviewer-provider" if reviewer else "--provider")
+    return getattr(args, prefix + "brain")
 
 
 def initialize(root, idea):
@@ -41,9 +65,9 @@ def main():
     submit.add_argument("attempt")
     submit.add_argument("--launcher")
     review_candidate = commands.add_parser("review-candidate")
-    reviewer_input = review_candidate.add_mutually_exclusive_group(required=True)
+    reviewer_input = review_candidate.add_mutually_exclusive_group()
     reviewer_input.add_argument("--report", type=Path)
-    reviewer_input.add_argument("--provider", choices=("codex", "claude"))
+    brain_options(review_candidate, group=reviewer_input)
     review_candidate.add_argument("--attest-independent", action="store_true")
     review_boundary = review_candidate.add_mutually_exclusive_group()
     review_boundary.add_argument("--launcher")
@@ -54,8 +78,7 @@ def main():
     commands.add_parser("status")
     commands.add_parser("export").add_argument("destination", type=Path)
     run = commands.add_parser("run")
-    run.add_argument("--provider", required=True, choices=("codex", "claude"))
-    run.add_argument("--reviewer-provider", choices=("codex", "claude"))
+    brain_options(run, reviewer=True)
     trust = run.add_mutually_exclusive_group()
     trust.add_argument("--launcher")
     trust.add_argument("--trust-host", action="store_true")
@@ -83,7 +106,8 @@ def main():
                         require(args.report.stat().st_size <= 256_000, "Review report exceeds the size limit")
                         result = engine.review_candidate(read_json(args.report), external_attested=args.attest_independent)
                     else:
-                        result = engine.review_candidate(provider=args.provider, launcher=check_launcher(args.launcher),
+                        brain = Selection(reviewer=chosen(args)).reviewer()
+                        result = engine.review_candidate(brain=brain, launcher=check_launcher(args.launcher),
                                                          trust_host=args.trust_host,
                                                          review_timeout=args.review_timeout,
                                                          review_max_turns=args.review_max_turns)
@@ -94,9 +118,8 @@ def main():
                 elif args.command == "export":
                     result = engine.export(args.destination.resolve())
                 elif args.command == "run":
-                    command = provider_command(args.provider, args.launcher, args.trust_host)
-                    result = engine.run(args.provider, command, args.launcher,
-                                        reviewer=args.reviewer_provider, trust_host=args.trust_host,
+                    selection = Selection(worker=chosen(args), reviewer=chosen(args, reviewer=True))
+                    result = engine.run(selection, check_launcher(args.launcher), trust_host=args.trust_host,
                                         review_timeout=args.review_timeout,
                                         review_max_turns=args.review_max_turns)
                 else:

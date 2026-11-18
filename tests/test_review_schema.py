@@ -8,7 +8,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from builder.contracts import BuilderError
-from builder.providers import provider_command
+from builder.brains import ADAPTERS, Brain, LEGACY, command as brain_command
 from builder.review_gate import decode_provider_report, prompt, report_schema
 
 REPLIES = ROOT / "docs/plan/fixtures/pocket-todo/reviewer-replies"
@@ -113,9 +113,10 @@ class ReviewerCommandTests(unittest.TestCase):
     schema = {"type": "object", "required": ["verdict"]}
 
     def command(self, name, operation="reviewer", schema=None, launcher=None):
-        with mock.patch("builder.providers.shutil.which", return_value="/usr/local/bin/" + name):
-            return provider_command(name, launcher, True, operation=operation, response=Path("r.json"),
-                                    schema=schema)
+        adapter = LEGACY[name]
+        with mock.patch("builder.brains.base.shutil.which", return_value="/usr/local/bin/" + name):
+            return brain_command(Brain(adapter, ADAPTERS[adapter]), operation, launcher, True,
+                                 response=Path("r.json"), schema=schema)
 
     def test_claude_reviewer_command_carries_the_schema(self):
         command = self.command("claude", schema=self.schema)
@@ -189,9 +190,9 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
                                        "result": "", "structured_output": report}))
             return 0
 
-        with mock.patch("builder.providers.shutil.which", return_value="/usr/local/bin/claude"), \
+        with mock.patch("builder.brains.base.shutil.which", return_value="/usr/local/bin/claude"), \
                 mock.patch("builder.process.run_process", fake_run):
-            result = review_plan(case.runner, provider="claude", trust_host=True)
+            result = review_plan(case.runner, brain=Brain("claude-code", ADAPTERS["claude-code"]), trust_host=True)
         self.assertEqual(result["status"], "reviewed")
         self.assertEqual(seen["schema"], seen["file"])
         self.assertEqual(seen["schema"]["properties"]["reviewer"]["const"], seen["identity"])

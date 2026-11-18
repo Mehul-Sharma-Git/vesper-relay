@@ -14,9 +14,9 @@ from uuid import uuid4
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract)
 from .process import run_process
-from .providers import provider_command, provider_environment, review_limits, worker_prompt
-from .review_gate import (decode_provider_report, needs_security, prompt as review_prompt, report_schema,
-                          validate_report, write_diff)
+from .brains import command as brain_command, environment as brain_environment, parse_result, usage
+from .providers import review_limits, worker_prompt
+from .review_gate import needs_security, prompt as review_prompt, report_schema, validate_report, write_diff
 
 
 def stamp():
@@ -341,7 +341,7 @@ class Runner:
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
 
-    def begin(self, state, contract, provider):
+    def begin(self, state, contract, provider, adapter=None):
         require(not state["active"], "An attempt is active. Submit or abandon it first.")
         job = self.ready(state, contract)
         require(job, "No jobs remain")
@@ -349,6 +349,7 @@ class Runner:
         require(len(previous) < self.budget_for(state, job), f"Retry budget exhausted for {job['id']}")
         base = self.check_snapshot(state)
         attempt = {"id": uuid4().hex, "job": job["id"], "provider": provider,
+                   **({"adapter": adapter} if adapter else {}),
                    "started_at": stamp(), "base": state["snapshot_id"], "checks": []}
         directory = self.attempt_dir(attempt)
         directory.mkdir(parents=True)
@@ -504,8 +505,9 @@ class Runner:
         self.save(state)
         return {**attempt, "outcome": "awaiting_review"}
 
-    def review_candidate(self, report=None, *, provider=None, launcher=None, trust_host=False,
+    def review_candidate(self, report=None, *, brain=None, launcher=None, trust_host=False,
                          external_attested=False, review_timeout=180, review_max_turns=20):
+        """Accept or reject the staged candidate on an attested report or a launched reviewer brain."""
         review_limits(review_timeout, review_max_turns)
         state = self.state()
         attempt = state["active"]
@@ -525,8 +527,9 @@ class Runner:
         if report is not None:
             require("repair" not in state["bundle"], "A Vesper repair requires a separately launched reviewer")
             require(external_attested, "Attest that the report came from an independent reviewer")
+        launched = {"provider": "operator"}
         if report is None:
-            require(provider, "Provide an independent JSON report or select a reviewer provider")
+            require(brain, "Provide an independent JSON report or choose a reviewer brain")
             # Use a fresh copy so a prior reviewer invocation cannot supply a later reviewer's inputs.
             with tempfile.TemporaryDirectory(prefix="review-session-", dir=directory) as temp:
                 session = Path(temp)
@@ -548,17 +551,22 @@ class Runner:
                 (view / "review.md").write_text(review_prompt(profile, packet))
                 view_digest = fingerprint(inventory(view))
                 response = session / "response.json"
-                command = provider_command(provider, launcher, trust_host, operation="reviewer", response=response,
-                                           schema=schema, max_turns=review_max_turns)
+                command = brain_command(brain, "reviewer", launcher, trust_host, response=response,
+                                        schema=schema, max_turns=review_max_turns)
                 log = directory / ("reviewer-" + uuid4().hex + ".log")
                 code = run_process(command, cwd=view, input_text=review_prompt(profile, packet),
-                                   env=provider_environment(provider, launcher), log=log, timeout=review_timeout)
+                                   env=brain_environment(brain, launcher), log=log, timeout=review_timeout)
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
                 output = response if response.is_file() else log
                 require(not output.is_symlink() and output.stat().st_size <= 256_000,
                         "Reviewer output was linked or exceeded the report limit")
-                report = decode_provider_report(output.read_text(encoding="utf-8"))
+                reply = output.read_text(encoding="utf-8")
+                report = parse_result(brain, reply)
+                launched = {"provider": brain.name, "adapter": brain.adapter.name}
+                spent = usage(brain, reply)
+                if spent:
+                    launched["usage"] = spent
         require(len(json.dumps(report)) <= 256_000, "Reviewer output exceeded the report limit")
         blockers = validate_report(report, packet)
         self.frozen_contract(state)
@@ -567,7 +575,7 @@ class Runner:
                 and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
                 "Tested candidate changed after verification")
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
-                             "provider": provider or "operator"}
+                             **launched}
         if blockers:
             return self.finish(state, "rejected", "Review blockers: " + "; ".join(
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
@@ -655,18 +663,24 @@ class Runner:
                 self.save(state)
                 raise
 
-    def run(self, provider, command, launcher=None, *, reviewer=None, trust_host=False,
-            review_timeout=180, review_max_turns=20):
+    def run(self, selection, launcher=None, *, trust_host=False, review_timeout=180, review_max_turns=20):
+        """Run every ready job unattended. ``selection`` (brains.Selection) picks each job's
+        worker brain by role and the reviewer brain (by default the job's worker brain)."""
         review_limits(review_timeout, review_max_turns)
         limits = {"review_timeout": review_timeout, "review_max_turns": review_max_turns}
         state = self.state()
         contract = self.frozen_contract(state)
         if "repair" in state["bundle"]:
             require(launcher, "Vesper repairs require a confined launcher")
+        jobs = {job["id"]: job for job in contract["jobs"]}
+
+        def reviewer_for(job):
+            return selection.reviewer(lambda: selection.worker(job["role"]))
+
         if state["active"]:
             if "review" in state["active"]:
-                self.review_candidate(provider=reviewer or provider, launcher=launcher, trust_host=trust_host,
-                                      **limits)
+                self.review_candidate(brain=reviewer_for(jobs[state["active"]["job"]]), launcher=launcher,
+                                      trust_host=trust_host, **limits)
                 state = self.state()
             else:
                 require(state["active"]["provider"] != "manual", "Submit or abandon the active manual attempt first")
@@ -674,25 +688,32 @@ class Runner:
         while self.ready(state, contract):
             if self.status()["status"] == "blocked":
                 break
-            job, attempt, workspace, prompt = self.begin(state, contract, provider)
+            # Choose and check every brain the job needs before it starts.
+            ready = self.ready(state, contract)
+            brain = selection.worker(ready["role"])
+            command = brain_command(brain, "worker", launcher, trust_host)
+            reviewer = reviewer_for(ready) if "team" in state["bundle"] else None
+            if reviewer:
+                brain_command(reviewer, "reviewer", launcher, trust_host, max_turns=review_max_turns)
+            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name)
             log = self.attempt_dir(attempt) / "worker.log"
-            print(f"{job['id']} | {provider} | attempt {attempt['id'][:8]}", file=sys.stderr, flush=True)
+            print(f"{job['id']} | {brain.name} | attempt {attempt['id'][:8]}", file=sys.stderr, flush=True)
 
             def record_child(pid):
                 attempt["child_pid"] = pid
                 self.save(state)
 
             code = run_process(command, cwd=workspace, input_text=prompt,
-                               env=provider_environment(provider, launcher),
+                               env=brain_environment(brain, launcher),
                                log=log, timeout=job.get("timeout", 180), on_start=record_child)
             attempt["worker_log"] = str(log.relative_to(self.root))
             if code != 0:
-                self.finish(state, "worker_failed", f"Provider exited {code}\n{read_tail(log)}", "provider")
+                self.finish(state, "worker_failed", f"Worker brain {brain.name} exited {code}\n{read_tail(log)}",
+                            "provider")
             else:
                 result = self.verify(state, contract, job, workspace, launcher)
                 if result["outcome"] == "awaiting_review":
-                    self.review_candidate(provider=reviewer or provider, launcher=launcher, trust_host=trust_host,
-                                          **limits)
+                    self.review_candidate(brain=reviewer, launcher=launcher, trust_host=trust_host, **limits)
                     state = self.state()
         return self.status()
 

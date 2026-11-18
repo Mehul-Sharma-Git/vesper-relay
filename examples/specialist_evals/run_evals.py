@@ -12,6 +12,7 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+from builder.brains import brain, command, environment, load_settings, resolve
 from builder.contracts import fingerprint
 from builder.team import catalog, profile, render
 from eval_cases import CAS
@@ -32,24 +33,25 @@ def cases():
 
 
 def invoke(prompt, args, output):
+    # A read-only consultation on the chosen brain's adapter (the bench itself is P5-T4).
     output.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix='vesper-eval-') as temp:
         result = output / 'answer.md'
-        command = ['codex', 'exec', '--ephemeral', '--ignore-user-config', '--ignore-rules',
-                   '--skip-git-repo-check', '--sandbox', 'read-only', '-c', 'approval_policy="never"',
-                   '-m', args.model, '-o', str(result), '-']
+        argv = command(args.brain, 'consult', None, True, response=result)
         started = time.monotonic()
         (output / 'prompt.md').write_text(prompt)
         with (output / 'session.log').open('w') as log:
             try:
-                status = subprocess.run(command, cwd=temp, input=prompt, text=True, stdout=log, stderr=log,
-                                        timeout=args.timeout).returncode
+                status = subprocess.run(argv, cwd=temp, input=prompt, text=True, stdout=log, stderr=log,
+                                        env=environment(args.brain, None), timeout=args.timeout).returncode
             except subprocess.TimeoutExpired:
                 status = 'timeout'
-        data = {'command': command, 'provider': 'codex', 'model': args.model, 'timeout': args.timeout,
+        data = {'command': argv, 'brain': args.brain.name, 'adapter': args.brain.adapter.name,
+                'model': args.brain.model, 'timeout': args.timeout,
                 'exit': status, 'seconds': round(time.monotonic() - started, 2)}
         (output / 'invocation.json').write_text(json.dumps(data, indent=2))
-        return result.read_text() if status == 0 and result.is_file() else None
+        answer = result if result.is_file() else output / 'session.log'
+        return answer.read_text() if status == 0 else None
 
 
 def trial(case, args, number):
@@ -95,16 +97,19 @@ def trial(case, args, number):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--run', action='store_true', help='Use the authenticated Codex provider on synthetic inputs')
+    parser.add_argument('--run', action='store_true', help='Use the authenticated brain on synthetic inputs')
+    parser.add_argument('--brain', default='codex', help='Brain from the config, or an adapter name (default codex)')
     parser.add_argument('--case', action='append', default=[])
     parser.add_argument('--repeat', type=int, default=1)
     parser.add_argument('--parallel', type=int, default=2)
-    parser.add_argument('--model', default='gpt-6.1-sol')
+    parser.add_argument('--model', help="Model for the brain (default: the brain's configured model)")
     parser.add_argument('--timeout', type=int, default=90)
     args = parser.parse_args()
     if min(args.repeat, args.parallel, args.timeout) < 1:
         parser.error('repeat, parallel and timeout must be positive')
     args.output = args.output.resolve()
+    chosen = resolve(args.brain, load_settings())
+    args.brain = brain(chosen.name, chosen.adapter.name, args.model or chosen.model, chosen.effort)
     matrix = list(cases())
     selected = [case for case in matrix if not args.case or case['id'] in args.case]
     if args.case and set(args.case) != {case['id'] for case in selected}:
