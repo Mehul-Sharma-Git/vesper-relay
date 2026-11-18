@@ -27,6 +27,9 @@ import test_rc1
 from test_rc1 import verdict
 
 
+ID = "f" * 64  # an engine's full image ID (Docker adds "sha256:", Podman does not)
+
+
 def value_after(argv, flag):
     return [argv[index + 1] for index, item in enumerate(argv) if item == flag]
 
@@ -71,6 +74,60 @@ class ArgumentTests(unittest.TestCase):
                     self.assertEqual(argv[argv.index(image_tag()) + 1:], list(job.argv))
                     if engine.name == "podman":
                         self.assertIn("--userns=keep-id", argv)
+
+    def fake_engine(self, script, name="docker"):
+        bin_dir = self.root / "engine-bin"
+        bin_dir.mkdir(exist_ok=True)
+        fake = bin_dir / name
+        fake.write_text("#!/bin/sh\n" + script)
+        fake.chmod(0o700)
+        return mock.patch.dict(os.environ, {"PATH": str(bin_dir)})
+
+    def test_jobs_run_the_image_id_the_check_resolved(self):
+        with self.fake_engine(f'case "$*" in *"inspect"*) echo sha256:{ID};; *) exit 1;; esac\n'):
+            engine = Docker().check()
+        job = check_job(self.work, "gate.py")
+        argv = self.build(engine, job)
+        self.assertNotIn(image_tag(), argv)
+        self.assertEqual(argv[argv.index(f"sha256:{ID}") + 1:], list(job.argv))
+        for answer in ("", "sha256:feed", "--privileged"):
+            with self.subTest(answer=answer), self.fake_engine(f'echo "{answer}"\n'), \
+                    self.assertRaisesRegex(BuilderError, "gave no image ID"):
+                Docker().check()
+
+    def test_podman_ids_have_no_prefix_and_a_missing_image_is_not_known(self):
+        # Podman prints the bare 64-hex storage ID and says "image not known" for a missing one.
+        with self.fake_engine(f'case "$*" in *"inspect"*) echo {ID};; *) exit 1;; esac\n', "podman"):
+            engine = Podman().check()
+        self.assertEqual(engine.image_id, ID)
+        self.assertIn(ID, self.build(engine, check_job(self.work, "gate.py")))
+        missing = 'echo "Error: vesper-sandbox: image not known" >&2; exit 125\n'
+        with self.fake_engine(missing, "podman"), self.assertRaisesRegex(BuilderError, "vesper sandbox build"):
+            Podman().check()
+
+    def test_a_listed_image_that_inspect_misses_is_used_by_id(self):
+        # Docker Desktop 29.2 (containerd image store) at times answers "No such image" to
+        # `image inspect <tag>` while `image ls` lists the tag; inspect by ID still works.
+        script = ('case "$*" in\n'
+                  f'  *"inspect"*"sha256:{ID}"*) echo sha256:{ID};;\n'
+                  '  *"inspect"*) echo "Error response from daemon: No such image: x" >&2; exit 1;;\n'
+                  f'  *"image ls -q --no-trunc"*) echo sha256:{ID};;\n'
+                  '  *) exit 1;;\nesac\n')
+        with self.fake_engine(script):
+            engine = Docker().check()
+        self.assertIn(f"sha256:{ID}", self.build(engine, check_job(self.work, "gate.py")))
+        missing = script.replace(f'  *"image ls -q --no-trunc"*) echo sha256:{ID};;\n', "")
+        with self.fake_engine(missing), self.assertRaisesRegex(BuilderError, "vesper sandbox build"):
+            Docker().check()
+
+    def test_image_has_python_playwright_and_its_chromium(self):
+        # Gates are Python scripts (python3 -I in the image), so the image carries Python
+        # Playwright at the Node version, with the Chromium build that package expects.
+        text = (ROOT / "sandbox" / "Dockerfile").read_text()
+        self.assertIn('"playwright==${PLAYWRIGHT_VERSION}"', text)
+        self.assertIn("python3 -m playwright install chromium", text)
+        self.assertRegex(text, r'"greenlet==\$\{GREENLET_VERSION\}"')
+        self.assertRegex(text, r"ARG GREENLET_VERSION=\d+\.\d+\.\d+")
 
     def test_mounts_and_networks_follow_the_operation_table(self):
         docker = Docker()
@@ -284,9 +341,11 @@ class CommandLineTests(unittest.TestCase):
 
 
 def engine_ready():
-    docker = shutil.which("docker")
-    return bool(docker) and subprocess.run([docker, "image", "inspect", image_tag()],
-                                           capture_output=True).returncode == 0
+    # The runner's own check, so Docker Desktop's tag-lookup flake (finding 39) doesn't skip these.
+    try:
+        return bool(shutil.which("docker")) and bool(Docker().check().image_id)
+    except BuilderError:
+        return False
 
 
 @unittest.skipUnless(engine_ready(), "Docker and the sandbox image are needed (vesper sandbox build)")
@@ -314,6 +373,25 @@ class SandboxSelftest(unittest.TestCase):
         result = command("submit", attempt["id"], "--sandbox", "docker")
         self.assertEqual(result["outcome"], "awaiting_review", result)
         self.assertEqual([(item["id"], item["exit_code"]) for item in result["checks"]], [("G1", 0), ("G2", 0)])
+
+    def test_python_playwright_drives_chromium_in_a_gate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            (home / "checks").mkdir()
+            (home / "candidate").mkdir()
+            (home / "checks" / "gate.py").write_text(
+                "from playwright.sync_api import sync_playwright\n"
+                "with sync_playwright() as p:\n"
+                "    browser = p.chromium.launch()\n"
+                "    page = browser.new_page()\n"
+                "    page.set_content('<h1>ok</h1>')\n"
+                "    assert page.inner_text('h1') == 'ok'\n"
+                "    browser.close()\n"
+                "print('chromium ok')\n")
+            log = home / "gate.log"
+            code = Docker().check().run(check_job(home, "gate.py"), input_text="", log=log, timeout=180)
+            self.assertEqual(code, 0, log.read_text())
+            self.assertIn("chromium ok", log.read_text())
 
     def test_selftest_passes(self):
         result = subprocess.run(["sh", str(ROOT / "sandbox" / "selftest.sh"), "docker"],

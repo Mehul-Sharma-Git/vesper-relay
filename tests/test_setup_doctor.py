@@ -26,6 +26,7 @@ from builder.team import PROFILES
 from builder.wizard import setup
 
 TAG = image_tag()
+IMAGE_ID = "sha256:" + "56d7b7cbe179" * 5 + "abcd"  # what the fake engine resolves TAG to; jobs run this ID
 HOST = host_arch(platform.machine())
 OTHER = "amd64" if HOST == "arm64" else "arm64"
 
@@ -81,7 +82,8 @@ echo "$*" >> "$S/{name}-calls"
 case "$1" in
   info) [ -e "$S/down" ] && {{ echo "Cannot connect to the Docker daemon" >&2; exit 1; }}; echo aarch64; exit 0;;
   image) [ "$2" = ls ] && {{ [ -e "$S/listed" ] && echo 56d7b7cbe179; exit 0; }}
-         [ -e "$S/noimage" ] && {{ echo "Error: No such image: {TAG}" >&2; exit 1; }}; /bin/cat "$S/arch"; exit 0;;
+         [ -e "$S/noimage" ] && {{ echo "Error: No such image: {TAG}" >&2; exit 1; }}
+         case "$*" in *"{{{{.Id}}}}"*) echo {IMAGE_ID}; exit 0;; esac; /bin/cat "$S/arch"; exit 0;;
   build) /bin/rm -f "$S/noimage"; exit 0;;
   run) for a in "$@"; do
          case "$a" in
@@ -89,7 +91,7 @@ case "$1" in
            type=bind,source=*,target=/work*) [ -e "$S/noshare" ] || {{ src=${{a#type=bind,source=}}; cd "${{src%%,target=*}}"; }};;
          esac
        done
-       while [ $# -gt 0 ] && [ "$1" != "{TAG}" ]; do shift; done
+       while [ $# -gt 0 ] && [ "$1" != "{TAG}" ] && [ "$1" != "{IMAGE_ID}" ]; do shift; done
        [ $# -gt 0 ] || exit 125
        shift; exec "$@";;
   *) exit 0;;

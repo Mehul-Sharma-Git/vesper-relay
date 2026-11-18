@@ -36,12 +36,14 @@ criteria agreed before it runs.
   `start_run`, `list_runs`, `show_plan` (returns plan files and wireframe paths),
   `review_plan` (digest + estimate), `request_approval`, `run_next`, `status`,
   `show_backlog`, `export`. Approval tools only *request* approval; confirmation happens
-  through the human confirmer (P2-T2, `mcp-elicitation` or `macos-dialog`). Long runs return
+  through the human confirmer (P2-T2, `mcp-elicitation` or `macos-dialog`), and the
+  elicitation shows the action's plain-language approval sheet (P2-T2 item 4). Long runs return
   immediately with a run ID; `status` polls.
 - **Do not:** expose any tool that confirms an approval, applies a patch or accepts a risk
   without the human confirmer; expose raw file writes.
 - **Acceptance:** a JSON-RPC test client lists tools and completes a stand-in run; approval
-  tools refuse without a confirmer result; setup instructions for Claude Code and the Claude
+  tools refuse without a confirmer result; an elicitation carries the action's approval
+  sheet; setup instructions for Claude Code and the Claude
   desktop app in `docs/SETUP.md`.
 
 ## P5-T2 — Packaging and distribution
@@ -165,13 +167,15 @@ criteria agreed before it runs.
      (suggested start: unattended completion ≥ 90% over the bench, 0 sandbox escapes,
      0 self-approvals, 0 parser failures, design rating above the same AI without Vesper).
      `vesper bench verdict` prints pass/fail per criterion; only the owner's
-     `vesper bench promote` (through the human confirmer) promotes. Vesper never promotes
-     itself.
+     `vesper bench promote` (through the human confirmer, which first shows the release
+     approval sheet from P2-T2 item 4: the candidate, its scorecard summary, each criterion
+     with pass or fail) promotes. Vesper never promotes itself.
   3. Permission ladder in the personal config, one step per promoted RC:
      `sandbox-only` → `read-only real repos` → `patches with approval` →
      `limited autonomy for skip-depth jobs`.
   4. Finalise `docs/SETUP.md` from `SETUP-draft.md` with the real commands, and test it on a
      fresh macOS account.
   5. The first promoted RC after this task is tagged `v1.0.0`.
-- **Acceptance:** tests that promotion is refused without the human confirmer, that the
+- **Acceptance:** tests that promotion is refused without the human confirmer and that the
+  confirmer receives the release sheet, that the
   ladder cannot skip a step, and that `docs/SETUP.md` commands match the CLI's `--help`.
