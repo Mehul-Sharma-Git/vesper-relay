@@ -47,7 +47,7 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
        directly to the human (verify the MCP elicitation feature at implementation time).
      - `dashboard`: a button in the later dashboard.
   3. The confirmation is recorded with the digest, the confirmer used, a timestamp, and the
-     file list (path, hash, size) of what was confirmed. Configured in
+     file list (path, hash, size, line count) of what was confirmed. Configured in
      `[approvals] confirmer = "macos-dialog"` (personal config).
   4. **Approval sheet.** The owner must understand what they approve without reading
      JSON (during the P1-G gate run on 19 Nov 2026 the owner was shown the raw `review`
@@ -61,11 +61,13 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
      - the independent critique: verdict, blocker count, and the top advisory findings
        in one line each; at `skip` depth, "no critique (skip depth)" and the recorded reason;
      - what changed since the last **human confirmation** recorded for this run (files
-       added, removed or edited, with line counts, against that confirmation's file list),
-       or "first approval". Printing a sheet never moves this baseline, so an AI that runs
-       `vesper review` itself cannot hide a change from the owner;
+       added, removed or edited, with line counts before and after, against that
+       confirmation's file list), or "first approval". Printing a sheet never moves this
+       baseline, so an AI that runs `vesper review` itself cannot hide a change from the owner;
      - where to look further (the plan folder, wireframe files) and the short digest.
-     The other protected actions show, in the same style:
+     The other protected actions show, in the same style (this task builds the sheets for
+     the actions that exist now: patch apply, repair merge or commit, and attesting
+     independence; P2-T6, P2-T7 and P5-T6 build theirs with their actions):
      - patch apply: target repository and branch, each file touched with lines added and
        removed, the reviewed patch's short digest, and the review verdict;
      - risk acceptance (P2-T7): the finding in plain words, its severity and source, and
@@ -80,8 +82,10 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
        it claims, its verdict and blocker count, and the sentence the human is vouching
        for ("this report came from a separate reviewer session, not the author").
      `vesper review` prints the plan sheet by default; `vesper review --json` keeps today's
-     bundle for tools. The `tty` and `macos-dialog` confirmers show the action's sheet (the
-     dialog a shortened form with a "show full sheet" option) before asking.
+     bundle for tools. **Every confirmer presents the action's sheet before asking**: `tty`
+     in full; `macos-dialog` as a shortened form with a "show full sheet" option;
+     `mcp-elicitation` (P5-T1) and `dashboard` when they are built. A shortened form always
+     keeps the "what changed" section and the short digest.
   5. Update the skill: tell the assistant to run the command and tell the human to confirm.
 - **Do not:** add any flag that skips confirmation, other than an explicit test-only
   environment variable that `vesper doctor` warns about.
@@ -91,8 +95,11 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
   with its gate, each job with its allowed files, the critique verdict and blocker count,
   and no raw hashes beyond the short digest; after a recorded human confirmation, editing
   one check script makes the next sheet list that file as changed, even when `vesper
-  review` was run in between; a run with no confirmation shows "first approval"; each
-  protected action's sheet shows the fields listed for it; `--json` output is unchanged.
+  review` was run in between; a run with no confirmation shows "first approval"; plan
+  approval, patch apply, repair commit and attesting independence each show the fields
+  listed for them; a stand-in confirmer receives the sheet before it is asked, and the
+  `macos-dialog` short form contains the "what changed" section and the short digest;
+  `--json` output is unchanged.
 
 ## P2-T3 — Usage ledger and plan-limit estimates
 
@@ -160,9 +167,12 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
   writes an amendment under `.builder/amendments/` with its own digest chained to the
   approval digest. Allowed: new checks and assigning them to unfinished jobs only.
   Refused: removing, editing or reassigning an existing check. `status` and the final
-  summary list amendments for the owner.
+  summary list amendments for the owner. The amendment is a protected action: the human
+  confirmer (P2-T2) shows the add-check approval sheet (P2-T2 item 4) before asking.
 - **Acceptance:** tests that an added check runs on the next verification; that editing an
-  approved check file is still detected; that an amendment cannot touch an accepted job.
+  approved check file is still detected; that an amendment cannot touch an accepted job;
+  that the confirmer receives the add-check sheet (each new check's id, script, assigned
+  jobs and reason).
 
 ## P2-T7 — Advisory backlog and decision gate
 
@@ -175,6 +185,8 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
   3. A security or data advisory moves the attempt to `awaiting_decision`.
      `vesper --project RUN decide FINDING_ID --fix` returns the job for correction (counts
      as a retry); `--accept-risk --reason "..."` records the owner's acceptance and
-     continues.
+     continues. Accepting a risk is a protected action: the human confirmer (P2-T2) shows
+     the risk-acceptance approval sheet (P2-T2 item 4) before asking.
 - **Acceptance:** tests for each path; a run cannot reach `complete` with an undecided
-  security advisory.
+  security advisory; the confirmer receives the risk sheet (the finding in plain words, its
+  severity and source, and what is accepted).
