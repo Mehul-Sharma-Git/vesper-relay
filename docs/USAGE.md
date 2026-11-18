@@ -94,6 +94,19 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and
   `vesper maintain` for other planned changes to Vesper.
 
+- **Set up and check.** `vesper setup` walks a new machine through everything
+  automatic runs need: it lists the AI CLIs it finds, asks which one works and which
+  reviews (one is enough), checks Docker, Colima or Podman and offers to install or
+  start it, builds the sandbox image, stores each brain's sandbox login in the macOS
+  Keychain or `~/.config/vesper/secrets.env` (mode 600), asks for the plan-usage
+  reserve, writes `~/.config/vesper/config.toml` (keeping any old one as
+  `config.toml.bak`) and runs `vesper doctor`. `vesper doctor` checks Python, the
+  config, the sandbox engine, the image and its architecture, whether the engine can
+  see the run folder, and for each configured brain its CLI, whether `--help` still
+  lists every flag Vesper uses, its sandbox login and a tiny dry call (`--no-call`
+  skips it; `--json` for scripts). Every failure prints its fix. The installed `vesper`
+  command finds a Python 3.11+ on its own (`bin/vesper`), so no virtual environment is
+  needed; if there is none, `vesper setup` offers to install one with Homebrew or uv.
 - **Configure.** Personal settings (brains, roles, sandbox, limits) live in
   `~/.config/vesper/config.toml` (or `--config PATH` / `VESPER_CONFIG`); project
   settings (stack, hosting, checks) live in a committed `vesper.toml` in the

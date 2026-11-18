@@ -37,7 +37,9 @@ def install(target):
                     if target in {name, "both"}]
     entry = home / ".local" / "bin" / "vesper"
     source = (ROOT / "integrations" / "vesper-relay" / "SKILL.md").read_text()
-    shim = f'#!/bin/sh\n# {MARK}\nexec {shlex.quote(sys.executable)} -B {shlex.quote(str(ROOT / "vesper.py"))} "$@"\n'
+    # The launcher finds a Python 3.11+ on its own; the one running now is tried first.
+    shim = (f'#!/bin/sh\n# {MARK}\nif [ -z "${{VESPER_PYTHON:-}}" ]; then VESPER_PYTHON={shlex.quote(sys.executable)}; '
+            f'export VESPER_PYTHON; fi\nexec /bin/sh {shlex.quote(str(ROOT / "bin" / "vesper"))} "$@"\n')
     payloads = {entry: shim, **dict.fromkeys(destinations, source)}
     for path in payloads:
         require(not path.is_symlink() and
@@ -236,6 +238,15 @@ def main():
     tested = sandbox.add_parser("selftest", help="Try to escape from every operation; all attempts must fail")
     tested.add_argument("--backend", choices=("docker", "podman"),
                         help="Container engine (default: sandbox.backend in the config)")
+    wizard = commands.add_parser("setup", help="Interactive first-run setup: brains, sandbox, logins, reserve")
+    wizard.add_argument("--config", type=Path, help="Personal config file to write (default: VESPER_CONFIG, "
+                        "then ~/.config/vesper/config.toml)")
+    wizard.add_argument("--no-call", action="store_true", help="Skip the closing doctor's dry call to each brain")
+    checkup = commands.add_parser("doctor", help="Check Python, config, sandbox, image, brain CLIs, flags and logins")
+    checkup.add_argument("--config", type=Path, help="Personal config file (default: VESPER_CONFIG, "
+                         "then ~/.config/vesper/config.toml)")
+    checkup.add_argument("--no-call", action="store_true", help="Skip the tiny dry call to each brain")
+    checkup.add_argument("--json", action="store_true", help="Print the report as JSON")
     commands.add_parser("root")
     commands.add_parser("runs").add_argument("--repo", type=Path)
     for name in sorted(CORE):
@@ -289,6 +300,26 @@ def main():
         elif args.command == "config":
             from builder.config import show
             result = show(args.config, args.repo, args.flags)
+        elif args.command == "doctor":
+            from builder.doctor import doctor, render
+            report = doctor(config=args.config, call=not args.no_call)
+            print(json.dumps(report, indent=2) if args.json else render(report))
+            return int(report["status"] != "ok")
+        elif args.command == "setup":
+            import getpass
+            from builder.wizard import setup
+
+            def hidden(prompt):
+                return getpass.getpass(prompt) if sys.stdin.isatty() else input(prompt)
+            try:
+                return setup(ask=input, say=print, hidden=hidden, config=args.config, call=not args.no_call)
+            except EOFError:
+                print("\nvesper: setup stopped: it needs answers on standard input (run it in a terminal)",
+                      file=sys.stderr)
+                return 2
+            except KeyboardInterrupt:
+                print("\nvesper: setup cancelled; nothing after the last step was changed", file=sys.stderr)
+                return 130
         elif args.command == "sandbox":
             from builder.brains import load_settings
             from builder.sandbox import backend, selftest

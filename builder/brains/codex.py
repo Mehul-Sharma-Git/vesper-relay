@@ -16,6 +16,9 @@ already isolates processes" (learn.chatgpt.com/docs/config-file/config-advanced,
 provider hosts only). Reviewers and consultants stay ``read-only`` whatever they are granted,
 so they never edit or write.
 
+``vesper doctor`` (P1-T11) checks these flags against ``codex exec --help`` (all listed in
+codex-cli 0.170.0, the image's pinned version).
+
 Inside a sandbox it logs in through ``~/.codex/auth.json`` mounted read-only (or
 ``OPENAI_API_KEY``).
 """
@@ -32,6 +35,8 @@ class Codex(Adapter):
     # The API, plus ChatGPT sign-in (chatgpt.com) and its token refresh (auth.openai.com).
     sandbox_hosts = ("api.openai.com", "chatgpt.com", "auth.openai.com")
     login_help = "run `codex login` on this machine (it writes ~/.codex/auth.json)"
+    install_help = "npm install -g @openai/codex"
+    help_command = ("exec", "--help")
 
     def command(self, mode, response, model, effort, program):
         output = ["--output-last-message", str(response)] if response else []

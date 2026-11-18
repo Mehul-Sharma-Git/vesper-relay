@@ -68,6 +68,15 @@ check "sandbox backends docker (default)/podman/none in builder/sandbox/; runner
     sh -c 'grep -q "^BACKENDS = (\"docker\", \"podman\", \"none\")" builder/sandbox/__init__.py && grep -q "isinstance(launcher, Sandbox)" builder/runner.py && grep -q "\"sandbox.backend\": \"docker\"" builder/config.py && test -f sandbox/Dockerfile && test -x sandbox/selftest.sh'
 check "sandbox jobs: your uid, read-only root, cap-drop ALL, no-new-privileges; brains reach only sandbox_hosts via tinyproxy (P1-T9)" "P1-T10" \
     sh -c 'grep -q "\"--read-only\", \"--cap-drop\", \"ALL\"" builder/sandbox/__init__.py && grep -q "FilterDefaultDeny Yes" builder/sandbox/__init__.py && grep -q "sandbox_hosts = " builder/brains/base.py'
+check "vesper setup (builder/wizard.py) and vesper doctor (builder/doctor.py: each adapter's flags against its --help); bin/vesper finds Python 3.11+ (P1-T11)" "P1-G, P5-T2, P5-T3" \
+    "$PYTHON" -B -c "
+import sys; sys.path.insert(0, '.')
+from pathlib import Path
+from builder.brains import ADAPTERS
+from builder.doctor import doctor, used_flags
+from builder.wizard import setup
+assert all(used_flags(adapter) and adapter.install_help for adapter in ADAPTERS.values())
+assert 'bin\" / \"vesper' in Path('vesper.py').read_text() and Path('bin/vesper').stat().st_mode & 0o111"
 check "review_bundle requires the four plan files" "P2-T5" \
     grep -q '"product.md", "design.md", "architecture.md", "decisions.md"' builder/contracts.py
 check "validate_design lives in builder/team.py" "P4-T2" \

@@ -39,7 +39,7 @@ from your files, keys and network. Pick one:
 The sandbox image (several GB: Python, Go, Node, browsers, AI CLIs) is pulled by
 `vesper setup` **(v1.0, P5-T2)**; until then it is built locally **(P1-T9)**.
 
-## 4. Run the setup wizard **(v1.0, P1-T11)**
+## 4. Run the setup wizard **(P1-T11)**
 
 ```sh
 vesper setup
@@ -61,18 +61,18 @@ It asks:
    Secrets go into your Keychain or `~/.config/vesper/secrets.env` (readable only by you),
    never into the config file.
 4. **Plan-usage reserve:** how much of your AI plan Vesper must leave for you (default 25%).
-5. **How you approve things:** a macOS dialog (default), or a terminal prompt.
+5. **How you approve things:** a macOS dialog (default), or a terminal prompt **(v1.0, P2-T2)**.
 
 It writes `~/.config/vesper/config.toml` and finishes by running `vesper doctor`.
 
-## 5. Check everything **(v1.0, P1-T11)**
+## 5. Check everything **(P1-T11)**
 
 ```sh
 vesper doctor
 ```
 
-Checks Python, config, sandbox, image architecture, each AI CLI and its flags, and each
-login. Every failure comes with the command that fixes it.
+Checks Python, config, sandbox, image architecture, the folders the sandbox can see, each AI
+CLI and its flags, each login, and a tiny call to each AI (`--no-call` skips it). Every failure comes with the command that fixes it.
 
 ## 6. Start using Vesper
 
