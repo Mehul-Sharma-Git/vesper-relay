@@ -94,6 +94,16 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and
   `vesper maintain` for other planned changes to Vesper.
 
+- **Configure.** Personal settings (brains, roles, sandbox, limits) live in
+  `~/.config/vesper/config.toml` (or `--config PATH` / `VESPER_CONFIG`); project
+  settings (stack, hosting, checks) live in a committed `vesper.toml` in the
+  target repository. Run `vesper config show` to print every effective value and
+  where it came from (`flag`, `project`, `personal` or `default`); add
+  `--repo PATH` for another repository and `--set KEY=VALUE` to preview an
+  override. Neither file may hold secrets: keys named like `api_key`, `token`,
+  `secret`, `password` or `credential` are refused; use the macOS Keychain or
+  `~/.config/vesper/secrets.env` (mode 600).
+
 Supervised mode uses the current assistant and the local runner. Unattended
 mode uses a separately authenticated provider CLI and the operator's approved
 execution boundary. See [START-HERE.md](../START-HERE.md) for launcher details.

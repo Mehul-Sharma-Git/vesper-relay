@@ -227,6 +227,13 @@ def main():
     commands.add_parser("review-change")
     commands.add_parser("patch")
     commands.add_parser("apply").add_argument("--digest", required=True)
+    settings = commands.add_parser("config").add_subparsers(dest="action", required=True)
+    shown = settings.add_parser("show", help="Print every effective config value and its source")
+    shown.add_argument("--config", type=Path, help="Personal config file (default: VESPER_CONFIG, "
+                       "then ~/.config/vesper/config.toml)")
+    shown.add_argument("--repo", type=Path, help="Repository whose vesper.toml applies (default: .)")
+    shown.add_argument("--set", dest="flags", action="append", default=[], metavar="KEY=VALUE",
+                       help="Override one key, as a command flag would")
     commands.add_parser("root")
     commands.add_parser("runs").add_argument("--repo", type=Path)
     for name in sorted(CORE):
@@ -275,6 +282,9 @@ def main():
             runner = Runner(args.project.resolve())
             with runner.lock():
                 result = repair_result(runner, args)
+        elif args.command == "config":
+            from builder.config import show
+            result = show(args.config, args.repo, args.flags)
         elif args.command == "root":
             result = {"checkout": str(ROOT)}
         elif args.command == "runs":
