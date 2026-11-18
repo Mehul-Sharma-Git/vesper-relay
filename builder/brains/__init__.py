@@ -134,11 +134,13 @@ class Selection:
 
 def tools(brain, operation, role=None, sandboxed=False):
     """The tool names one brain process gets: the role's list (the operation's default for no
-    role, or for a contract without a team whose job names a role outside the catalogue),
-    without edit or write unless it is a worker, and without shell unless ``sandboxed`` (a real
-    sandbox backend runs it) and the adapter can run commands."""
+    role, or for a contract without a team whose job names a role outside the catalogue; a
+    consultation always reads and searches only, even for a writing role), without edit or
+    write unless it is a worker, and without shell unless ``sandboxed`` (a real sandbox backend
+    runs it) and the adapter can run commands."""
     require(operation in OPERATIONS, f"Unknown brain operation {operation}")
-    granted = set(role_tools(role) if role in PROFILES else DEFAULT_TOOLS[operation])
+    named = operation != "consult" and role in PROFILES
+    granted = set(role_tools(role) if named else DEFAULT_TOOLS[operation])
     if operation != "worker":
         granted -= READ_ONLY
     if not (sandboxed and brain.adapter.capabilities.run_shell):

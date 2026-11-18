@@ -106,7 +106,7 @@ class GrantTests(unittest.TestCase):
     def test_reviewer_gets_shell_in_the_sandbox_consultants_never(self):
         brain = self.brain("claude-code")
         self.assertEqual(tools(brain, "reviewer", sandboxed=True), {"read", "search", "shell"})
-        for role in CONSULTANTS:
+        for role in CONSULTANTS + WRITERS:
             self.assertEqual(tools(brain, "consult", role, sandboxed=True), {"read", "search"})
 
 
@@ -160,8 +160,9 @@ class AdapterFlagTests(unittest.TestCase):
         self.assertEqual(value_after(list(claude.argv), "--tools"), ["Read,Glob,Grep,Bash"])
 
     def test_consultants_get_no_shell_even_in_the_sandbox(self):
+        # `vesper consult` accepts writing roles too; a consultation still only reads.
         for name in ADAPTERS:
-            for role in CONSULTANTS:
+            for role in CONSULTANTS + WRITERS:
                 with self.subTest(adapter=name, role=role):
                     argv = brain_job(Brain(name, ADAPTERS[name]), "consult", self.work, out=self.work, role=role).argv
                     self.assertFalse(grants_shell(name, argv), argv)
