@@ -45,10 +45,23 @@ def fingerprint(data):
     return sha256(canonical.encode()).hexdigest()
 
 
-def inventory(root):
+def tree_paths(root, ignore):
+    """Every path under root, parents first, except top-level entries named in ignore."""
+    for top in sorted(root.iterdir()):
+        if top.name in ignore:
+            continue
+        yield top
+        if top.is_dir() and not top.is_symlink():
+            yield from sorted(top.rglob("*"))
+
+
+def inventory(root, ignore=()):
+    """Content and mode of every file and directory. Top-level entries named in ignore
+    (build output such as node_modules) are skipped unread, links and all; everything
+    else must be a plain file or directory with a safe name."""
     require(root.is_dir() and not root.is_symlink(), f"Invalid tree: {root}")
     records = {}
-    for path in sorted(root.rglob("*")):
+    for path in tree_paths(root, frozenset(ignore)):
         relative = path.relative_to(root).as_posix()
         safe_path(relative)
         info = path.lstat()
@@ -105,7 +118,9 @@ def records(data, label):
 
 # Every gate gets these from the runner (runner.gate_environment); gate_env may not replace them.
 GATE_FIXED_ENV = ("PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE",
-                  "XDG_CACHE_HOME", "GOCACHE", "GOPATH")
+                  "XDG_CACHE_HOME", "GOCACHE", "GOPATH",
+                  # Set when the contract has build setup: the run's shared dependency caches.
+                  "GOMODCACHE", "PNPM_STORE_DIR", "pnpm_config_store_dir", "npm_config_store_dir")
 PROGRAM_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._+-]{0,127}")
 SECRET_NAME = re.compile(r"(?i)(key|token|secret|password|credential|auth)")
 
@@ -125,6 +140,41 @@ def validate_gate_env(value):
     return value
 
 
+def validate_command(command, label):
+    """An argv whose program is found by name on PATH, never by path."""
+    require(isinstance(command, list) and command and len(command) <= 256
+            and all(isinstance(arg, str) and len(arg) <= 4096 and "\0" not in arg for arg in command),
+            f"Invalid command for {label}: use a list of argument strings")
+    require(PROGRAM_NAME.fullmatch(command[0]),
+            f"{label[0].upper() + label[1:]} command must start with a bare program name, not a path: {command[0]!r}")
+
+
+IGNORE_NAME = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9._-]{0,127}")
+
+
+def validate_build(value, jobs):
+    """Top-level build output to ignore, and the commands that install toolchain dependencies."""
+    require(isinstance(value, dict) and set(value) <= {"ignore", "setup", "timeout"},
+            'Invalid build: use {"ignore": [names], "setup": [[program, args...]], "timeout": seconds}')
+    ignore = value.get("ignore", [])
+    require(isinstance(ignore, list) and len(ignore) <= 32 and len(ignore) == len(set(ignore))
+            and all(isinstance(name, str) and IGNORE_NAME.fullmatch(name)
+                    and name not in {".", "..", ".git", ".builder"} for name in ignore),
+            "Invalid build ignore: use distinct top-level directory names such as node_modules or dist")
+    setup = value.get("setup", [])
+    require(isinstance(setup, list) and len(setup) <= 16,
+            "Invalid build setup: use a list of commands, each a list of argument strings")
+    for command in setup:
+        validate_command(command, "build setup")
+    if "timeout" in value:
+        require(type(value["timeout"]) is int and 1 <= value["timeout"] <= 1800,
+                "Invalid build timeout: use whole seconds, 1 to 1800")
+    for job in jobs.values():
+        inside = [path for path in job["paths"] if owned(path, ignore)]
+        require(not inside, f"Job {job['id']} writes inside ignored build directory: {', '.join(inside)}")
+    return value
+
+
 def validate_check(item, checks_inventory):
     """A gate is a Python script in checks/ or an argv whose program is found by name, never by path."""
     name = item["id"]
@@ -134,12 +184,7 @@ def validate_check(item, checks_inventory):
         script = safe_path(item["script"])
         require(script.endswith(".py") and script in checks_inventory, f"Check script missing: {script}")
     else:
-        command = item["command"]
-        require(isinstance(command, list) and command and len(command) <= 256
-                and all(isinstance(arg, str) and len(arg) <= 4096 and "\0" not in arg for arg in command),
-                f"Invalid command for check {name}: use a list of argument strings")
-        require(PROGRAM_NAME.fullmatch(command[0]),
-                f"Check {name} command must start with a bare program name, not a path: {command[0]!r}")
+        validate_command(item["command"], f"check {name}")
         if "overlay" in item:
             overlay = item["overlay"]
             require(isinstance(overlay, dict) and set(overlay) == {"from", "to"},
@@ -188,6 +233,8 @@ def validate(data, checks_inventory):
             value = job.get(key, default)
             require(type(value) is int and low <= value <= high, f"Invalid {key} for {job['id']}")
     require(used_checks == gate_ids, "Every approved check must be assigned to a job")
+    if "build" in data:
+        validate_build(data["build"], jobs)
     pending = set(jobs)
     while pending:
         ready = {key for key in pending if not (set(jobs[key]["depends_on"]) & pending)}
@@ -204,6 +251,9 @@ def review_bundle(root, *, include_critique=True):
         require(name in plans and reviewed_text(root / "plan", name, plans).strip(),
                 f"Missing plan artifact: {name}")
     contract = reviewed_contract(root / "plan", plans, checks)
+    ignored = [name for name in contract.get("build", {}).get("ignore", []) if name in seed]
+    require(not ignored, "Seed contains ignored build directory: " + ", ".join(ignored)
+            + ". Ignored directories are never promoted, so the result would drop those files.")
     bundle = {"plan": plans, "checks": checks, "seed": seed}
     if "team" in contract:
         from .team import freeze_team
@@ -237,6 +287,7 @@ def review_bundle(root, *, include_critique=True):
             bundle["design_review"] = True
     if "repair.json" in plans:
         from .repair import validate_repair
+        require(not contract.get("build", {}).get("setup"), "Vesper repairs cannot run build setup")
         require(bundle.get("intake", {}).get("mode") == "maintenance", "Repair needs a managed Vesper baseline")
         packet = json.loads(reviewed_text(root / "plan", "repair.json", plans))
         validate_repair(contract, packet)
