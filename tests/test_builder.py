@@ -167,7 +167,7 @@ class BuilderTests(unittest.TestCase):
             "else: raise AssertionError(sys.argv)\n")
         launcher.chmod(0o700)
         env = dict(os.environ, PILOT_SECRET="should not cross the worker boundary")
-        self.command("run", "--provider", "codex", "--launcher", str(launcher), env=env)
+        self.command("run", "--brain", "codex", "--launcher", str(launcher), env=env)
         self.assertEqual(self.command("status")["status"], "complete")
 
     def test_rejects_tampered_accepted_snapshot(self):
@@ -195,7 +195,7 @@ class BuilderTests(unittest.TestCase):
 
     def test_provider_dispatch_checks_protocol_and_uses_fresh_scoped_jobs(self):
         self.approve()
-        self.command("run", "--provider", "codex", code=2)
+        self.command("run", "--brain", "codex", code=2)
         env = self.provider_environment(
             "from pathlib import Path\nimport sys\n"
             "assert '--skip-git-repo-check' in sys.argv and sys.argv[-1] == '-'\n"
@@ -204,7 +204,7 @@ class BuilderTests(unittest.TestCase):
             "if 'Job J1' in prompt: Path('first.txt').write_text('one')\n"
             "elif 'Job J2' in prompt: Path('second.txt').write_text('two')\n"
             "else: raise AssertionError(prompt)\n")
-        self.command("run", "--provider", "codex", "--trust-host", env=env)
+        self.command("run", "--brain", "codex", "--trust-host", env=env)
         self.assertEqual(self.command("status")["status"], "complete")
 
     def test_claude_adapter_supports_provider_switch(self):
@@ -217,7 +217,21 @@ class BuilderTests(unittest.TestCase):
             "assert '-p' in sys.argv and 'Job J2' in sys.stdin.read()\n"
             "assert Path('first.txt').read_text() == 'one'\n"
             "Path('second.txt').write_text('two')\n", name="claude")
-        self.command("run", "--provider", "claude", "--trust-host", env=env)
+        self.command("run", "--brain", "claude-code", "--trust-host", env=env)
+        self.assertEqual(self.command("status")["status"], "complete")
+
+    def test_gemini_adapter_supports_brain_switch(self):
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("one")
+        self.command("submit", attempt["id"])
+        env = self.provider_environment(
+            "from pathlib import Path\nimport sys\n"
+            "assert sys.argv[sys.argv.index('--approval-mode') + 1] == 'auto_edit'\n"
+            "assert '-p' in sys.argv and 'Job J2' in sys.stdin.read()\n"
+            "assert Path('first.txt').read_text() == 'one'\n"
+            "Path('second.txt').write_text('two')\n", name="gemini")
+        self.command("run", "--brain", "gemini-cli", "--trust-host", env=env)
         self.assertEqual(self.command("status")["status"], "complete")
 
     def test_supervisor_stops_descendants_when_leader_and_coordinator_exit(self):
@@ -232,7 +246,7 @@ class BuilderTests(unittest.TestCase):
             " Path('spawned').touch()\n"
             " while not Path('release').exists(): time.sleep(.01)\n"
             " Path('leader-done').touch()\n")
-        proc = subprocess.Popen(self.args("run", "--provider", "codex", "--trust-host"), env=env,
+        proc = subprocess.Popen(self.args("run", "--brain", "codex", "--trust-host"), env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         supervisor = None
         try:
@@ -274,7 +288,7 @@ class BuilderTests(unittest.TestCase):
             "from pathlib import Path\nimport time\n"
             "Path('first.txt').write_text('unverified')\n"
             "time.sleep(20)\n")
-        proc = subprocess.Popen(self.args("run", "--provider", "codex", "--trust-host"), env=env,
+        proc = subprocess.Popen(self.args("run", "--brain", "codex", "--trust-host"), env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             deadline = time.monotonic() + 5
@@ -295,7 +309,7 @@ class BuilderTests(unittest.TestCase):
                 "assert not Path('first.txt').exists() if 'Job J1' in p else True\n"
                 "if 'Job J1' in p: Path('first.txt').write_text('one')\n"
                 "else: Path('second.txt').write_text('two')\n")
-            self.command("run", "--provider", "codex", "--trust-host", env=env)
+            self.command("run", "--brain", "codex", "--trust-host", env=env)
             state = self.command("status")
             self.assertEqual(state["attempts"][0]["outcome"], "interrupted")
             self.assertEqual(state["completed"], ["J1", "J2"])

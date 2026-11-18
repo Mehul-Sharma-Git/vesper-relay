@@ -89,7 +89,7 @@ applicable. Record material open decisions for the owner. The declarations are
 operator attestations. Reviewers still judge whether the routing and handoff
 accurately describe the work.
 
-Run `review-plan --provider codex --launcher PATH` (or `claude`) on the draft.
+Run `review-plan --brain NAME --launcher PATH` on the draft (a configured brain, or `claude-code`, `codex`, `gemini-cli`).
 In supervised mode send the plan, seed and checks to a separate session. Ask for
 JSON with `phase: "plan"`, `packet_digest` from `review`, a distinct `reviewer`
 session identity, `verdict`, `summary`, `evidence` (`requirements`, `architecture`,

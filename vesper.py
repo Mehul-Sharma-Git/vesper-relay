@@ -10,14 +10,15 @@ import sys
 from uuid import uuid4
 import tempfile
 
-from build_local import initialize, review_limit_options
+from build_local import brain_options, chosen, initialize, review_limit_options
+from builder.brains import Selection, command as brain_command, environment as brain_environment
 from builder.contracts import BuilderError, fingerprint, inventory, read_json, require
 from builder.git_bridge import apply_change, change, repository, seed_repository
 from builder.learning import RULES, guidance, memory, promote, record, record_repair, state_home, summary
 from builder.maintenance import MAINTENANCE_GATE
 from builder.runner import Runner, atomic_json, copy_tree
 from builder.process import run_process
-from builder.providers import check_launcher, provider_command, provider_environment
+from builder.providers import check_launcher
 from builder.repair import commit_repair, draft as draft_repair, incident_report, repair_paths, reproduce, validate_failure_id
 from builder.team import catalog, profile, render
 
@@ -124,6 +125,7 @@ def consult(project, args):
     require(role["access"] != "review", "Use review-candidate for independent review")
     require(args.task.strip(), "Describe the consultation task")
     launcher = check_launcher(args.launcher)
+    brain = Selection(worker=chosen(args)).worker(args.role)
     seed = project / "seed"
     require(seed.is_dir(), "Initialize a project before consulting a specialist")
     with tempfile.TemporaryDirectory(prefix="vesper-consult-") as temporary:
@@ -135,15 +137,15 @@ def consult(project, args):
                   "handoff for the planner. Do not edit files or perform external actions.\n\n"
                   + render(role) + "\n\nConsultation task:\n" + args.task)
         response, log = directory / "response.md", directory / "consult.log"
-        command = provider_command(args.provider, launcher, args.trust_host,
-                                   operation="consult", response=response)
+        command = brain_command(brain, "consult", launcher, args.trust_host, response=response)
         code = run_process(command, cwd=workspace, input_text=prompt,
-                           env=provider_environment(args.provider, launcher), log=log, timeout=180)
+                           env=brain_environment(brain, launcher), log=log, timeout=180)
         require(code == 0, f"Consultation failed with exit {code}")
         require(inventory(workspace) == before, "Consultation changed its read-only baseline copy")
         report = response if response.is_file() else log
         require(report.stat().st_size <= 256_000, "Consultation exceeds the output limit")
-        return {"role": args.role, "revision": role["revision"], "report": report.read_text(encoding="utf-8")}
+        return {"role": args.role, "revision": role["revision"], "brain": brain.name,
+                "report": report.read_text(encoding="utf-8")}
 
 
 def repair_result(runner, args):
@@ -152,7 +154,7 @@ def repair_result(runner, args):
     if args.command == "repair-run":
         launcher = check_launcher(args.launcher)
         require(launcher, "Vesper repairs require a confined launcher")
-        command = provider_command(args.provider, launcher, args.trust_host)
+        selection = Selection(worker=chosen(args), reviewer=chosen(args, reviewer=True))
         if not runner.state_file.is_file():
             draft = runner.review()
             require(draft["digest"] == args.digest, "Repair plan digest changed")
@@ -162,8 +164,7 @@ def repair_result(runner, args):
         require(state["digest"] == args.digest and "repair" in state["bundle"]
                 and Path(state["bundle"]["intake"]["repository"]["path"]) == ROOT,
                 "The approved repair digest or source repository changed")
-        status = runner.run(args.provider, command, launcher, reviewer=args.reviewer_provider,
-                            trust_host=args.trust_host)
+        status = runner.run(selection, launcher, trust_host=args.trust_host)
         if status["status"] != "complete" or not args.commit:
             return status
         _, review = change(runner, runner.state(), state["bundle"]["intake"]["repository"])
@@ -196,9 +197,9 @@ def main():
     repair.add_argument("--path", required=True, action="append")
     repair.add_argument("--from-project", type=Path)
     plan_review = commands.add_parser("review-plan")
-    choice = plan_review.add_mutually_exclusive_group(required=True)
+    choice = plan_review.add_mutually_exclusive_group()
     choice.add_argument("--report", type=Path)
-    choice.add_argument("--provider", choices=("codex", "claude"))
+    brain_options(plan_review, group=choice)
     plan_review.add_argument("--attest-independent", action="store_true")
     execution = plan_review.add_mutually_exclusive_group()
     execution.add_argument("--launcher")
@@ -209,8 +210,7 @@ def main():
     commands.add_parser("repair-commit").add_argument("--digest", required=True)
     repair_run = commands.add_parser("repair-run")
     repair_run.add_argument("--digest", required=True)
-    repair_run.add_argument("--provider", choices=("codex", "claude"), required=True)
-    repair_run.add_argument("--reviewer-provider", choices=("codex", "claude"))
+    brain_options(repair_run, reviewer=True)
     repair_run.add_argument("--commit", action="store_true", help="Commit the reviewed result to a local repair branch")
     boundary(repair_run)
     roles = commands.add_parser("roles")
@@ -221,7 +221,7 @@ def main():
                                               if config["access"] != "review"), required=True)
     advice.add_argument("--skill", action="append", default=[])
     advice.add_argument("--task", required=True)
-    advice.add_argument("--provider", choices=("codex", "claude"), required=True)
+    brain_options(advice)
     boundary(advice)
     commands.add_parser("learn").add_argument("--promote", choices=tuple(RULES))
     commands.add_parser("review-change")
@@ -270,8 +270,9 @@ def main():
                 if args.report:
                     require(not args.report.is_symlink() and args.report.stat().st_size <= 256_000,
                             "Invalid plan review report")
+                brain = None if args.report else Selection(reviewer=chosen(args)).reviewer()
                 result = review_plan(runner, report=read_json(args.report) if args.report else None,
-                                     external_attested=args.attest_independent, provider=args.provider,
+                                     external_attested=args.attest_independent, brain=brain,
                                      launcher=check_launcher(args.launcher), trust_host=args.trust_host,
                                      review_timeout=args.review_timeout, review_max_turns=args.review_max_turns)
         elif args.command == "incidents":

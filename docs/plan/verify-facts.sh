@@ -32,16 +32,24 @@ from builder.review_gate import decode_provider_report
 for name in ('preamble-fence.json', 'preamble-fence-2.json'):
     report = decode_provider_report(open('$PLAN_DIR/fixtures/pocket-todo/reviewer-replies/' + name).read())
     assert report['verdict'] == 'approve', name"
-check "provider_command builds reviewer commands in builder/providers.py" "P1-T2, P1-T8" \
-    grep -q "def provider_command" builder/providers.py
-check "reviewers get a JSON Schema (review.schema.json, Claude --json-schema; P1-T2)" "P1-T8" \
-    sh -c 'grep -q "json-schema" builder/providers.py && grep -q "review.schema.json" builder/runner.py && grep -q "review.schema.json" builder/planning.py && grep -q "structured_output" builder/review_gate.py'
+check "brain adapters claude-code/codex/gemini-cli in builder/brains/ build worker/reviewer/consult commands (P1-T8)" "P1-T9, P1-T10, P1-T11" \
+    "$PYTHON" -B -c "
+import sys; sys.path.insert(0, '.')
+from builder.brains import ADAPTERS
+assert set(ADAPTERS) == {'claude-code', 'codex', 'gemini-cli'}
+for adapter in ADAPTERS.values():
+    assert set(adapter.capabilities._fields) == {'edit_files', 'run_shell', 'strict_output', 'model_select',
+                                                 'effort_select', 'usage_report', 'sandbox_login'}
+    assert all(callable(getattr(adapter, name)) for name in
+               ('worker_command', 'reviewer_command', 'consult_command', 'parse_result', 'environment'))"
+check "reviewers get a JSON Schema (review.schema.json; --json-schema for strict-output brains; P1-T2, P1-T8)" "P3-T4" \
+    sh -c 'grep -q "json-schema" builder/brains/claude_code.py && grep -q "if adapter.capabilities.strict_output else None" builder/brains/__init__.py && grep -q "review.schema.json" builder/runner.py && grep -q "review.schema.json" builder/planning.py && grep -q "structured_output" builder/review_gate.py'
 check "checks may set a timeout (1-1800 s; default 45, 300 for VESPER_REGRESSION; P1-T3)" "P1-T7" \
     sh -c 'grep -q "Invalid timeout for check" builder/contracts.py && grep -q "limit = check.get(\"timeout\", 300 if check\[\"id\"\] == \"VESPER_REGRESSION\" else 45)" builder/runner.py'
-check "reviewer timeout and max turns are flags (--review-timeout/--review-max-turns; P1-T3)" "P1-T7, P1-T8" \
-    sh -c 'grep -q "def review_limits" builder/providers.py && grep -q "\"--max-turns\", str(max_turns)" builder/providers.py && grep -q "timeout=review_timeout" builder/runner.py && grep -q -- "--review-max-turns" build_local.py && grep -q "review_limit_options(plan_review)" vesper.py'
+check "reviewer timeout and max turns are flags (--review-timeout/--review-max-turns; P1-T3)" "P1-T7" \
+    sh -c 'grep -q "def review_limits" builder/providers.py && grep -q "\"--max-turns\", str(max_turns)" builder/brains/claude_code.py && grep -q "timeout=review_timeout" builder/runner.py && grep -q -- "--review-max-turns" build_local.py && grep -q "review_limit_options(plan_review)" vesper.py'
 check "gate env is a fixed base (home and tool caches in the gate temp dir) plus the contract's gate_env names (no secrets; P1-T4, P1-T5, P1-T6)" "P1-T9" \
-    sh -c 'grep -q "\"PYTHONDONTWRITEBYTECODE\": \"1\"" builder/runner.py && grep -q "for name in gate_env if name in os.environ" builder/runner.py && grep -q "\"GOCACHE\": str(cache" builder/runner.py && grep -q "def validate_gate_env" builder/contracts.py && grep -q "PROVIDER_CREDENTIALS = {" builder/providers.py'
+    sh -c 'grep -q "\"PYTHONDONTWRITEBYTECODE\": \"1\"" builder/runner.py && grep -q "for name in gate_env if name in os.environ" builder/runner.py && grep -q "\"GOCACHE\": str(cache" builder/runner.py && grep -q "def validate_gate_env" builder/contracts.py && grep -q "^CREDENTIALS = frozenset" builder/brains/__init__.py'
 check "gates are Python scripts or bare-program commands run in a throwaway copy with an overlay (P1-T5)" "P1-T9" \
     sh -c 'grep -q "script.endswith(\".py\")" builder/contracts.py && grep -q "PROGRAM_NAME.fullmatch(command\[0\])" builder/contracts.py && grep -q "def execute_command_check" builder/runner.py && grep -q "\"check-command\"" builder/runner.py'
 check "config: personal config.toml + project vesper.toml, section levels in LEVELS, secret-like keys refused, vesper config show (P1-T7)" "P1-T8, P1-T9, P1-T11, P2-T3" \
@@ -52,10 +60,10 @@ check "inventory rejects linked or special paths" "P1-T9" \
     grep -q "Linked or special path is unsupported" builder/contracts.py
 check "contract build: ignored top-level dirs and a setup step before the first command gate (launcher op setup; P1-T6)" "P1-T9, P4-T8" \
     sh -c 'grep -q "def validate_build" builder/contracts.py && grep -q "def inventory(root, ignore=())" builder/contracts.py && grep -q "def run_setup" builder/runner.py && grep -q "launch_command(\"setup\"" builder/runner.py && grep -q "Build setup changed tracked files" builder/runner.py'
-check "workers get Read/Edit/Write/Glob/Grep only" "P1-T10" \
-    grep -q '"Read,Edit,Write,Glob,Grep"' builder/providers.py
-check "--provider choices are claude/codex" "P1-T8" \
-    grep -q 'choices=("codex", "claude")' build_local.py
+check "workers get file tools only (Claude Code Read/Edit/Write/Glob/Grep; no shell until P1-T10)" "P1-T10" \
+    grep -q 'WRITE_TOOLS = "Read,Edit,Write,Glob,Grep"' builder/brains/claude_code.py
+check "--brain NAME (config brain or adapter) on run/review-candidate; --provider claude|codex a deprecated alias (P1-T8)" "P1-T11, P5-T1" \
+    sh -c 'grep -q "def brain_options" build_local.py && grep -q "brain_options(run, reviewer=True)" build_local.py && grep -q "^LEGACY = {\"claude\": \"claude-code\", \"codex\": \"codex\"}" builder/brains/__init__.py'
 check "review_bundle requires the four plan files" "P2-T5" \
     grep -q '"product.md", "design.md", "architecture.md", "decisions.md"' builder/contracts.py
 check "validate_design lives in builder/team.py" "P4-T2" \
@@ -72,14 +80,14 @@ check "plan routing and critique live in builder/planning.py" "P2-T5, P4-T6, P4-
     grep -q "^IMPACTS = " builder/planning.py
 check "approve requires an approving plan critique at full/focused depth" "P2-T2, P2-T5" \
     grep -q "Independent plan critique must approve" builder/runner.py
-check "review_plan uses the same report decoder (parse bug applies)" "P1-T1, P1-T2" \
-    grep -q "decode_provider_report(output.read_text" builder/planning.py
+check "review_plan decodes through the brain adapter (tolerant decoder; P1-T1, P1-T8)" "P3-T4" \
+    sh -c 'grep -q "parse_result(brain, output.read_text" builder/planning.py && grep -q "return decode_provider_report(text)" builder/brains/base.py'
 check "plan critique uses the review limits (P1-T3)" "P1-T7, P1-T8" \
     grep -q "log=log, timeout=review_timeout" builder/planning.py
-check "review-plan --provider choices are claude/codex" "P1-T8" \
-    grep -q 'choice.add_argument("--provider", choices=("codex", "claude"))' vesper.py
-check "specialist evals call Codex CLI directly" "P1-T8, P5-T4" \
-    grep -q "\['codex', 'exec'" examples/specialist_evals/run_evals.py
+check "review-plan, consult and repair-run take --brain (P1-T8)" "P5-T1, P5-T3" \
+    sh -c 'grep -q "brain_options(plan_review, group=choice)" vesper.py && grep -q "brain_options(advice)" vesper.py && grep -q "brain_options(repair_run, reviewer=True)" vesper.py'
+check "specialist evals call a brain adapter (--brain, default codex; P1-T8)" "P5-T4" \
+    grep -q "command(args.brain, 'consult'" examples/specialist_evals/run_evals.py
 check "fixture architecture revision matches the technical-lead role" "P1-G, P4-T7" \
     "$PYTHON" -B -c "
 import json, sys; sys.path.insert(0, '.')

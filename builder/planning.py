@@ -134,12 +134,14 @@ def plan_report_schema(digest, identity):
     }
 
 
-def review_plan(runner, report=None, *, external_attested=False, provider=None, launcher=None, trust_host=False,
+def review_plan(runner, report=None, *, external_attested=False, brain=None, launcher=None, trust_host=False,
                 review_timeout=180, review_max_turns=20):
+    """Independent critique of the exact plan packet: an attested report or a launched reviewer brain."""
+    from .brains import command as brain_command, environment as brain_environment, parse_result
     from .contracts import review_bundle
     from .process import run_process
-    from .providers import provider_command, provider_environment, review_limits
-    from .review_gate import STRICT_ENDING, decode_provider_report
+    from .providers import review_limits
+    from .review_gate import STRICT_ENDING
     from .runner import atomic_json, copy_tree
 
     review_limits(review_timeout, review_max_turns)
@@ -153,11 +155,12 @@ def review_plan(runner, report=None, *, external_attested=False, provider=None, 
     history = read_json(history_path) if history_path.exists() else {}
     require(isinstance(history, dict) and type(history.get(digest, 0)) is int, "Invalid critique attempt history")
     require(history.get(digest, 0) < 3, "Plan critique attempt limit reached; revise the plan or escalate to the owner")
+    report_launched = report is None
     if report is not None:
         require(external_attested, "Attest that a separate independent reviewer authored this report")
     else:
-        require(provider, "Choose a separate reviewer provider or supply an independent report")
-        provider_command(provider, launcher, trust_host, operation="reviewer", max_turns=review_max_turns)
+        require(brain, "Choose a separate reviewer brain or supply an independent report")
+        brain_command(brain, "reviewer", launcher, trust_host, max_turns=review_max_turns)
     history[digest] = history.get(digest, 0) + 1
     atomic_json(history_path, history)
     if report is None:
@@ -185,21 +188,23 @@ def review_plan(runner, report=None, *, external_attested=False, provider=None, 
             (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
             before = inventory(view)
             response, log = session / "response.json", session / "review.log"
-            command = provider_command(provider, launcher, trust_host, operation="reviewer", response=response,
-                                       schema=schema, max_turns=review_max_turns)
+            command = brain_command(brain, "reviewer", launcher, trust_host, response=response,
+                                    schema=schema, max_turns=review_max_turns)
             code = run_process(command, cwd=view, input_text=prompt,
-                               env=provider_environment(provider, launcher), log=log, timeout=review_timeout)
+                               env=brain_environment(brain, launcher), log=log, timeout=review_timeout)
             require(code == 0, "Plan reviewer failed; no approval recorded")
             require(inventory(view) == before, "Plan reviewer modified its input copy")
             output = response if response.is_file() else log
             require(not output.is_symlink() and output.stat().st_size <= 256_000, "Invalid plan reviewer output")
-            report = decode_provider_report(output.read_text(encoding="utf-8"))
+            report = parse_result(brain, output.read_text(encoding="utf-8"))
             require(isinstance(report, dict) and report.get("reviewer") == identity, "Reviewer session identity changed")
     require(len(json.dumps(report)) <= 256_000, "Plan review report exceeds the size limit")
     validate_critique(report, bundle, digest)
     _, current = review_bundle(runner.root, include_critique=False)
     require(fingerprint(current) == digest, "Plan changed during independent critique")
     result = {"packet_digest": digest, "reviewer_revision": bundle["planning"]["reviewer"]["revision"],
-              "provider": provider or "operator", "report": report}
+              "provider": brain.name if report_launched else "operator", "report": report}
+    if report_launched:
+        result["adapter"] = brain.adapter.name
     atomic_json(runner.control / "plan-critique.json", result)
     return {**result, "status": "reviewed" if report["verdict"] == "approve" else "blocked"}

@@ -169,7 +169,7 @@ else:
     raise SystemExit(3)
 """)
         script.chmod(0o700)
-        result = command("run", "--provider", "codex", "--launcher", script)
+        result = command("run", "--brain", "codex", "--launcher", script)
         self.assertEqual(result["status"], "complete")
         self.assertEqual(result["attempts"][-1]["review"]["verdict"], "approve")
 
@@ -188,7 +188,7 @@ print("Use a stable conflict code and document when the frontend may retry.")
 ''')
         launcher.chmod(0o700)
         result = command("consult", "--role", "backend", "--task", "draft the error contract",
-                         "--provider", "codex", "--launcher", launcher)
+                         "--brain", "codex", "--launcher", launcher)
         self.assertIn("stable conflict code", result["report"])
         self.assertEqual((project / "seed" / "app.js").read_text(), "export const loading = true;\n")
 
@@ -262,7 +262,7 @@ class RepairTests(unittest.TestCase):
         preview = cmd("submit", attempt["id"], "--launcher", launcher)
         report.write_text(json.dumps(verdict(preview)))
         cmd("review-candidate", "--report", report, "--attest-independent", code=2)
-        cmd("review-candidate", "--provider", "codex", "--launcher", launcher)
+        cmd("review-candidate", "--brain", "codex", "--launcher", launcher)
         patch = cmd("review-change")
         fixed = cmd("repair-commit", "--digest", patch["digest"])
         self.assertTrue(fixed["branch"].startswith("vesper/repair/"))
@@ -312,8 +312,8 @@ else:
     raise SystemExit(3)
 ''')
         launcher.chmod(0o700)
-        result = cmd("repair-run", "--digest", cmd("review")["digest"], "--provider", "codex",
-                     "--reviewer-provider", "claude", "--launcher", launcher, "--commit")
+        result = cmd("repair-run", "--digest", cmd("review")["digest"], "--brain", "codex",
+                     "--reviewer-brain", "claude-code", "--launcher", launcher, "--commit")
         self.assertTrue(result["branch"].startswith("vesper/repair/"))
         history = self.cli("learn", checkout=source)
         self.assertIn(result["commit"], json.dumps(history["repairs"]))

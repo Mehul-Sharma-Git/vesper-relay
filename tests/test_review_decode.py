@@ -8,6 +8,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from builder.contracts import BuilderError
+from builder.brains import ADAPTERS, Brain
 from builder.review_gate import decode_provider_report
 
 REPLIES = ROOT / "docs/plan/fixtures/pocket-todo/reviewer-replies"
@@ -121,7 +122,7 @@ class PlanCritiqueDecodeTests(unittest.TestCase):
             return 0
 
         with mock.patch("builder.process.run_process", fake_run):
-            result = review_plan(case.runner, provider="claude", launcher=str(launcher))
+            result = review_plan(case.runner, brain=Brain("claude-code", ADAPTERS["claude-code"]), launcher=str(launcher))
         self.assertEqual(result["status"], "reviewed")
         self.assertTrue(result["report"]["reviewer"].startswith("reviewer-"))
         self.assertTrue((case.runner.control / "plan-critique.json").is_file())

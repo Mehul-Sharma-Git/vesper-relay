@@ -11,13 +11,15 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from builder.contracts import BuilderError
-from builder.providers import provider_command, review_limits
+from builder.brains import ADAPTERS, Brain, LEGACY, command as brain_command
+from builder.providers import review_limits
 from builder.runner import Runner
 
 import test_builder
 import test_rc1
 from test_rc1 import verdict
 
+CLAUDE = Brain("claude-code", ADAPTERS["claude-code"])
 SLOW_GATE = ("import time\ntime.sleep(1.5)\n"
              "from pathlib import Path\nimport sys\n"
              "assert (Path(sys.argv[1]) / 'first.txt').read_text() == 'one'\n")
@@ -127,8 +129,9 @@ class RunCheckDefaultTests(unittest.TestCase):
 
 class ReviewerLimitTests(unittest.TestCase):
     def command(self, name, **kwargs):
-        with mock.patch("builder.providers.shutil.which", return_value="/usr/local/bin/" + name):
-            return provider_command(name, None, True, operation="reviewer", **kwargs)
+        adapter = LEGACY[name]
+        with mock.patch("builder.brains.base.shutil.which", return_value="/usr/local/bin/" + name):
+            return brain_command(Brain(adapter, ADAPTERS[adapter]), "reviewer", None, True, **kwargs)
 
     def test_reviewer_command_carries_the_chosen_max_turns(self):
         command = self.command("claude", max_turns=7)
@@ -175,7 +178,7 @@ class ReviewCandidateLimitTests(unittest.TestCase):
         report = self.root / "verdict.json"
         report.write_text(json.dumps(verdict(preview)))
         self.fake_claude(report)
-        reviewer = ("review-candidate", "--provider", "claude", "--trust-host")
+        reviewer = ("review-candidate", "--brain", "claude-code", "--trust-host")
         self.assertIn("Review max turns", command(*reviewer, "--review-max-turns", "101", code=2))
         self.assertIn("Review timeout", command(*reviewer, "--review-timeout", "1801", code=2))
         self.assertEqual(command("status")["status"], "awaiting_review")
@@ -194,10 +197,10 @@ class ReviewCandidateLimitTests(unittest.TestCase):
             log.write_text(json.dumps(verdict(preview)))
             return 0
 
-        with mock.patch("builder.providers.shutil.which", return_value="/usr/local/bin/claude"), \
+        with mock.patch("builder.brains.base.shutil.which", return_value="/usr/local/bin/claude"), \
                 mock.patch("builder.runner.run_process", fake_run), \
                 mock.patch.dict(os.environ, {"VESPER_STATE_DIR": self.env["VESPER_STATE_DIR"]}):
-            result = Runner(project).review_candidate(provider="claude", trust_host=True,
+            result = Runner(project).review_candidate(brain=CLAUDE, trust_host=True,
                                                       review_timeout=600, review_max_turns=7)
         self.assertEqual(seen, {"turns": "7", "timeout": 600})
         self.assertEqual(result["outcome"], "accepted")
@@ -206,7 +209,7 @@ class ReviewCandidateLimitTests(unittest.TestCase):
         _, command = self.plan()
         self.approve(command)
         self.fake_claude(self.root / "unused.json")  # run resolves the worker binary first
-        run = ("run", "--provider", "claude", "--trust-host")
+        run = ("run", "--brain", "claude-code", "--trust-host")
         self.assertIn("Review max turns", command(*run, "--review-max-turns", "0", code=2))
         self.assertIn("Review timeout", command(*run, "--review-timeout", "0", code=2))
         self.assertEqual(command("status")["attempts"], [])
@@ -231,9 +234,9 @@ class ReviewPlanLimitTests(unittest.TestCase):
             log.write_text(json.dumps({**template, "reviewer": identity}))
             return 0
 
-        with mock.patch("builder.providers.shutil.which", return_value="/usr/local/bin/claude"), \
+        with mock.patch("builder.brains.base.shutil.which", return_value="/usr/local/bin/claude"), \
                 mock.patch("builder.process.run_process", fake_run):
-            review_plan(self.case.runner, provider="claude", trust_host=True,
+            review_plan(self.case.runner, brain=CLAUDE, trust_host=True,
                         review_timeout=600, review_max_turns=9)
         self.assertEqual(seen, {"turns": "9", "timeout": 600})
 
@@ -241,13 +244,13 @@ class ReviewPlanLimitTests(unittest.TestCase):
         from builder.planning import review_plan
         for _ in range(3):
             with self.assertRaisesRegex(BuilderError, "Review max turns"):
-                review_plan(self.case.runner, provider="claude", trust_host=True, review_max_turns=101)
+                review_plan(self.case.runner, brain=CLAUDE, trust_host=True, review_max_turns=101)
         review_plan(self.case.runner, report=self.case.report(), external_attested=True)
 
     def test_vesper_review_plan_cli_accepts_the_flags(self):
         import subprocess
         result = subprocess.run([sys.executable, "-B", str(ROOT / "vesper.py"), "--project", str(self.case.root),
-                                 "review-plan", "--provider", "claude", "--trust-host",
+                                 "review-plan", "--brain", "claude-code", "--trust-host",
                                  "--review-timeout", "0"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("Review timeout", result.stderr)

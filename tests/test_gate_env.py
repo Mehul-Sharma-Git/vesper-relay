@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from builder.providers import PROVIDER_CREDENTIALS
+from builder.brains import CREDENTIALS
 
 import test_builder
 
@@ -61,7 +61,7 @@ class GateEnvTests(unittest.TestCase):
         self.assertIsNone(seen["VESPER_TEST_DECLARED"])
 
     def test_credential_names_fail_review(self):
-        credentials = sorted({name for names in PROVIDER_CREDENTIALS.values() for name in names})
+        credentials = sorted(CREDENTIALS)
         self.assertIn("ANTHROPIC_API_KEY", credentials)
         self.assertIn("CODEX_HOME", credentials)
         for name in [*credentials, "GITHUB_TOKEN", "db_password", "MY_SECRET", "AWS_CREDENTIALS",

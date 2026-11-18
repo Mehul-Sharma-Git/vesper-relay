@@ -7,6 +7,7 @@ import sys
 import tempfile
 from uuid import uuid4
 
+from .brains import ADAPTERS
 from .contracts import BuilderError, fingerprint, inventory, nonempty, read_json, require, review_bundle, safe_path
 from .git_bridge import change, file_entries, git, git_file_entries
 
@@ -202,7 +203,7 @@ def commit_repair(runner, source, approved_digest):
     require(summary["digest"] == approved_digest, "Reviewed repair patch digest changed")
     accepted = [item for item in state["attempts"] if item["outcome"] == "accepted"]
     require(len(accepted) == 1 and accepted[0].get("review", {}).get("verdict") == "approve"
-            and accepted[0]["review"].get("provider") in ("codex", "claude"),
+            and accepted[0]["review"].get("adapter") in ADAPTERS,
             "An independent reviewer must approve the exact repair")
     snapshot = runner.snapshot(state)
     contents = runner.check_snapshot(state)
