@@ -175,7 +175,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P1-T6 | Toolchain support: setup step and ignored build dirs | P1-T5 | L | done |
 | P1-T7 | Config files: personal + project, `config show` | P0-T1 | M | done |
 | P1-T8 | Brain adapter interface: Claude Code, Codex, Gemini CLI | P1-T2, P1-T7 | L | done |
-| P1-T9 | Pluggable sandbox: Docker and Podman backends, selftest | P1-T5, P1-T8 | L | todo |
+| P1-T9 | Pluggable sandbox: Docker and Podman backends, selftest | P1-T5, P1-T8 | L | doing |
 | P1-T10 | Worker tool layer (shell only inside the sandbox) | P1-T9 | M | todo |
 | P1-T11 | `vesper setup` wizard and `vesper doctor` | P1-T9 | M | todo |
 | P1-G | Phase 1 gate: Pocket Todo unattended in the sandbox with one AI | P1-T1..T11 | M | todo |
