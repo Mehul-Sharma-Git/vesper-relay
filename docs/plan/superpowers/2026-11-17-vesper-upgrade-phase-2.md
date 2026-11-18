@@ -21,8 +21,8 @@ Depends on: P1-G · Size: S · Spec: `docs/plan/phase-2-evidence-and-control.md`
 - [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
 - [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
-## Task P2-T2: Human-only approvals, enforced in every door
-Depends on: P1-G · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T2
+## Task P2-T2: Human-only approvals and a plain-language approval sheet, in every door
+Depends on: P1-G · Size: L · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T2
 
 - [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
 - [ ] Read `docs/plan/00-context.md`, then task P2-T2 and every file under its "Read first"

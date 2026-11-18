@@ -24,7 +24,7 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
 - **Acceptance:** a gate that writes a PNG to `$VESPER_ARTIFACTS` → the PNG is in the
   reviewer's copy; tampering with a copied log changes the view digest and is refused.
 
-## P2-T2 — Human-only approvals, enforced in every door
+## P2-T2 — Human-only approvals and a plain-language approval sheet, in every door
 
 - **Why:** the owner decided the AI can never approve on the owner's behalf. Today this is
   only text in the skill; an AI with shell access can type `vesper approve --digest …` itself.
@@ -48,11 +48,31 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
      - `dashboard`: a button in the later dashboard.
   3. The confirmation is recorded with the digest, the confirmer used, and a timestamp.
      Configured in `[approvals] confirmer = "macos-dialog"` (personal config).
-  4. Update the skill: tell the assistant to run the command and tell the human to confirm.
+  4. **Approval sheet.** The owner must understand what they approve without reading
+     JSON (P1-G: the owner was shown the raw `review` bundle and could not tell what it
+     meant). Every protected action shows a plain-language sheet built only from the
+     approved bundle, so it describes exactly what the digest locks:
+     - what will be delivered (`title`, `delivery`) and the mode (new build or change to a repo);
+     - each requirement in plain words with the gate that proves it (`R1 … → G_API`);
+     - each job: its role, its goal in one line, and the only files it may change;
+     - the independent critique: verdict, blocker count, and the top advisory findings
+       in one line each;
+     - what changed since the owner last saw a sheet for this run (files added, removed
+       or edited, with line counts), or "first approval";
+     - where to look further (the plan folder, wireframe files) and the short digest.
+     `vesper review` prints this sheet by default; `vesper review --json` keeps today's
+     bundle for tools. The `tty` and `macos-dialog` confirmers show the sheet (the dialog
+     a shortened form with a "show full sheet" option) before asking. A patch apply or a
+     risk acceptance gets the same treatment with its own fields (files touched, risk text).
+  5. Update the skill: tell the assistant to run the command and tell the human to confirm.
 - **Do not:** add any flag that skips confirmation, other than an explicit test-only
   environment variable that `vesper doctor` warns about.
 - **Acceptance:** tests that each protected action is refused without a confirmer result;
   that `tty` refuses non-interactive stdin; that the recorded confirmation binds the digest.
+  Approval sheet: for the Pocket Todo fixture, `vesper review` prints every requirement
+  with its gate, each job with its allowed files, the critique verdict and blocker count,
+  and no raw hashes beyond the short digest; editing one check script after a first sheet
+  makes the next sheet list that file as changed; `--json` output is unchanged.
 
 ## P2-T3 — Usage ledger and plan-limit estimates
 
