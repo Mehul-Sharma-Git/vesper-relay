@@ -341,9 +341,11 @@ class CommandLineTests(unittest.TestCase):
 
 
 def engine_ready():
-    docker = shutil.which("docker")
-    return bool(docker) and subprocess.run([docker, "image", "inspect", image_tag()],
-                                           capture_output=True).returncode == 0
+    # The runner's own check, so Docker Desktop's tag-lookup flake (finding 39) doesn't skip these.
+    try:
+        return bool(shutil.which("docker")) and bool(Docker().check().image_id)
+    except BuilderError:
+        return False
 
 
 @unittest.skipUnless(engine_ready(), "Docker and the sandbox image are needed (vesper sandbox build)")
