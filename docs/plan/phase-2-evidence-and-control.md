@@ -60,20 +60,25 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
      - each job: its role, its goal in one line, and the only files it may change;
      - the independent critique: verdict, blocker count, and the top advisory findings
        in one line each; at `skip` depth, "no critique (skip depth)" and the recorded reason;
-     - what changed since the last **human confirmation** recorded for this run (files
-       added, removed or edited, with line counts before and after, against that
-       confirmation's file list), or "first approval". Printing a sheet never moves this
-       baseline, so an AI that runs `vesper review` itself cannot hide a change from the owner;
+     - what changed since the last **human confirmation of a plan approval** recorded for
+       this run (files added, removed or edited, with line counts before and after, against
+       that confirmation's file list), or "first approval". Printing a sheet never moves
+       this baseline, so an AI that runs `vesper review` itself cannot hide a change from
+       the owner;
      - where to look further (the plan folder, wireframe files) and the short digest.
-     The other protected actions show, in the same style (this task builds the sheets for
-     the actions that exist now: patch apply, repair merge or commit, and attesting
-     independence; P2-T6, P2-T7 and P5-T6 build theirs with their actions):
+     The other protected actions show the fields below in the same style. Each one's "what
+     changed" compares with the last human confirmation of the same action for the same
+     subject (the same repository, finding, run's amendments or release candidate), or
+     says "first confirmation"; confirmations of other actions never serve as a baseline.
+     This task builds the sheets for the actions that exist now (patch apply, repair merge
+     or commit, attesting independence); P2-T6, P2-T7 and P5-T6 build theirs with their
+     actions:
      - patch apply: target repository and branch, each file touched with lines added and
        removed, the reviewed patch's short digest, and the review verdict;
      - risk acceptance (P2-T7): the finding in plain words, its severity and source, and
        exactly what is being accepted;
-     - adding checks after approval (P2-T6): each new check's id and script, the jobs it is
-       assigned to, and the reason given;
+     - adding checks after approval (P2-T6): each new check's id and its script or command,
+       the jobs it is assigned to, and the reason given (both recorded in the amendment);
      - repair merge or commit: the failure id, the files changed, tests added, and the
        review verdict;
      - release promotion (P5): the candidate, its scorecard summary, and each release
@@ -164,15 +169,16 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
 - **Why:** QA must be able to add a check mid-build without weakening anything and
   without a full re-approval.
 - **Change:** `vesper --project RUN add-check --id G_X --script x.py` (or `--command ...`)
-  writes an amendment under `.builder/amendments/` with its own digest chained to the
-  approval digest. Allowed: new checks and assigning them to unfinished jobs only.
+  with `--jobs J_X[,J_Y]` (unfinished jobs only) and `--reason "..."` writes an amendment
+  under `.builder/amendments/` with its own digest chained to the approval digest; the
+  amendment records the check, its jobs and the reason. Allowed: new checks and assigning them to unfinished jobs only.
   Refused: removing, editing or reassigning an existing check. `status` and the final
   summary list amendments for the owner. The amendment is a protected action: the human
   confirmer (P2-T2) shows the add-check approval sheet (P2-T2 item 4) before asking.
 - **Acceptance:** tests that an added check runs on the next verification; that editing an
   approved check file is still detected; that an amendment cannot touch an accepted job;
-  that the confirmer receives the add-check sheet (each new check's id, script, assigned
-  jobs and reason).
+  that the confirmer receives the add-check sheet (each new check's id, script or command,
+  assigned jobs and reason); that `add-check` without `--jobs` or `--reason` is refused.
 
 ## P2-T7 — Advisory backlog and decision gate
 
