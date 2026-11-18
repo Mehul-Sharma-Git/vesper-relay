@@ -176,6 +176,17 @@ class ConfigTests(unittest.TestCase):
                 parse_flag(flag)
             self.assertIn("looks like a secret", str(caught.exception))
 
+    def test_key_names_with_dots_or_empty_are_refused(self):
+        for text in ('[tools]\n"github_token.value" = "ghp_x"\n',
+                     '[tools]\nlist = [{"api_key.v" = "x"}]\n',
+                     '[tools]\n"a.b" = 1\n[tools.a]\nb = 2\n',
+                     '[tools]\n"" = 1\n'):
+            with self.subTest(text=text):
+                self.refused("may not contain '.' or be empty", personal=text)
+        with self.assertRaises(BuilderError) as caught:
+            parse_flag('tools.gh={"token.v"="x"}')
+        self.assertIn("may not contain '.' or be empty", str(caught.exception))
+
     def test_a_table_flag_merges_leaf_by_leaf(self):
         values = self.load(PERSONAL, flags=[parse_flag('brains.reviewer={use="codex"}')])["values"]
         self.assertEqual(values["brains.reviewer.use"], {"value": "codex", "source": "flag"})

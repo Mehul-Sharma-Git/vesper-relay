@@ -67,20 +67,27 @@ def refuse_secret(name, where):
                            f"{SECRET_STORE}")
 
 
+def child(prefix, key, where):
+    """Name one nested key; a quoted key may not hide a dot (or a secret) inside it."""
+    require(key and "." not in key,
+            f"Config key {key!r} under {prefix} in {where} may not contain '.' or be empty")
+    name = f"{prefix}.{key}"
+    refuse_secret(name, where)
+    return name
+
+
 def scan_list(items, name, where):
     for item in items:
         if isinstance(item, dict):
             for key, value in item.items():
-                refuse_secret(f"{name}.{key}", where)
-                scan_list([value], f"{name}.{key}", where)
+                scan_list([value], child(name, key, where), where)
         elif isinstance(item, list):
             scan_list(item, name, where)
 
 
 def flatten(table, prefix, where, out):
     for key, value in table.items():
-        name = f"{prefix}.{key}"
-        refuse_secret(name, where)
+        name = child(prefix, key, where)
         if isinstance(value, dict):
             flatten(value, name, where, out)
         else:
