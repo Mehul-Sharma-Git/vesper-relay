@@ -103,8 +103,10 @@ def records(data, label):
     return {item["id"]: item for item in value}
 
 
-# Every gate gets these from the runner (runner.execute_check); gate_env may not replace them.
-GATE_FIXED_ENV = ("PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE")
+# Every gate gets these from the runner (runner.gate_environment); gate_env may not replace them.
+GATE_FIXED_ENV = ("PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE",
+                  "XDG_CACHE_HOME", "GOCACHE", "GOPATH")
+PROGRAM_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._+-]{0,127}")
 SECRET_NAME = re.compile(r"(?i)(key|token|secret|password|credential|auth)")
 
 
@@ -123,6 +125,37 @@ def validate_gate_env(value):
     return value
 
 
+def validate_check(item, checks_inventory):
+    """A gate is a Python script in checks/ or an argv whose program is found by name, never by path."""
+    name = item["id"]
+    require(("script" in item) != ("command" in item), f"Check {name} needs exactly one of script or command")
+    if "script" in item:
+        require("overlay" not in item, f"Check {name}: an overlay needs a command gate")
+        script = safe_path(item["script"])
+        require(script.endswith(".py") and script in checks_inventory, f"Check script missing: {script}")
+    else:
+        command = item["command"]
+        require(isinstance(command, list) and command and len(command) <= 256
+                and all(isinstance(arg, str) and len(arg) <= 4096 and "\0" not in arg for arg in command),
+                f"Invalid command for check {name}: use a list of argument strings")
+        require(PROGRAM_NAME.fullmatch(command[0]),
+                f"Check {name} command must start with a bare program name, not a path: {command[0]!r}")
+        if "overlay" in item:
+            overlay = item["overlay"]
+            require(isinstance(overlay, dict) and set(overlay) == {"from", "to"},
+                    f"Invalid overlay for check {name}: use {{\"from\": \"<dir in checks/>\", \"to\": \"<dir>\"}}")
+            source = safe_path(overlay["from"])
+            require(checks_inventory.get(source, [""])[0] is None
+                    and any(path.startswith(source + "/") and value[0] is not None
+                            for path, value in checks_inventory.items()),
+                    f"Overlay directory missing or empty in checks/: {source}")
+            if overlay["to"] != ".":
+                safe_path(overlay["to"])
+    if "timeout" in item:
+        require(type(item["timeout"]) is int and 1 <= item["timeout"] <= 1800,
+                f"Invalid timeout for check {name}: use whole seconds, 1 to 1800")
+
+
 def validate(data, checks_inventory):
     require(isinstance(data, dict) and nonempty(data.get("title")) and nonempty(data.get("delivery")),
             "Contract needs a title and delivery target")
@@ -132,11 +165,7 @@ def validate(data, checks_inventory):
     checks = records(data, "checks")
     jobs = records(data, "jobs")
     for item in checks.values():
-        script = safe_path(item.get("script"))
-        require(script.endswith(".py") and script in checks_inventory, f"Check script missing: {script}")
-        if "timeout" in item:
-            require(type(item["timeout"]) is int and 1 <= item["timeout"] <= 1800,
-                    f"Invalid timeout for check {item['id']}: use whole seconds, 1 to 1800")
+        validate_check(item, checks_inventory)
     gate_ids = set(checks)
     for item in requirements.values():
         require(nonempty(item.get("description")), f"Missing description for {item['id']}")
@@ -223,7 +252,7 @@ def review_bundle(root, *, include_critique=True):
 
 
 def validate_maintenance(root, contract, checks, seed):
-    require(any(item["id"] == "VESPER_REGRESSION" and item["script"] == "vesper_regression.py"
+    require(any(item["id"] == "VESPER_REGRESSION" and item.get("script") == "vesper_regression.py"
                 for item in contract["checks"]), "Maintenance requires the VESPER_REGRESSION check")
     require(reviewed_text(root / "checks", "vesper_regression.py", checks) == MAINTENANCE_GATE,
             "Maintenance regression script changed")
