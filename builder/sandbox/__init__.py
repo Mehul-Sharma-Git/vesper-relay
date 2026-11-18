@@ -209,8 +209,13 @@ class Container(Sandbox):
         self.program = program
         result = subprocess.run([program, "image", "inspect", self.tag()], capture_output=True, text=True,
                                 env={key: os.environ[key] for key in ENGINE_ENV if key in os.environ}, timeout=120)
-        require(result.returncode == 0, f"Sandbox image {self.tag()} is not built for {self.name}: run "
-                                        f"`vesper sandbox build --backend {self.name}`")
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            require("no such" not in detail.lower() and "not found" not in detail.lower()
+                    and "unknown" not in detail.lower(),
+                    f"Sandbox image {self.tag()} is not built for {self.name}: run "
+                    f"`vesper sandbox build --backend {self.name}`")
+            require(False, f"{self.name} could not be reached (is it running?): {detail[:400]}")
         return self
 
     def start_proxy(self, job, name, env, cleanup):

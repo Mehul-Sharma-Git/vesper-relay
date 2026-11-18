@@ -260,12 +260,14 @@ class CommandLineTests(unittest.TestCase):
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         fake = bin_dir / "docker"
-        fake.write_text("#!/bin/sh\nexit 1\n")
+        fake.write_text("#!/bin/sh\necho 'Error response from daemon: No such image: x' >&2\nexit 1\n")
         fake.chmod(0o700)
         self.env["PATH"] = str(bin_dir) + os.pathsep + os.defpath
         _, command = self.plan()
         self.approve(command)
         self.assertIn("vesper sandbox build", command("run", "--brain", "codex", code=2))
+        fake.write_text("#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n")
+        self.assertIn("docker could not be reached", command("run", "--brain", "codex", code=2))
 
 
 def engine_ready():

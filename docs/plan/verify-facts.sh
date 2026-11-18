@@ -64,6 +64,10 @@ check "workers get file tools only (Claude Code Read/Edit/Write/Glob/Grep; no sh
     grep -q 'WRITE_TOOLS = "Read,Edit,Write,Glob,Grep"' builder/brains/claude_code.py
 check "--brain NAME (config brain or adapter) on run/review-candidate; --provider claude|codex a deprecated alias (P1-T8)" "P1-T11, P5-T1" \
     sh -c 'grep -q "def brain_options" build_local.py && grep -q "brain_options(run, reviewer=True)" build_local.py && grep -q "^LEGACY = {\"claude\": \"claude-code\", \"codex\": \"codex\"}" builder/brains/__init__.py'
+check "sandbox backends docker (default)/podman/none in builder/sandbox/; runner hands jobs to the backend (P1-T9)" "P1-T10, P1-T11, P5-T2" \
+    sh -c 'grep -q "^BACKENDS = (\"docker\", \"podman\", \"none\")" builder/sandbox/__init__.py && grep -q "isinstance(launcher, Sandbox)" builder/runner.py && grep -q "\"sandbox.backend\": \"docker\"" builder/config.py && test -f sandbox/Dockerfile && test -x sandbox/selftest.sh'
+check "sandbox jobs: your uid, read-only root, cap-drop ALL, no-new-privileges; brains reach only sandbox_hosts via tinyproxy (P1-T9)" "P1-T10" \
+    sh -c 'grep -q "\"--read-only\", \"--cap-drop\", \"ALL\"" builder/sandbox/__init__.py && grep -q "FilterDefaultDeny Yes" builder/sandbox/__init__.py && grep -q "sandbox_hosts = " builder/brains/base.py'
 check "review_bundle requires the four plan files" "P2-T5" \
     grep -q '"product.md", "design.md", "architecture.md", "decisions.md"' builder/contracts.py
 check "validate_design lives in builder/team.py" "P4-T2" \
@@ -83,7 +87,7 @@ check "approve requires an approving plan critique at full/focused depth" "P2-T2
 check "review_plan decodes through the brain adapter (tolerant decoder; P1-T1, P1-T8)" "P3-T4" \
     sh -c 'grep -q "parse_result(brain, output.read_text" builder/planning.py && grep -q "return decode_provider_report(text)" builder/brains/base.py'
 check "plan critique uses the review limits (P1-T3)" "P1-T7, P1-T8" \
-    grep -q "log=log, timeout=review_timeout" builder/planning.py
+    grep -q "timeout=review_timeout, response=response, schema=schema, max_turns=review_max_turns" builder/planning.py
 check "review-plan, consult and repair-run take --brain (P1-T8)" "P5-T1, P5-T3" \
     sh -c 'grep -q "brain_options(plan_review, group=choice)" vesper.py && grep -q "brain_options(advice)" vesper.py && grep -q "brain_options(repair_run, reviewer=True)" vesper.py'
 check "specialist evals call a brain adapter (--brain, default codex; P1-T8)" "P5-T4" \
