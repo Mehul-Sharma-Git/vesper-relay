@@ -220,9 +220,26 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         self.assertIn("never a folder", seen["prompt"])
         # P1-G: Codex twice blocked a plan because it read the role revision as an architecture digest.
         self.assertIn(PLANNING_NOTE, seen["prompt"])
+        # P1-G: each critique round found new items of the same kinds, and Claude and Codex
+        # disagreed on what blocks; the critic now sweeps each kind and blocks by a stated rule.
+        for kind in ("who and what can reach the system", "concurrent changes to the same record",
+                     "failure paths of each requirement", "gate adequacy"):
+            self.assertIn(kind, seen["prompt"])
+        self.assertIn("report every instance in this one review", seen["prompt"])
+        self.assertIn("Blocking means:", seen["prompt"])
+
         listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
         self.assertIn("plan/architecture.md", listed)
         self.assertNotIn("plan", listed)
+
+    def test_plan_roles_sweep_each_kind_and_name_what_a_gate_catches(self):
+        lead = (ROOT / "team/roles/technical-lead.md").read_text()
+        for marker in ("Reachability:", "Concurrent changes:", "mitigate it in the contract, name the gate"):
+            self.assertIn(marker, lead)
+        qa = (ROOT / "team/roles/qa.md").read_text()
+        self.assertIn("failure-path matrix", qa)
+        self.assertIn("the wrong implementation that assertion catches", qa)
+        self.assertIn("reachability and concurrent-change lists", (ROOT / "team/roles/planner.md").read_text())
 
     def test_a_rejected_critique_reply_is_kept_for_the_owner(self):
         from builder.planning import review_plan

@@ -44,6 +44,7 @@ consequence back to the user and reapprove the affected packet.
 
 Deliver the planning packet: users and journey, exact outcome and exclusions,
 decision log (confirmed/delegated/open), design and architecture as needed,
-roles and dependency graph, writable paths, acceptance criteria mapped to
-checks, and target for delivery. Show the review digest with what it covers
+roles and dependency graph, writable paths, acceptance criteria and failure
+paths mapped to checks, the tech lead's reachability and concurrent-change lists
+with each item mitigated, gated or accepted, and target for delivery. Show the review digest with what it covers
 and the unresolved risks. Use the discovery skill for the interview.

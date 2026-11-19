@@ -154,8 +154,13 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
      adds sections:
      - every depth: `problem` (why, success measure, non-goals), `assumptions` (each with how
        and when it gets confirmed), `estimate` (from P2-T3);
-     - `focused` and `full`: `risks` (pre-mortem items, each with a check or mitigation) and
-       `stack` (choice + reason, or "existing repo");
+     - `focused` and `full`: `risks` (pre-mortem items, each with a check or mitigation),
+       `stack` (choice + reason, or "existing repo"), and the tech lead's `reachability` and
+       `concurrency` lists plus QA's `failure_paths` matrix (requirement or list item →
+       scenario → assertion → the wrong implementation it catches). Every list item is
+       mitigated with the gate that proves it, or accepted with a reason. The roles and the
+       critique already ask for these (P1-G, `appendix-b` finding 45); this makes `review`
+       refuse a plan without them;
      - `full`: `options` (2–3 approaches with trade-offs and the recommendation),
        `components` (cache, queue, CDN, realtime, search, storage → now / later + trigger /
        no) and `phases`.
