@@ -233,6 +233,14 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         self.assertIn("Accepted risk: owner must confirm", seen["prompt"])
         self.assertIn("the plan's own record of an acceptance is not the owner's confirmation", seen["prompt"])
         self.assertNotIn("confirmed by the owner in the decision log", seen["prompt"])
+        # P1-G round 4: an unbounded gate-adequacy rule let Codex raise 22 blockers by inventing builds
+        # made to slip past the gates. Gaps block only for plausible mistakes; security within the
+        # owner's threat model, and a threat placed outside it still reaches the owner.
+        self.assertIn("a plausible mistake by a competent engineer following the plan", seen["prompt"])
+        self.assertIn("the candidate reviewer, who reads the code", seen["prompt"])
+        self.assertIn("inside the owner's threat model", seen["prompt"])
+        self.assertIn("a threat the plan places outside that model is reported the same way", seen["prompt"])
+        self.assertNotIn("can be broken by an implementation that passes every gate", seen["prompt"])
 
         listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
         self.assertIn("plan/architecture.md", listed)
@@ -252,6 +260,9 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         planner = role("planner")
         self.assertIn("reachability and concurrent-change lists", planner)
         self.assertIn("a decision-log entry is not the owner's confirmation", planner)
+        self.assertIn("threat model", planner)
+        self.assertIn("inside the owner's threat model", lead)
+        self.assertIn("Aim the matrix at plausible mistakes", qa)
 
     def test_the_plan_critique_gets_ten_minutes_and_says_when_it_ran_out(self):
         # P1-G: a full sweep took Codex about 3 minutes; the 180 s reviewer default killed it,

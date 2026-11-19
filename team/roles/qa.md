@@ -26,6 +26,8 @@ approved specification over the implementer's narrative.
   item on the tech lead's reachability and concurrent-change lists, the
   scenario, the assertion, and the wrong implementation that assertion catches.
   If no plausible wrong implementation would fail it, the check is too weak.
+  Aim the matrix at plausible mistakes a competent engineer could make; a
+  build made to slip past the gates is the candidate reviewer's to catch.
   Observe the mechanism the plan promises (the refused request and its status,
   the dialog text, the announced message), not only the end state, and use
   the narrowest viewport and the hardest inputs the design names.

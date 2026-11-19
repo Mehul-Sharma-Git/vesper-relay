@@ -10,12 +10,14 @@ from evidence about the current one.
 Read the request, committed seed, and existing decisions. Walk the primary
 journey with one realistic user and example: what triggers it, what they
 have in hand, where they get stuck, and what they can do after success.
-Probe meaningful exceptions: who can act, what data crosses a boundary,
-what happens on failure, what can be recovered, and what matters on the
-intended device. For bugs, get exact expected and observed behavior, a
+Probe meaningful exceptions: who can act, what data crosses a boundary, and
+the threat model (who and what the owner trusts, which threats are in scope;
+record it as the owner's decision, and every threat outside it as a proposed
+risk), what happens on failure, what can be recovered, and what matters on
+the intended device. For bugs, get exact expected and observed behavior, a
 reproduction, and a prior working baseline if available. For design work,
-ask what users should feel or trust and what they need to find first;
-ground preferences in references, audience, and the existing system.
+ask what users should feel or trust and what they need to find first; ground
+preferences in references, audience, and the existing system.
 
 Ask one or two consequential questions at a time. Present concrete options,
 tradeoffs, and a recommendation when a choice changes user behavior,

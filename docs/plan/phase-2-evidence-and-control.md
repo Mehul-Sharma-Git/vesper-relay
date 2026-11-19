@@ -158,7 +158,8 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
      - every depth: `problem` (why, success measure, non-goals), `assumptions` (each with how
        and when it gets confirmed), `estimate` (from P2-T3);
      - `focused` and `full`: `risks` (pre-mortem items, each with a check or mitigation),
-       `stack` (choice + reason, or "existing repo"), and the tech lead's `reachability` and
+       `stack` (choice + reason, or "existing repo"), the owner's `threat_model` (who and what
+       is trusted, which threats are in scope; P1-G finding 47), the tech lead's `reachability` and
        `concurrency` lists plus QA's `failure_paths` matrix (requirement or list item →
        scenario → assertion → the wrong implementation it catches). Every list item is
        mitigated with the gate that proves it, or proposed as a risk to accept with a reason.
