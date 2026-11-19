@@ -21,6 +21,9 @@ from .sandbox import Sandbox, check_job, command_job
 
 # VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
 REGRESSION_TIMEOUT = 900
+# A retry's review lists the blockers earlier reviews of its job raised (newest kept).
+EARLIER_BLOCKERS_LIMIT = 20
+EARLIER_EVIDENCE_LIMIT = 600
 # A retry's brief carries every earlier failure of its job, each cut to an equal share of this.
 HISTORY_LIMIT = 12_000
 FAILURE_LABELS = {"check": "failed a gate", "review": "rejected by the independent reviewer",
@@ -567,6 +570,15 @@ class Runner:
         role_key = "security_reviewer" if needs_security(job, attempt["changed"]) else "reviewer"
         profile = state["bundle"]["team"][role_key]
         packet["reviewer_revision"] = profile["revision"]
+        earlier = [{"attempt": number, "path": finding["path"],
+                    "evidence": finding["evidence"][:EARLIER_EVIDENCE_LIMIT],
+                    "recommendation": finding["recommendation"][:EARLIER_EVIDENCE_LIMIT]}
+                   for number, item in enumerate(self.attempts_for(state, job), 1)
+                   for finding in (item.get("review") or {}).get("findings", [])
+                   if finding.get("severity") == "blocking"]
+        if earlier:
+            # A retry's reviewer checks these first, so the bar does not move between versions.
+            packet["earlier_blockers"] = earlier[-EARLIER_BLOCKERS_LIMIT:]
         if state["bundle"].get("design_review") and job["role"] == "frontend":
             packet["design_review"] = True
         workspace = directory / "review"

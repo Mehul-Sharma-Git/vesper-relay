@@ -8,6 +8,10 @@ from .contracts import BuilderError, nonempty, require, safe_path
 
 AREAS = ("requirements", "correctness", "scope", "tests", "maintainability", "security")
 BINDING = ("attempt_id", "base_digest", "candidate_digest")
+EARLIER_PROMPT = ("review.json lists earlier_blockers: the blockers earlier reviews of this job raised. Check each "
+                  "first and say in your summary whether this candidate resolves it; an unresolved one stays a "
+                  "blocker only if it meets the blocking rule in your role. Raise a new blocker only under that "
+                  "rule.\n")
 STRICT_ENDING = "Return only the JSON object. No text before or after it."
 SECURITY_PATH = re.compile(r"(^|[/_.-])(auth\w*|acl|permissions?|secrets?|tokens?|crypto\w*|tenants?|workflows)([/_.-]|$)", re.I)
 
@@ -163,6 +167,7 @@ def prompt(role, packet):
         "record concrete observations or state what could not be verified. Findings use severity "
         "'blocking' or 'advisory', a relative path, evidence, and a recommendation. "
         "Use verdict 'approve' only with no blockers, or 'request_changes' with at least one blocker.\n"
+        + (EARLIER_PROMPT if packet.get("earlier_blockers") else "")
         + json.dumps({**{key: packet[key] for key in BINDING},
                       "verdict": "approve", "summary": "Explain what was reviewed.",
                       "evidence": dict.fromkeys(evidence_areas(packet), "Replace with actual evidence."), "findings": []}, indent=2)
