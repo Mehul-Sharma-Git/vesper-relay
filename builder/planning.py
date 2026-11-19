@@ -192,7 +192,10 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
                 "incompatible seams, test trust, failure/retry/rollout paths. Cite exact artifacts and "
                 "concrete failure scenarios; distinguish blockers from advice. Each finding's path is "
                 "exactly one supplied file, optionally with :LINE or :START-END, never a folder; put a "
-                "finding that spans files on the file that most needs the change. Files you may cite: " +
+                "finding that spans files on the file that most needs the change. "
+                "plan/planning.json is Vesper's routing manifest: its architecture.revision is the "
+                "technical-lead role revision, not a digest of architecture.md, and the runner checks it "
+                "and the authors; this approval binds every supplied file by digest. Files you may cite: " +
                 citable_files(bundle) + "\nReturn JSON only: " +
                 json.dumps({"phase": "plan", "packet_digest": digest, "reviewer": identity,
                     "verdict": "approve or request_changes", "summary": "actual observations",
