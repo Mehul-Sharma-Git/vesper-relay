@@ -116,6 +116,11 @@ class TeamTests(unittest.TestCase):
         self.assertNotIn("earlier_blockers", json.loads((review / "review.json").read_text()))
         prompt = (review / "review.md").read_text()
         self.assertIn("Blocking means: the candidate breaks", prompt)
+        # One pass (P1-G run 7): report every blocker now, by kind, not one per version.
+        self.assertIn("Sweep the whole candidate once", prompt)
+        for kind in ("every route", "failure", "concurrent", "pending"):
+            self.assertIn(kind, prompt)
+        self.assertNotIn("material correctness", prompt)
         # The plan critique renders the same role and keeps its own rule (finding 47).
         from builder.team import profile, render
         self.assertNotIn("Blocking means", render(profile("reviewer")))
