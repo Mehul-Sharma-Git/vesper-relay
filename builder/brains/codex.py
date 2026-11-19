@@ -13,8 +13,11 @@ With shell, inside a Vesper sandbox, the worker gets ``danger-full-access``: the
 reference describes it as disabling Codex's own sandboxing, "use only if your environment
 already isolates processes" (learn.chatgpt.com/docs/config-file/config-advanced, read
 2026-11-18); the container is that isolation (read-only root, /work the only writable mount,
-provider hosts only). Reviewers and consultants stay ``read-only`` whatever they are granted,
-so they never edit or write.
+provider hosts only). A reviewer granted shell (only inside a Vesper sandbox) gets
+``danger-full-access`` too: there Codex's own Linux sandbox (bubblewrap) cannot create a user
+namespace, so under ``read-only`` every command failed and a P1-G plan critique read nothing.
+The engine mounts the review copy read-only, so the reviewer still cannot change it.
+Consultants (never granted shell) and every reviewer on the host stay ``read-only``.
 
 ``vesper doctor`` (P1-T11) checks these flags against ``codex exec --help`` (all listed in
 codex-cli 0.170.0, the image's pinned version).
@@ -51,7 +54,8 @@ class Codex(Adapter):
 
     def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
                          program=None, tools=READ_TOOLS):
-        return self.command("read-only", response, model, effort, program)
+        mode = "danger-full-access" if "shell" in tools else "read-only"
+        return self.command(mode, response, model, effort, program)
 
     def consult_command(self, *, response=None, model=None, effort=None, max_turns=20, program=None,
                         tools=READ_TOOLS):
