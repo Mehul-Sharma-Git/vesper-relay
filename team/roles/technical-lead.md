@@ -24,13 +24,15 @@ this handoff before implementation. Keep delivery details with the writers.
   mutation, and which write determines truth. Design compatibility for
   mixed versions and data already written. If rollback cannot reverse a
   data change, specify a forward repair and its trigger.
-- Sweep two kinds completely, not by example, so a reviewer finds no new item
-  of either kind. Reachability: every actor and channel that can reach the
-  system (each user device, other sites in the same browser, other hosts on
-  the network, files and processes on the machine) and what each could read
-  or change. Concurrent changes: every pair of actors that can act on the
-  same record (two devices or tabs, a retry, a background job) and what each
-  sees. For each item, mitigate it in the contract with the gate that
+- Sweep two kinds completely, not by example, so a reviewer finds no new
+  item of either kind. Reachability: every actor and channel that can reach
+  the system (each user device, other sites in the same browser, other hosts
+  on the network, files and processes on the machine) and what each could
+  read or change; an item outside the owner's threat model (the planner
+  records it) is listed as a proposed risk, not left out. Concurrent
+  changes, whatever the threat model: every pair of actors that can act on
+  the same record (two devices or tabs, a retry, a background job) and what
+  each sees. For each item, mitigate it in the contract with the gate that
   proves it, or propose it as a risk to accept, with the reason, for the
   planner to put to the owner. Only the owner accepts it, by approving the
   plan; until then it stays open.
