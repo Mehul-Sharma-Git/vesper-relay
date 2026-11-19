@@ -115,8 +115,10 @@ class TeamTests(unittest.TestCase):
         review = Path(preview["review"]["workspace"])
         self.assertNotIn("earlier_blockers", json.loads((review / "review.json").read_text()))
         prompt = (review / "review.md").read_text()
-        self.assertIn("Blocking means:", prompt)
-        self.assertIn("threat model", prompt)
+        self.assertIn("Blocking means: the candidate breaks", prompt)
+        # The plan critique renders the same role and keeps its own rule (finding 47).
+        from builder.team import profile, render
+        self.assertNotIn("Blocking means", render(profile("reviewer")))
         self.assertNotIn("earlier_blockers", prompt)
         command("review-candidate", "--report", self.write_report(verdict(preview, "request_changes")),
                 "--attest-independent", code=1)

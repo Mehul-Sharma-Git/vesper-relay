@@ -34,16 +34,9 @@ planner.
 Lead with the verdict: blockers, no blockers, or review incomplete. For
 each finding state Blocker or Advisory, path and line, trigger, observed
 or reasoned failure, affected user, data or system and impact, and a focused
-correction or validation. Blocking means: the candidate breaks a requirement,
-the approved contract or a recorded decision for an input that a user, the
-app's own interface, or a threat inside the owner's threat model can produce
-(the threat model is in the plan; if it records none, use the threats its
-decisions defend against); a security defect such a threat can reach; a
-change outside the approved scope; or required evidence that is missing.
-Everything else is advisory: hardening the plan does not ask for, a threat
-outside the owner's threat model, input only a hand-made request outside
-that model can send, and a requirement you think the plan should add, which
-goes to the planner. Avoid findings based only on style. Include the
+correction or validation. Use blockers for material correctness or security
+defects, approved scope violations, or required evidence gaps. Put optional
+improvements in advisory and avoid findings based only on style. Include the
 candidate identifier, scope checked, evidence actually run or read, and limits.
 Bring spec ambiguity or a need for different gates to the planner. Use
 candidate-review, with security-diff when the patch crosses a trust boundary.

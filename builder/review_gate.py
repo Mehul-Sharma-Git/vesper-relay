@@ -8,10 +8,19 @@ from .contracts import BuilderError, nonempty, require, safe_path
 
 AREAS = ("requirements", "correctness", "scope", "tests", "maintainability", "security")
 BINDING = ("attempt_id", "base_digest", "candidate_digest")
+# Candidate review only: the plan critique shares the reviewer role but has its own rule
+# (builder/planning.py, finding 47). Finding 50.
+CANDIDATE_BLOCKER_RULE = (
+    "Blocking means: the candidate breaks a requirement, the approved contract or a recorded decision for "
+    "an input that a user, the app's own interface, or a threat inside the owner's threat model can produce "
+    "(the threat model is in the plan; if it records none, use the threats its decisions defend against); a "
+    "security defect such a threat can reach; a change outside the approved scope; or required evidence that "
+    "is missing. Everything else is advisory: hardening the plan does not ask for, a threat outside the "
+    "owner's threat model, input only a hand-made request outside that model can send, and a requirement "
+    "you think the plan should add, which goes to the planner.\n")
 EARLIER_PROMPT = ("review.json lists earlier_blockers: the blockers earlier reviews of this job raised. Check each "
                   "first and say in your summary whether this candidate resolves it; an unresolved one stays a "
-                  "blocker only if it meets the blocking rule in your role. Raise a new blocker only under that "
-                  "rule.\n")
+                  "blocker only if it meets the blocking rule above. Raise a new blocker only under that rule.\n")
 STRICT_ENDING = "Return only the JSON object. No text before or after it."
 SECURITY_PATH = re.compile(r"(^|[/_.-])(auth\w*|acl|permissions?|secrets?|tokens?|crypto\w*|tenants?|workflows)([/_.-]|$)", re.I)
 
@@ -167,6 +176,7 @@ def prompt(role, packet):
         "record concrete observations or state what could not be verified. Findings use severity "
         "'blocking' or 'advisory', a relative path, evidence, and a recommendation. "
         "Use verdict 'approve' only with no blockers, or 'request_changes' with at least one blocker.\n"
+        + CANDIDATE_BLOCKER_RULE
         + (EARLIER_PROMPT if packet.get("earlier_blockers") else "")
         + json.dumps({**{key: packet[key] for key in BINDING},
                       "verdict": "approve", "summary": "Explain what was reviewed.",
