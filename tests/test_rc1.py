@@ -106,6 +106,33 @@ class TeamTests(unittest.TestCase):
         attempt = command("prepare")
         self.assertIn("failed-save branch", Path(attempt["brief"]).read_text())
 
+    def test_retry_review_rechecks_earlier_blockers_under_a_stated_blocker_rule(self):
+        # P1-G run 6: each fresh review raised new blockers on the next version, so a job
+        # with two attempts never converged.
+        _, command = self.plan()
+        self.approve(command)
+        _, preview = self.submit(command)
+        review = Path(preview["review"]["workspace"])
+        self.assertNotIn("earlier_blockers", json.loads((review / "review.json").read_text()))
+        prompt = (review / "review.md").read_text()
+        self.assertIn("Blocking means: the candidate breaks", prompt)
+        # The plan critique renders the same role and keeps its own rule (finding 47).
+        from builder.team import profile, render
+        self.assertNotIn("Blocking means", render(profile("reviewer")))
+        self.assertNotIn("earlier_blockers", prompt)
+        command("review-candidate", "--report", self.write_report(verdict(preview, "request_changes")),
+                "--attest-independent", code=1)
+        attempt = command("prepare")
+        preview = command("submit", attempt["id"])
+        review = Path(preview["review"]["workspace"])
+        packet = json.loads((review / "review.json").read_text())
+        self.assertEqual(packet["earlier_blockers"], [
+            {"attempt": 1, "path": "app.js", "evidence": "The fallback skips a required branch.",
+             "recommendation": "Handle the failed-save branch explicitly."}])
+        self.assertIn("earlier_blockers", (review / "review.md").read_text())
+        command("review-candidate", "--report", self.write_report(verdict(preview)), "--attest-independent")
+        self.assertEqual(command("status")["status"], "complete")
+
     def test_visual_work_requires_distinct_design_directions_and_design_review(self):
         project, command = self.plan()
         path = project / "plan" / "contract.json"
