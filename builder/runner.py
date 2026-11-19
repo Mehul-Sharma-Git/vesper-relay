@@ -417,9 +417,9 @@ class Runner:
         require({path: record[0] for path, record in copied.items()}
                 == {path: record[0] for path, record in state["bundle"]["checks"].items()},
                 "Approved checks changed while copying")
-        for path, (digest, _) in copied.items():
+        for path, (digest, mode) in copied.items():
             if digest is not None:
-                (gates_copy / path).chmod(0o444)  # read-only files; folders stay removable
+                (gates_copy / path).chmod(mode & ~0o222)  # read-only files; folders stay removable
         final = len(state["completed"]) + 1 == len(contract["jobs"])
         gates = [check for check in contract["checks"] if final or check["id"] in job["checks"]]
         origin = None

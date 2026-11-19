@@ -237,6 +237,7 @@ class BuilderTests(unittest.TestCase):
         self.assertIn("G1: python3 -I -B .vesper-gates/first.py CANDIDATE", brief)
         self.assertNotIn("G2:", brief)
         # The copy is read-only, and even a changed copy decides nothing: Vesper runs the approved gates.
+        self.assertEqual((gates / "first.py").stat().st_mode & 0o222, 0)
         with self.assertRaises(PermissionError):
             (gates / "first.py").write_text("raise SystemExit(0)\n")
         (gates / "first.py").chmod(0o644)
