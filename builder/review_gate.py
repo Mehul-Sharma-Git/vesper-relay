@@ -18,6 +18,17 @@ CANDIDATE_BLOCKER_RULE = (
     "is missing. Everything else is advisory: hardening the plan does not ask for, a threat outside the "
     "owner's threat model, input only a hand-made request outside that model can send, and a requirement "
     "you think the plan should add, which goes to the planner.\n")
+# One pass (P1-G run 7): reviews found one or two new blockers per version, so a job needed
+# about four attempts. Sweep by kind and report everything now, as the plan critique does.
+CANDIDATE_SWEEP = (
+    "Sweep the whole candidate once and report every blocker you find in this one review, not only the "
+    "first: a retry fixes what you list, and anything you leave for a later review costs the owner another "
+    "attempt. Go through each kind completely: every route, command or screen the job delivers, with every "
+    "method, field, limit, encoding and error status the contract gives it; every failure path (a request "
+    "that fails, times out, or finds its record changed or gone); concurrent requests and partial writes "
+    "(transactions, locks held while waiting on input); every input the threat model lets reach the app "
+    "(headers, origins, methods including preflight); and for an interface, every control while a request "
+    "is pending or after it fails, keyboard and focus, and typed text that must survive.\n")
 EARLIER_PROMPT = ("review.json lists earlier_blockers: the blockers earlier reviews of this job raised. Check each "
                   "first and say in your summary whether this candidate resolves it; an unresolved one stays a "
                   "blocker only if it meets the blocking rule above. Raise a new blocker only under that rule.\n")
@@ -177,6 +188,7 @@ def prompt(role, packet):
         "'blocking' or 'advisory', a relative path, evidence, and a recommendation. "
         "Use verdict 'approve' only with no blockers, or 'request_changes' with at least one blocker.\n"
         + CANDIDATE_BLOCKER_RULE
+        + CANDIDATE_SWEEP
         + (EARLIER_PROMPT if packet.get("earlier_blockers") else "")
         + json.dumps({**{key: packet[key] for key in BINDING},
                       "verdict": "approve", "summary": "Explain what was reviewed.",
