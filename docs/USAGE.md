@@ -124,6 +124,11 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   attempt fails. `none` and `--trust-host` run on the host and warn every time; `--launcher
   PATH` keeps a custom launcher. Sandboxed brains log in from the macOS Keychain (service
   `vesper-relay`) or `~/.config/vesper/secrets.env` (mode 600); see START-HERE.md.
+- **Gate evidence.** A gate can save evidence (screenshots, traces) in the folder named
+  by `VESPER_ARTIFACTS`. The independent reviewer's copy holds the approved gate scripts
+  (`checks/`), each gate's log (`logs/<ID>.log`, the last 256 KB when longer) and what
+  each gate saved (`artifacts/<ID>/`, up to 20 MB in all). Any change to that copy is
+  refused before the verdict counts.
 - **Choose brains.** Any supported AI can do every role; one is enough. The
   adapters are `claude-code`, `codex` and `gemini-cli`. Name brains by purpose
   in the personal config (`[brains.strong] use = "claude-code"`, optional `model`

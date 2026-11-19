@@ -175,6 +175,15 @@ def write_diff(destination, before, after, paths):
                 output.write("Diff exceeds the inline budget. Inspect the supplied files.\n")
 
 
+def gate_evidence(packet):
+    """Where the gate evidence is in the review copy (P2-T1)."""
+    places = "; ".join(f"{check['id']}: logs/{check['id']}.log and artifacts/{check['id']}/"
+                       for check in packet.get("checks", []))
+    return ("Gate evidence: the approved gate scripts are in checks/. Each gate's full log (its last 256 KB "
+            "when longer) and anything it saved, such as screenshots, are in " + (places or "logs/ and artifacts/")
+            + ". Read them; the evidence lines in review.json are only their last lines.\n")
+
+
 def prompt(role, packet):
     from .team import render
 
@@ -187,6 +196,7 @@ def prompt(role, packet):
         "record concrete observations or state what could not be verified. Findings use severity "
         "'blocking' or 'advisory', a relative path, evidence, and a recommendation. "
         "Use verdict 'approve' only with no blockers, or 'request_changes' with at least one blocker.\n"
+        + gate_evidence(packet)
         + CANDIDATE_BLOCKER_RULE
         + CANDIDATE_SWEEP
         + (EARLIER_PROMPT if packet.get("earlier_blockers") else "")
