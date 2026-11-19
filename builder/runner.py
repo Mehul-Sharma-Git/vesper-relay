@@ -42,6 +42,23 @@ def scope_changes(base, proposed, paths):
     return changed, denied
 
 
+def drop_python_caches(root, ignore=()):
+    """Remove the __pycache__ folders a worker's own runs leave in its workspace. They are
+    never product files (safe_path refuses the name), and one stray cache would otherwise
+    reject the whole attempt unchecked (finding 49). A linked one is unlinked, never followed;
+    ignored top-level folders are left alone."""
+    for directory, folders, _ in os.walk(root):
+        if Path(directory) == root:
+            folders[:] = [name for name in folders if name not in ignore]
+        if "__pycache__" in folders:
+            folders.remove("__pycache__")
+            cache = Path(directory) / "__pycache__"
+            if cache.is_symlink():
+                cache.unlink()
+            else:
+                shutil.rmtree(cache)
+
+
 def attempt_history(previous, limit=HISTORY_LIMIT):
     """Every earlier failure of a job, oldest first; a long reason keeps its start and end."""
     if not previous:
@@ -511,6 +528,7 @@ class Runner:
         try:
             base = self.check_snapshot(state)
             # Worker workspaces may hold build output in ignored directories; it is never promoted.
+            drop_python_caches(workspace, ignore)
             proposed = inventory(workspace, ignore)
             if "repair" in state["bundle"]:
                 from .repair import validate_git_candidate

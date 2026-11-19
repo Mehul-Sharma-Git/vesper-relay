@@ -259,6 +259,31 @@ class BuilderTests(unittest.TestCase):
         self.command("export", str(export))
         self.assertEqual(sorted(path.name for path in export.iterdir()), ["first.txt", "second.txt"])
 
+    def test_python_caches_a_worker_leaves_are_dropped_not_fatal(self):
+        # P1-G run 5 (finding 49): a worker that imported its own server.py left
+        # __pycache__/server.cpython-313.pyc, and the whole attempt was rejected unchecked.
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("one")
+        (workspace / "__pycache__").mkdir()
+        (workspace / "__pycache__" / "server.cpython-313.pyc").write_bytes(b"\x00")
+        (workspace / ".vesper-gates" / "__pycache__").mkdir()
+        outside = self.project.parent / "kept"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("keep")
+        (workspace / "deps").mkdir()
+        (workspace / "deps" / "__pycache__").symlink_to(outside)
+        # Caches go (a linked one is unlinked, never followed); only the stray folder is reported.
+        result = self.command("submit", attempt["id"], code=1)
+        self.assertEqual(result["reason"], "Changes outside job scope: deps")
+        self.assertEqual((outside / "keep.txt").read_text(), "keep")
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("one")
+        (workspace / "__pycache__").mkdir()
+        (workspace / "__pycache__" / "server.cpython-313.pyc").write_bytes(b"\x00")
+        self.command("submit", attempt["id"])
+        self.assertEqual(self.command("status")["completed"], ["J1"])
+
     def test_seed_cannot_use_the_reserved_gates_folder(self):
         (self.project / "seed" / ".vesper-gates").mkdir()
         self.approve()
