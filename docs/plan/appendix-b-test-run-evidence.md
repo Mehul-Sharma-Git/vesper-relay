@@ -232,3 +232,49 @@ P3-T3; `solution/` stays the 9 Nov app, which fails the revised checks.
 - Codex as a consultant inside the sandbox still cannot run commands (finding 43).
 - The cause of run 2's `ERR_PROXY_TUNNEL` is open until it recurs with the proxy log
   (finding 42).
+
+### After the gate: Codex job-review runs 5–7 (19 Nov 2026)
+
+The owner asked to fix what run 4 showed was Vesper's fault and rerun the Codex-reviewed
+build. Each run used round 2's plan (the one Claude approved, file for file as run 4), a
+fresh Claude plan critique (approve, 0 blocking, 6 advisories each time), the owner's
+approval, and `run --reviewer-brain codex`. Vesper was `dc01eb5` (which accepts round 2's
+planning roles) with `builder/runner.py`, `builder/providers.py` and `builder/review_gate.py`
+from the fixes below, the same build and review code as `dev` at `08feedb`. The P1-G result
+above is unchanged: these runs are not a gate rerun.
+
+| Run | Fixes in | J_API | J_UI | Result |
+| --- | --- | --- | --- | --- |
+| 5 | #31 | 1: G_API pass, Codex 3 blocking. 2: started from 1, fixed all 3, passed G_API in its own run, rejected unchecked for `__pycache__` (finding 49) | — | `blocked`, 2 min 10 s |
+| 6 | #31, #32 | 1: Codex 3 blocking. 2: started from 1, fixed all 3, G_API pass, Codex 2 new blocking (a `999.1.1.1` Host, an invalid delete name answered 409; finding 50) | — | `blocked`, 3 min 15 s |
+| 7 | #31, #32, #33 | blocking per attempt 3, 1, 1, 0: accepted on attempt 4 | blocking per attempt 3, 3, 2, 1; G_API, G_UI and G_BROWSER passed on all four | `blocked` at J_UI after 4 owner-approved `retry` grants (2 per job), about 11 min of runtime |
+
+In run 7 every review listed `earlier_blockers` and confirmed each one fixed, and no
+attempt regressed: retries now converge. Each new blocker was real under the stated rule
+but narrower than the last: on J_API a stalled upload holding the write lock, then
+`OPTIONS` with a foreign Host answered 501 instead of 403; on J_UI stale rows after a
+failed filter change, dropped checkbox actions, length checks in UTF-16 units, an unsaved
+checkbox left ticked, a new-list draft erased, and finally browser trimming of pasted
+U+0085 and U+FEFF that differs from Python's `str.strip()`. The round-2 gates assert none
+of these; the current fixture's gates assert the route-wide Host refusals, which workers
+can now run themselves.
+
+| PR | Fix | Finding |
+| --- | --- | --- |
+| #31 | A retry starts from the job's last checked candidate, its brief lists every earlier failure, and workers get a read-only copy of their gates (owner decision in `00-context.md`) | 48 |
+| #32 | `verify` removes `__pycache__` folders a worker's own runs leave | 49 |
+| #33 | Candidate review states a blocker rule (plan, contract or decision broken for input a user, the app or an in-model threat can produce; in-model security; scope; missing evidence) and a retry's reviewer checks `earlier_blockers` first | 50 |
+
+Follow-ups from these runs:
+
+- **Attempts needed under Codex review:** about 4 per job against a plan whose gates leave
+  contract clauses untested; the plan gave 2. Either the planner sets a larger budget when
+  the reviewer is strict, or the candidate review sweeps each kind of defect in one pass
+  (as the plan critique does since #26), so it reports what it would otherwise find one
+  version at a time. Decide before rerunning P1-G.
+- **Gates that cover the contract:** most of the new blockers were contract clauses no
+  gate asserts. The current fixture closes several; P1-G should rerun on it once its plan
+  critique converges (first follow-up above).
+- `team/roles/reviewer.md` still says "use blockers for material correctness or security
+  defects", which the plan critique shares; the candidate prompt's rule follows it and is
+  more specific. Align the wording when the role next changes.

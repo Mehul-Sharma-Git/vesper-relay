@@ -178,7 +178,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P1-T9 | Pluggable sandbox: Docker and Podman backends, selftest | P1-T5, P1-T8 | L | done |
 | P1-T10 | Worker tool layer (shell only inside the sandbox) | P1-T9 | M | done |
 | P1-T11 | `vesper setup` wizard and `vesper doctor` | P1-T9 | M | done |
-| P1-G | Phase 1 gate: Pocket Todo unattended in the sandbox with one AI | P1-T1..T11 | M | blocked (Codex plan critique does not converge; Codex-reviewed build not accepted, retries start blind, finding 48; two critique replies not parsed the first time, fixed by #22) |
+| P1-G | Phase 1 gate: Pocket Todo unattended in the sandbox with one AI | P1-T1..T11 | M | blocked (Codex plan critique does not converge; Codex job review converges since #31–#33 but needs about 4 attempts per job, plan gives 2; two critique replies not parsed the first time, fixed by #22) |
 | P2-T1 | Gate logs, scripts and artifacts in the review copy | P1-G | S | todo |
 | P2-T2 | Human-only approvals and a plain-language approval sheet, in every door | P1-G | L | todo |
 | P2-T3 | Usage ledger and plan-limit estimates | P1-G | M | todo |
