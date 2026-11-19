@@ -6,7 +6,11 @@ required thinking, nothing risky gets lost, and Vesper respects the user's AI pl
 **Phase gate (P2-G):** two consecutive runs (Pocket Todo plus one bug-fix run) where:
 estimates land inside their band; a seeded security advisory blocks acceptance until
 decided; a plan missing a required section is refused at `review`; an AI-issued
-`approve` without human confirmation is refused.
+`approve` without human confirmation is refused. Then Pocket Todo again with
+`[brains.reviewer] use = "codex"` (moved from P1-G on 19 Nov 2026): it reaches `complete`
+with every blocker and every security or data advisory, from the plan critique and from
+job reviews, either fixed or decided by the owner through P2-T7; every review parses the
+first time; and the exported app's three gates pass.
 
 ---
 
@@ -31,8 +35,8 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
 - **Read first:** `build_local.py` (`approve`), `vesper.py` (`apply`, `repair-commit`),
   `builder/runner.py` (`approve`), `integrations/vesper-relay/SKILL.md`.
 - **Change:**
-  1. Protected actions: approving a plan, applying a patch to a repo, accepting a security
-     or data risk (P2-T7), adding checks after approval (P2-T6), merging or committing a
+  1. Protected actions: approving a plan, applying a patch to a repo, accepting a risk or a
+     reviewer blocker (P2-T7), adding checks after approval (P2-T6), merging or committing a
      repair, promoting a release (P5), and **attesting that a report came from an
      independent reviewer** (`review-plan --report --attest-independent` and
      `review-candidate --report --attest-independent`). b7da4d1's own notes say declared
@@ -195,7 +199,10 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
 ## P2-T7 — Advisory backlog and decision gate
 
 - **Why:** the reviewer flagged that any website could change the owner's todos (CSRF), as
-  an advisory; it shipped unfixed (`appendix-b`, finding 5).
+  an advisory; it shipped unfixed (`appendix-b`, finding 5). And at P1-G (19 Nov 2026) the
+  reviewer alone decided what each finding meant: a Codex plan critique never approved in
+  five rounds, and Codex job reviews outlasted the attempt budget (findings 47, 50, 51).
+  The owner decided that every finding ends in the owner's decision (`00-context.md`).
 - **Change:**
   1. Each finding gains `category`: `correctness | security | data | performance |
      maintainability | design | other` (add to the schema from P1-T2).
@@ -205,6 +212,18 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
      as a retry); `--accept-risk --reason "..."` records the owner's acceptance and
      continues. Accepting a risk is a protected action: the human confirmer (P2-T2) shows
      the risk-acceptance approval sheet (P2-T2 item 4) before asking.
+  4. Blockers too. A plan-critique blocker no longer only refuses `approve`: the approval
+     sheet lists each one, and the owner either sends the plan back
+     (`decide FINDING_ID --fix`) or accepts it (`--accept-risk --reason "..."`); once every
+     blocker is decided, `approve` can proceed. A job whose attempts are used up with
+     review blockers still open moves to `awaiting_decision`, not `blocked`: the owner
+     grants one more attempt (`--fix`) or accepts the open blockers (`--accept-risk`), which
+     accepts the candidate with them recorded. The independent review still runs and every
+     finding is kept; only the owner's protected decision overrides a blocker.
 - **Acceptance:** tests for each path; a run cannot reach `complete` with an undecided
   security advisory; the confirmer receives the risk sheet (the finding in plain words, its
-  severity and source, and what is accepted).
+  severity and source, and what is accepted); a plan whose critique blockers the owner
+  accepted can be approved and its sheet lists each acceptance; a job out of attempts with
+  open blockers reaches `awaiting_decision`, and both decisions work; an AI-issued
+  `--accept-risk` on a plan-critique blocker or a job-review blocker is refused without a
+  human confirmation, and the confirmer shows the risk sheet for each.

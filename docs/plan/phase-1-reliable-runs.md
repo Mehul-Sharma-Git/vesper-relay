@@ -5,8 +5,8 @@ whichever AI the user has, for projects that use Go and React toolchains. Everyt
 later depends on this.
 
 **Phase gate (P1-G):** the Pocket Todo fixture builds unattended inside the Docker
-sandbox using ONE AI for every role, and exports a working app. A second run with a
-different AI as reviewer also passes.
+sandbox using ONE AI for every role, and exports a working app. (The second run with a
+different AI as reviewer moved to P2-G on 19 Nov 2026, by the owner's decision.)
 
 ---
 
@@ -357,6 +357,8 @@ vesper --project RUN export /tmp/pocket-todo-app
 ```
 
 Pass when: status is `complete` with no manual step; every review parsed the first time;
-the exported app starts and its three gates pass; `selftest.sh` passes. Then repeat with
-`[brains.reviewer] use = "codex"` in the owner's config. Record elapsed time and plan
-usage % before and after in `appendix-b-test-run-evidence.md` (seeds P2-T3).
+the exported app starts and its three gates pass; `selftest.sh` passes. Record elapsed
+time and plan usage % before and after in `appendix-b-test-run-evidence.md` (seeds P2-T3).
+(Re-scoped by the owner on 19 Nov 2026: the repeat with `[brains.reviewer] use = "codex"`
+moved to P2-G, after P2-T5 and P2-T7 give the plan critique and job review a finish line
+in the owner's decisions; see `00-context.md`.)
