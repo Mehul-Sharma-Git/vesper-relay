@@ -12,6 +12,7 @@ IMPACTS = ("new_system", "data", "security", "integrations", "deployment", "cros
 CRITIQUE_AREAS = ("plan", "checks", "seed")
 # A finding cites one supplied file (optionally :LINE or :START-END), never a folder.
 CITATION = r"^(plan|checks|seed)(/(\.?[^/.][^/]*|\.\.[^/]+))+$"  # no "." or ".." segment
+PLAN_REVIEW_TIMEOUT = 600  # a full sweep of plan, checks and seed takes minutes (P1-G: about 3)
 CITABLE_LIMIT = 200  # list at most this many files in the prompt; seed/ is summarised beyond it
 
 
@@ -149,7 +150,7 @@ def citable_files(bundle):
 
 
 def review_plan(runner, report=None, *, external_attested=False, brain=None, launcher=None, trust_host=False,
-                review_timeout=180, review_max_turns=20):
+                review_timeout=PLAN_REVIEW_TIMEOUT, review_max_turns=20):
     """Independent critique of the exact plan packet: an attested report or a launched reviewer brain."""
     from .brains import command as brain_command, launch, parse_result
     from .contracts import review_bundle
@@ -223,7 +224,8 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
             response, log = session / "response.json", session / "review.log"
             code = launch(brain, "reviewer", launcher, trust_host, work=view, input_text=prompt, log=log,
                           timeout=review_timeout, response=response, schema=schema, max_turns=review_max_turns)
-            require(code == 0, "Plan reviewer failed; no approval recorded")
+            require(code == 0, "Plan reviewer failed (" + (f"timed out after {review_timeout} s; raise "
+                    "--review-timeout" if code == 124 else f"exit {code}") + "); no approval recorded")
             require(inventory(view) == before, "Plan reviewer modified its input copy")
             output = response if response.is_file() else log
             require(not output.is_symlink() and output.stat().st_size <= 256_000, "Invalid plan reviewer output")
