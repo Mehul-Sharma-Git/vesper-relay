@@ -135,6 +135,35 @@ class TeamTests(unittest.TestCase):
         self.assertIn("Staged review evidence changed",
                       command("review-candidate", "--report", report, "--attest-independent", code=2))
 
+    def test_links_and_pipes_a_gate_saves_never_hang_or_fail_the_run(self):
+        # P2-T1 review: a FIFO or a link in $VESPER_ARTIFACTS hung or failed staging.
+        project, command = self.plan()
+        outside = self.root / "outside.txt"
+        outside.write_text("host file")
+        (project / "checks" / "gate.py").write_text(
+            "import os\nfrom pathlib import Path\nimport sys\n"
+            "saved = Path(os.environ['VESPER_ARTIFACTS'])\n"
+            "(saved / 'kept.txt').write_text('kept')\n"
+            "os.mkfifo(saved / 'pipe')\n"
+            "os.symlink('/nonexistent/x', saved / 'dangling')\n"
+            f"os.symlink({str(outside)!r}, saved / 'outside')\n"
+            "assert (Path(sys.argv[1]) / 'app.js').read_text() == 'export const loading = false;\\n'\n")
+        self.approve(command)
+        attempt = command("prepare")
+        (Path(attempt["workspace"]) / "app.js").write_text("export const loading = false;\n")
+        done = subprocess.run([sys.executable, "-B", str(test_vesper.ROOT / "vesper.py"), "--project", str(project),
+                               "submit", attempt["id"]], cwd=self.repo, env=self.env, capture_output=True,
+                              timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout.decode() + done.stderr.decode())
+        preview = json.loads(done.stdout)
+        self.assertEqual(preview["outcome"], "awaiting_review")
+        review = Path(preview["review"]["workspace"])
+        self.assertEqual(sorted(path.name for path in (review / "artifacts" / "G1").iterdir()), ["kept.txt"])
+        self.assertEqual(sorted(preview["review"]["artifacts_omitted"]),
+                         ["G1/dangling", "G1/outside", "G1/pipe"])
+        self.assertFalse((review.parent / "artifacts").exists())
+        self.assertEqual(outside.read_text(), "host file")
+
     def test_tampered_artifact_is_refused(self):
         project, command = self.plan()
         (project / "checks" / "gate.py").write_text(

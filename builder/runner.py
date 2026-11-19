@@ -150,7 +150,11 @@ def atomic_json(path, value):
 def sync_tree(path):
     for directory, _, files in os.walk(path, topdown=False):
         for file in files:
-            with (Path(directory) / file).open("rb") as stream:
+            entry = Path(directory) / file
+            # Only regular files: opening a link follows it, and opening a pipe blocks (P2-T1).
+            if not stat.S_ISREG(entry.lstat().st_mode):
+                continue
+            with entry.open("rb") as stream:
                 os.fsync(stream.fileno())
         sync_dir(Path(directory))
     sync_dir(path.parent)
@@ -673,6 +677,8 @@ class Runner:
             omitted = copy_artifacts(directory / "artifacts", workspace / "artifacts")
             if omitted:
                 packet["artifacts_omitted"] = omitted[:50]
+            # The gates' raw folder may hold links or pipes; only the checked copy stays.
+            shutil.rmtree(directory / "artifacts")
         write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"])
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
         (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
