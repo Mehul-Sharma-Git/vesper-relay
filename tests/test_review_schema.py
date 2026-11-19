@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -251,6 +252,37 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         planner = role("planner")
         self.assertIn("reachability and concurrent-change lists", planner)
         self.assertIn("a decision-log entry is not the owner's confirmation", planner)
+
+    def test_the_plan_critique_gets_ten_minutes_and_says_when_it_ran_out(self):
+        # P1-G: a full sweep took Codex about 3 minutes; the 180 s reviewer default killed it,
+        # and the error did not say why.
+        from builder.planning import PLAN_REVIEW_TIMEOUT, review_plan
+        from tests.test_planning import PlanningTests
+
+        self.assertEqual(PLAN_REVIEW_TIMEOUT, 600)
+        case = PlanningTests("test_canonical_contract_reaches_worker")
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        case.full()
+        seen = []
+
+        def fake_run(command, *, cwd, input_text, env, log, timeout, **_):
+            seen.append(timeout)
+            return 124
+
+        with mock.patch("builder.brains.base.shutil.which", return_value="/usr/local/bin/claude"), \
+                mock.patch("builder.process.run_process", fake_run), \
+                self.assertRaisesRegex(BuilderError, "timed out after 600 s"):
+            review_plan(case.runner, brain=Brain("claude-code", ADAPTERS["claude-code"]), trust_host=True)
+        self.assertEqual(seen, [600])
+
+    def test_review_plan_cli_defaults_to_ten_minutes(self):
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "vesper.py"), "review-plan", "--help"],
+                                capture_output=True, text=True, check=True)
+        self.assertIn("(default 600)", " ".join(result.stdout.split()))
+        candidate = subprocess.run([sys.executable, "-B", str(ROOT / "build_local.py"), "review-candidate", "--help"],
+                                   capture_output=True, text=True, check=True)
+        self.assertIn("(default 180)", " ".join(candidate.stdout.split()))
 
     def test_a_rejected_critique_reply_is_kept_for_the_owner(self):
         from builder.planning import review_plan
