@@ -239,7 +239,10 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         self.assertIn("a plausible mistake by a competent engineer following the plan", seen["prompt"])
         self.assertIn("the candidate reviewer, who reads the code", seen["prompt"])
         self.assertIn("inside the owner's threat model", seen["prompt"])
-        self.assertIn("a threat the plan places outside that model is reported the same way", seen["prompt"])
+        self.assertIn("every threat outside that model, whether or not the plan names it, is reported the same "
+                      "way", " ".join(seen["prompt"].split()))
+        # Data loss is not bounded by the security threat model (two of the owner's devices are not a threat).
+        self.assertIn("a reachable data-loss exposure in the deployment the owner chose", seen["prompt"])
         self.assertNotIn("can be broken by an implementation that passes every gate", seen["prompt"])
 
         listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
@@ -251,7 +254,7 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
             return " ".join((ROOT / "team/roles" / f"{name}.md").read_text().split())
 
         lead = role("technical-lead")
-        for marker in ("Reachability:", "Concurrent changes:", "mitigate it in the contract with the gate",
+        for marker in ("Reachability,", "Concurrent changes,", "mitigate it in the contract with the gate",
                        "Only the owner accepts it, by approving the plan"):
             self.assertIn(marker, lead)
         qa = role("qa")
@@ -261,7 +264,8 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         self.assertIn("reachability and concurrent-change lists", planner)
         self.assertIn("a decision-log entry is not the owner's confirmation", planner)
         self.assertIn("threat model", planner)
-        self.assertIn("inside the owner's threat model", lead)
+        self.assertIn("Reachability, inside the owner's threat model", lead)
+        self.assertIn("Concurrent changes, whatever the threat model", lead)
         self.assertIn("Aim the matrix at plausible mistakes", qa)
 
     def test_the_plan_critique_gets_ten_minutes_and_says_when_it_ran_out(self):
