@@ -94,7 +94,7 @@ check "plan routing and critique live in builder/planning.py" "P2-T5, P4-T6, P4-
 check "approve requires an approving plan critique at full/focused depth" "P2-T2, P2-T5" \
     grep -q "Independent plan critique must approve" builder/runner.py
 check "review_plan decodes through the brain adapter (tolerant decoder; P1-T1, P1-T8)" "P3-T4" \
-    sh -c 'grep -q "parse_result(brain, output.read_text" builder/planning.py && grep -q "return decode_provider_report(text)" builder/brains/base.py'
+    sh -c 'grep -q "parse_result(brain, reply)" builder/planning.py && grep -q "return decode_provider_report(text)" builder/brains/base.py'
 check "plan critique uses the review limits (P1-T3)" "P1-T7, P1-T8" \
     grep -q "timeout=review_timeout, response=response, schema=schema, max_turns=review_max_turns" builder/planning.py
 check "review-plan, consult and repair-run take --brain (P1-T8)" "P5-T1, P5-T3" \
