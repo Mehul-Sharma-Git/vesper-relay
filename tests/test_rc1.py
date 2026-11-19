@@ -106,6 +106,38 @@ class TeamTests(unittest.TestCase):
         attempt = command("prepare")
         self.assertIn("failed-save branch", Path(attempt["brief"]).read_text())
 
+    def test_retry_review_rechecks_earlier_blockers_under_a_stated_blocker_rule(self):
+        # P1-G run 6: each fresh review raised new blockers on the next version, so a job
+        # with two attempts never converged.
+        _, command = self.plan()
+        self.approve(command)
+        _, preview = self.submit(command)
+        review = Path(preview["review"]["workspace"])
+        self.assertNotIn("earlier_blockers", json.loads((review / "review.json").read_text()))
+        prompt = (review / "review.md").read_text()
+        self.assertIn("Blocking means: the candidate breaks", prompt)
+        # One pass (P1-G run 7): report every blocker now, by kind, not one per version.
+        self.assertIn("Sweep the whole candidate once", prompt)
+        for kind in ("every route", "failure", "concurrent", "pending"):
+            self.assertIn(kind, prompt)
+        self.assertNotIn("material correctness", prompt)
+        # The plan critique renders the same role and keeps its own rule (finding 47).
+        from builder.team import profile, render
+        self.assertNotIn("Blocking means", render(profile("reviewer")))
+        self.assertNotIn("earlier_blockers", prompt)
+        command("review-candidate", "--report", self.write_report(verdict(preview, "request_changes")),
+                "--attest-independent", code=1)
+        attempt = command("prepare")
+        preview = command("submit", attempt["id"])
+        review = Path(preview["review"]["workspace"])
+        packet = json.loads((review / "review.json").read_text())
+        self.assertEqual(packet["earlier_blockers"], [
+            {"attempt": 1, "path": "app.js", "evidence": "The fallback skips a required branch.",
+             "recommendation": "Handle the failed-save branch explicitly."}])
+        self.assertIn("earlier_blockers", (review / "review.md").read_text())
+        command("review-candidate", "--report", self.write_report(verdict(preview)), "--attest-independent")
+        self.assertEqual(command("status")["status"], "complete")
+
     def test_visual_work_requires_distinct_design_directions_and_design_review(self):
         project, command = self.plan()
         path = project / "plan" / "contract.json"
@@ -157,6 +189,9 @@ elif operation == 'reviewer':
     assert 'loading = false' in Path('candidate/app.js').read_text()
     assert 'loading = true' in Path('base/app.js').read_text()
     packet = json.loads(Path('review.json').read_text())
+    schema = json.loads(Path('review.schema.json').read_text())
+    assert all(schema['properties'][key]['const'] == packet[key]
+               for key in ('attempt_id', 'base_digest', 'candidate_digest'))
     report = {key: packet[key] for key in ('attempt_id', 'base_digest', 'candidate_digest')}
     report.update(verdict='approve', summary='Independently verified the candidate.', findings=[],
                   evidence={k:'Read the diff and verification result.'
@@ -166,7 +201,7 @@ else:
     raise SystemExit(3)
 """)
         script.chmod(0o700)
-        result = command("run", "--provider", "codex", "--launcher", script)
+        result = command("run", "--brain", "codex", "--launcher", script)
         self.assertEqual(result["status"], "complete")
         self.assertEqual(result["attempts"][-1]["review"]["verdict"], "approve")
 
@@ -185,7 +220,7 @@ print("Use a stable conflict code and document when the frontend may retry.")
 ''')
         launcher.chmod(0o700)
         result = command("consult", "--role", "backend", "--task", "draft the error contract",
-                         "--provider", "codex", "--launcher", launcher)
+                         "--brain", "codex", "--launcher", launcher)
         self.assertIn("stable conflict code", result["report"])
         self.assertEqual((project / "seed" / "app.js").read_text(), "export const loading = true;\n")
 
@@ -259,7 +294,7 @@ class RepairTests(unittest.TestCase):
         preview = cmd("submit", attempt["id"], "--launcher", launcher)
         report.write_text(json.dumps(verdict(preview)))
         cmd("review-candidate", "--report", report, "--attest-independent", code=2)
-        cmd("review-candidate", "--provider", "codex", "--launcher", launcher)
+        cmd("review-candidate", "--brain", "codex", "--launcher", launcher)
         patch = cmd("review-change")
         fixed = cmd("repair-commit", "--digest", patch["digest"])
         self.assertTrue(fixed["branch"].startswith("vesper/repair/"))
@@ -309,8 +344,8 @@ else:
     raise SystemExit(3)
 ''')
         launcher.chmod(0o700)
-        result = cmd("repair-run", "--digest", cmd("review")["digest"], "--provider", "codex",
-                     "--reviewer-provider", "claude", "--launcher", launcher, "--commit")
+        result = cmd("repair-run", "--digest", cmd("review")["digest"], "--brain", "codex",
+                     "--reviewer-brain", "claude-code", "--launcher", launcher, "--commit")
         self.assertTrue(result["branch"].startswith("vesper/repair/"))
         history = self.cli("learn", checkout=source)
         self.assertIn(result["commit"], json.dumps(history["repairs"]))

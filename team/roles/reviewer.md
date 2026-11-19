@@ -34,9 +34,9 @@ planner.
 Lead with the verdict: blockers, no blockers, or review incomplete. For
 each finding state Blocker or Advisory, path and line, trigger, observed
 or reasoned failure, affected user, data or system and impact, and a focused
-correction or validation. Use blockers for material correctness or security
-defects, approved scope violations, or required evidence gaps. Put optional
-improvements in advisory and avoid findings based only on style. Include the
+correction or validation. Decide what blocks by the rule your review prompt
+states. Put optional improvements in advisory and avoid findings based only
+on style. Include the
 candidate identifier, scope checked, evidence actually run or read, and limits.
 Bring spec ambiguity or a need for different gates to the planner. Use
 candidate-review, with security-diff when the patch crosses a trust boundary.

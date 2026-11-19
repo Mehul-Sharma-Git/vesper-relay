@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pocket Todo</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to todos</a>
+  <header class="topbar">
+    <h1 class="app-title">Pocket Todo</h1>
+    <button type="button" id="list-toggle" class="list-toggle"
+            aria-expanded="false" aria-controls="list-panel">
+      <span aria-hidden="true">☰</span>
+      <span class="visually-hidden">Current list:</span>
+      <span id="toggle-list-name" class="toggle-name">Inbox</span>
+      <span aria-hidden="true">▾</span>
+    </button>
+  </header>
+
+  <div class="layout">
+    <nav id="list-panel" class="list-panel" aria-labelledby="lists-heading">
+      <h2 id="lists-heading" class="panel-heading">Lists</h2>
+      <ul id="lists" class="lists"></ul>
+      <p id="lists-message" class="lists-message" hidden></p>
+
+      <form id="new-list-form" class="inline-form" novalidate>
+        <label for="new-list">New list</label>
+        <div class="field-row">
+          <input id="new-list" name="name" type="text" maxlength="40"
+                 autocomplete="off" aria-describedby="new-list-error">
+          <button type="submit" id="add-list">Add list</button>
+        </div>
+        <p id="new-list-error" class="field-error" hidden></p>
+      </form>
+
+      <div id="list-actions" class="list-actions" hidden>
+        <div class="action-row">
+          <button type="button" id="rename-list-button" aria-expanded="false"
+                  aria-controls="rename-form">Rename list</button>
+          <button type="button" id="delete-list-button" class="danger">Delete list</button>
+        </div>
+        <form id="rename-form" class="inline-form" novalidate hidden>
+          <label for="rename-list">New name for this list</label>
+          <div class="field-row">
+            <input id="rename-list" name="name" type="text" maxlength="40"
+                   autocomplete="off" aria-describedby="rename-list-error">
+            <button type="submit" id="rename-save">Save</button>
+            <button type="button" id="rename-cancel" class="secondary">Cancel</button>
+          </div>
+          <p id="rename-list-error" class="field-error" hidden></p>
+        </form>
+      </div>
+    </nav>
+
+    <main id="main" class="main" tabindex="-1">
+      <h2 id="list-heading" class="list-heading">Inbox</h2>
+
+      <div class="filters" role="group" aria-label="Filter todos">
+        <button type="button" class="filter" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" class="filter" data-filter="active" aria-pressed="false">Active</button>
+        <button type="button" class="filter" data-filter="done" aria-pressed="false">Done</button>
+      </div>
+
+      <form id="new-todo-form" class="inline-form add-todo" novalidate>
+        <label for="new-todo">New todo</label>
+        <div class="field-row">
+          <input id="new-todo" name="title" type="text" maxlength="200"
+                 autocomplete="off" aria-describedby="new-todo-error">
+          <button type="submit" id="add-todo">Add</button>
+        </div>
+        <p id="new-todo-error" class="field-error" hidden></p>
+      </form>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+
+      <div id="todos-message" class="todos-message" hidden>
+        <p id="todos-message-text"></p>
+        <button type="button" id="todos-retry" class="secondary" hidden>Try again</button>
+      </div>
+      <ul id="todos" class="todos" aria-labelledby="list-heading"></ul>
+    </main>
+  </div>
+</body>
+</html>

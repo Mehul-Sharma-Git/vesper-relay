@@ -83,7 +83,7 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
 - **Execute.** Run `vesper --project PATH prepare`, read the returned job brief,
   and edit only its work copy within the assigned scope. Run
   `vesper --project PATH submit ATTEMPT_ID` to run the approved checks, then
-  `review-candidate` with a reviewer provider or an attested independent report.
+  `review-candidate` with a reviewer brain (`--brain NAME`) or an attested independent report.
   Repeat for ready jobs. Resume with `status` and the existing run.
 - **Deliver.** For a Git run, use `review-change` and `patch` to show the final
   diff and digest. Use `apply --digest DIGEST` only after approval. For a new
@@ -94,8 +94,49 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and
   `vesper maintain` for other planned changes to Vesper.
 
+- **Set up and check.** `vesper setup` walks a new machine through everything
+  automatic runs need: it lists the AI CLIs it finds, asks which one works and which
+  reviews (one is enough), checks Docker, Colima or Podman and offers to install or
+  start it, builds the sandbox image, stores each brain's sandbox login in the macOS
+  Keychain or `~/.config/vesper/secrets.env` (mode 600), asks for the plan-usage
+  reserve, writes `~/.config/vesper/config.toml` (keeping any old one as
+  `config.toml.bak`) and runs `vesper doctor`. `vesper doctor` checks Python, the
+  config, the sandbox engine, the image and its architecture, whether the engine can
+  see the run folder, and for each configured brain its CLI, whether `--help` still
+  lists every flag Vesper uses, its sandbox login and a tiny dry call (`--no-call`
+  skips it; `--json` for scripts). Every failure prints its fix. The installed `vesper`
+  command finds a Python 3.11+ on its own (`bin/vesper`), so no virtual environment is
+  needed; if there is none, `vesper setup` offers to install one with Homebrew or uv.
+- **Configure.** Personal settings (brains, roles, sandbox, limits) live in
+  `~/.config/vesper/config.toml` (or `--config PATH` / `VESPER_CONFIG`); project
+  settings (stack, hosting, checks) live in a committed `vesper.toml` in the
+  target repository. Run `vesper config show` to print every effective value and
+  where it came from (`flag`, `project`, `personal` or `default`); add
+  `--repo PATH` for another repository and `--set KEY=VALUE` to preview an
+  override. Neither file may hold secrets: keys named like `api_key`, `token`,
+  `secret`, `password` or `credential` are refused; use the macOS Keychain or
+  `~/.config/vesper/secrets.env` (mode 600).
+- **Sandbox.** Brains, gates and reviewers run in a container: `sandbox.backend` in the
+  personal config (`docker` by default) or `--sandbox docker|podman|none` on `run`,
+  `submit`, `review-candidate`, `consult`, `review-plan`, `repair-reproduce` and `repair-run`. `vesper sandbox build`
+  builds the image from `sandbox/Dockerfile`; `vesper sandbox selftest` (or
+  `sh sandbox/selftest.sh`) tries to escape from every operation and passes only when every
+  attempt fails. `none` and `--trust-host` run on the host and warn every time; `--launcher
+  PATH` keeps a custom launcher. Sandboxed brains log in from the macOS Keychain (service
+  `vesper-relay`) or `~/.config/vesper/secrets.env` (mode 600); see START-HERE.md.
+- **Choose brains.** Any supported AI can do every role; one is enough. The
+  adapters are `claude-code`, `codex` and `gemini-cli`. Name brains by purpose
+  in the personal config (`[brains.strong] use = "claude-code"`, optional `model`
+  and `effort` when the adapter accepts them) and map roles to them under
+  `[roles]` (`frontend = "strong"`, `reviewer = "reviewer"`). `--brain NAME` on
+  `run`, `review-candidate`, `consult`, `review-plan` and `repair-run` names a
+  configured brain or an adapter and overrides the roles; `run` and `repair-run`
+  also take `--reviewer-brain NAME`. The reviewer defaults to `[roles] reviewer`,
+  then to the worker's brain. `--provider claude|codex` and
+  `--reviewer-provider` are deprecated aliases kept for one release.
+
 Supervised mode uses the current assistant and the local runner. Unattended
-mode uses a separately authenticated provider CLI and the operator's approved
+mode uses a separately authenticated agent CLI (a brain) and the operator's approved
 execution boundary. See [START-HERE.md](../START-HERE.md) for launcher details.
 A local checkout can still send context to a hosted model if the operator
 chooses one. Follow the user's data-sharing rules.

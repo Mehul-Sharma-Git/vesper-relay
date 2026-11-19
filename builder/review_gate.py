@@ -8,6 +8,31 @@ from .contracts import BuilderError, nonempty, require, safe_path
 
 AREAS = ("requirements", "correctness", "scope", "tests", "maintainability", "security")
 BINDING = ("attempt_id", "base_digest", "candidate_digest")
+# Candidate review only: the plan critique shares the reviewer role but has its own rule
+# (builder/planning.py, finding 47). Finding 50.
+CANDIDATE_BLOCKER_RULE = (
+    "Blocking means: the candidate breaks a requirement, the approved contract or a recorded decision for "
+    "an input that a user, the app's own interface, or a threat inside the owner's threat model can produce "
+    "(the threat model is in the plan; if it records none, use the threats its decisions defend against); a "
+    "security defect such a threat can reach; a change outside the approved scope; or required evidence that "
+    "is missing. Everything else is advisory: hardening the plan does not ask for, a threat outside the "
+    "owner's threat model, input only a hand-made request outside that model can send, and a requirement "
+    "you think the plan should add, which goes to the planner.\n")
+# One pass (P1-G run 7): reviews found one or two new blockers per version, so a job needed
+# about four attempts. Sweep by kind and report everything now, as the plan critique does.
+CANDIDATE_SWEEP = (
+    "Sweep the whole candidate once and report every blocker you find in this one review, not only the "
+    "first: a retry fixes what you list, and anything you leave for a later review costs the owner another "
+    "attempt. Go through each kind completely: every route, command or screen the job delivers, with every "
+    "method, field, limit, encoding and error status the contract gives it; every failure path (a request "
+    "that fails, times out, or finds its record changed or gone); concurrent requests and partial writes "
+    "(transactions, locks held while waiting on input); every input the threat model lets reach the app "
+    "(headers, origins, methods including preflight); and for an interface, every control while a request "
+    "is pending or after it fails, keyboard and focus, and typed text that must survive.\n")
+EARLIER_PROMPT = ("review.json lists earlier_blockers: the blockers earlier reviews of this job raised. Check each "
+                  "first and say in your summary whether this candidate resolves it; an unresolved one stays a "
+                  "blocker only if it meets the blocking rule above. Raise a new blocker only under that rule.\n")
+STRICT_ENDING = "Return only the JSON object. No text before or after it."
 SECURITY_PATH = re.compile(r"(^|[/_.-])(auth\w*|acl|permissions?|secrets?|tokens?|crypto\w*|tenants?|workflows)([/_.-]|$)", re.I)
 
 
@@ -44,28 +69,85 @@ def validate_report(data, packet):
     return blockers
 
 
-def decode_provider_report(text):
-    text = text.strip()
-    if text.startswith("```json\n") and text.endswith("\n```"):
-        text = text.removeprefix("```json\n").removesuffix("\n```")
+FENCE = re.compile(r"```(?:json)?[ \t]*\n(.*?)```", re.S)
+# A report is an object with keys, so only these "{" positions can start one. Each failed
+# start costs time in proportion to its position, so a reply with more failed starts than
+# any real one has is treated as holding no report; this keeps hostile replies linear.
+OBJECT_START = re.compile(r'\{\s*"')
+MAX_FAILED_STARTS = 200
+
+
+def _json_object(text):
     try:
         data = json.loads(text)
-    except ValueError:
-        # Launcher output may contain a progress line before the one-line report.
-        for line in reversed(text.splitlines()):
-            if line.startswith("{") and line.endswith("}"):
-                try:
-                    data = json.loads(line)
-                    break
-                except ValueError:
-                    continue
-        else:
-            raise BuilderError("Reviewer did not return a valid JSON report")
-    if isinstance(data, dict) and data.get("type") == "result":
-        require(not data.get("is_error") and data.get("subtype", "success") == "success"
-                and isinstance(data.get("result"), str), "Reviewer provider returned an error")
+    except (ValueError, RecursionError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _find_report_object(text):
+    # Replies may wrap the report in prose and fences; try fences last to first.
+    for block in reversed(FENCE.findall(text)):
+        data = _json_object(block)
+        if data is not None:
+            return data
+    # Otherwise take the last top-level {...}. Scanning forward and skipping each parsed
+    # object keeps nested objects from being mistaken for the report.
+    decoder, found, failed = json.JSONDecoder(), None, 0
+    match = OBJECT_START.search(text)
+    while match and failed < MAX_FAILED_STARTS:
+        try:
+            found, end = decoder.raw_decode(text, match.start())
+        except (ValueError, RecursionError):
+            failed += 1
+            match = OBJECT_START.search(text, match.start() + 1)
+            continue
+        match = OBJECT_START.search(text, end)
+    return None if failed >= MAX_FAILED_STARTS else found
+
+
+def decode_provider_report(text):
+    text = text.strip()
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):
+        data = _find_report_object(text)
+    if not isinstance(data, dict):
+        raise BuilderError("Reviewer did not return a valid JSON report")
+    if data.get("type") == "result":
+        require(not data.get("is_error") and data.get("subtype", "success") == "success",
+                "Reviewer provider returned an error")
+        # With --json-schema, Claude Code returns the report here and leaves "result" empty.
+        if isinstance(data.get("structured_output"), dict):
+            return data["structured_output"]
+        require(isinstance(data.get("result"), str), "Reviewer provider returned an error")
         return decode_provider_report(data["result"])
     return data
+
+
+def text_schema():
+    return {"type": "string", "minLength": 1}
+
+
+def report_schema(packet):
+    """JSON Schema for a candidate review; mirrors validate_report for strict-output providers."""
+    areas = list(evidence_areas(packet))
+    finding = ("severity", "path", "evidence", "recommendation")
+    return {
+        "type": "object",
+        "required": [*BINDING, "verdict", "summary", "evidence", "findings"],
+        "properties": {
+            **{key: {"type": "string", "const": packet[key]} for key in BINDING},
+            "verdict": {"type": "string", "enum": ["approve", "request_changes"]},
+            "summary": text_schema(),
+            "evidence": {"type": "object", "required": areas,
+                         "properties": {area: text_schema() for area in areas}},
+            "findings": {"type": "array", "maxItems": 50, "items": {
+                "type": "object", "required": list(finding),
+                "properties": {key: text_schema() for key in finding} | {
+                    "severity": {"type": "string", "enum": ["blocking", "advisory"]}}}},
+        },
+    }
 
 
 def write_diff(destination, before, after, paths):
@@ -105,7 +187,11 @@ def prompt(role, packet):
         "record concrete observations or state what could not be verified. Findings use severity "
         "'blocking' or 'advisory', a relative path, evidence, and a recommendation. "
         "Use verdict 'approve' only with no blockers, or 'request_changes' with at least one blocker.\n"
+        + CANDIDATE_BLOCKER_RULE
+        + CANDIDATE_SWEEP
+        + (EARLIER_PROMPT if packet.get("earlier_blockers") else "")
         + json.dumps({**{key: packet[key] for key in BINDING},
                       "verdict": "approve", "summary": "Explain what was reviewed.",
                       "evidence": dict.fromkeys(evidence_areas(packet), "Replace with actual evidence."), "findings": []}, indent=2)
+        + "\n" + STRICT_ENDING
     )

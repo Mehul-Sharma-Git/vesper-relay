@@ -69,11 +69,11 @@ def replay(destination):
         "rationale": "Restore the existing parameterized filter; no new state or interface."}))
     run("approve", "--digest", run("review")["digest"])
     initial = run("prepare")
-    rejected = run("submit", initial["id"], code=1)
+    rejected = run("submit", initial["id"], "--sandbox", "none", code=1)
     assert rejected["checks"][0]["exit_code"] != 0
     fix = run("prepare")
     (Path(fix["workspace"]) / "server.py").write_text(correct)
-    staged = run("submit", fix["id"])
+    staged = run("submit", fix["id"], "--sandbox", "none")
     assert staged["outcome"] == "awaiting_review"
     # The reproducible pilot uses a deterministic reviewer fixture, like its worker fixture.
     reviewer = destination / "reviewer"
@@ -97,7 +97,7 @@ report.update(verdict="approve", summary="The candidate restores the existing pa
 print(json.dumps(report))
 ''')
     reviewer.chmod(0o700)
-    assert run("review-candidate", "--provider", "codex", "--launcher", str(reviewer))["outcome"] == "accepted"
+    assert run("review-candidate", "--brain", "codex", "--launcher", str(reviewer))["outcome"] == "accepted"
     review = run("review-change")
     assert review["files"] == ["server.py"]
     assert server.read_text() == broken

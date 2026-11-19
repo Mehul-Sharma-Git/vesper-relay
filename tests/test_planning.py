@@ -6,6 +6,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from build_local import initialize
+from builder.brains import ADAPTERS, Brain
 from builder.contracts import BuilderError
 from builder.runner import Runner
 from builder.team import profile
@@ -147,6 +148,6 @@ class PlanningTests(unittest.TestCase):
         self.full()
         for _ in range(3):
             with self.assertRaisesRegex(BuilderError, "trust-host"):
-                review_plan(self.runner, provider="codex")
+                review_plan(self.runner, brain=Brain("codex", ADAPTERS["codex"]))
         review_plan(self.runner, report=self.report(), external_attested=True)
         self.runner.approve(self.runner.review()["digest"])

@@ -7,15 +7,27 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = [sys.executable, str(ROOT / "build_local.py")]
+
+
+def host_config(directory):
+    """A private config that runs gates and brains on the host (sandbox none, which warns):
+    these tests use stand-in CLIs and trusted fixture gates, and need no container engine."""
+    path = Path(directory) / "vesper-test-config.toml"
+    path.write_text('[sandbox]\nbackend = "none"\n')
+    return str(path)
 
 
 class BuilderTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        environ = mock.patch.dict(os.environ, {"VESPER_CONFIG": host_config(temp.name)})
+        environ.start()
+        self.addCleanup(environ.stop)
         self.project = Path(temp.name) / "project"
         self.command("init", "--idea", "Write two files")
         (self.project / "plan" / "product.md").write_text("# Approved idea\n")
@@ -150,6 +162,133 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual([item["outcome"] for item in state["attempts"]], ["rejected", "accepted"])
         self.assertEqual(state["retry_grants"][0]["reason"], "Fixed local provider login")
 
+    def say_what_first_got(self):
+        (self.project / "checks" / "first.py").write_text(
+            "from pathlib import Path\nimport sys\n"
+            "text = (Path(sys.argv[1]) / 'first.txt').read_text()\n"
+            "assert text == 'one', 'first.txt held ' + text\n")
+
+    def test_retry_starts_from_the_last_candidate_and_carries_every_reason(self):
+        # P1-G run 4 (finding 48): retries rewrote from the empty base and were told only the
+        # last failure, so each fix undid the one before.
+        self.say_what_first_got()
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("draft-1")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        self.assertEqual((workspace / "first.txt").read_text(), "draft-1")
+        (workspace / "first.txt").write_text("draft-2")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        self.assertEqual((workspace / "first.txt").read_text(), "draft-2")
+        brief = Path(attempt["brief"]).read_text()
+        self.assertIn("first.txt held draft-1", brief)
+        self.assertIn("first.txt held draft-2", brief)
+        self.assertLess(brief.index("Attempt 1 (failed a gate)"), brief.index("Attempt 2 (failed a gate)"))
+        self.assertIn("starts from attempt 2's files", brief)
+        (workspace / "first.txt").write_text("one")
+        self.command("submit", attempt["id"])
+        self.assertEqual(self.command("status")["completed"], ["J1"])
+
+    def test_retry_skips_an_attempt_that_left_no_checked_candidate(self):
+        self.say_what_first_got()
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("draft-1")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("draft-2")
+        (workspace / "second.txt").write_text("out of scope")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        self.assertEqual((workspace / "first.txt").read_text(), "draft-1")
+        self.assertFalse((workspace / "second.txt").exists())
+        brief = Path(attempt["brief"]).read_text()
+        self.assertIn("starts from attempt 1's files", brief)
+        self.assertIn("first.txt held draft-1", brief)
+        self.assertIn("Changes outside job scope: second.txt", brief)
+
+    def test_history_stays_within_its_limit(self):
+        from builder.runner import HISTORY_LIMIT, attempt_history
+        for count in (1, 2, 20):
+            previous = [{"outcome": "rejected", "failure_kind": "check", "reason": "x" * 50_000}] * count
+            text = attempt_history(previous)
+            self.assertLessEqual(len(text), HISTORY_LIMIT + 60 * count)
+            self.assertEqual(text.count("Attempt "), count)
+
+    def test_changed_earlier_candidate_is_not_carried(self):
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("draft-1")
+        self.command("submit", attempt["id"], code=1)
+        earlier = self.command("status")["attempts"][0]["candidate"]
+        (self.project / earlier["path"] / "first.txt").write_text("changed after the check")
+        attempt, workspace = self.candidate("J1")
+        self.assertFalse((workspace / "first.txt").exists())
+        self.assertIn("starts from the accepted version", Path(attempt["brief"]).read_text())
+
+    def test_workers_get_a_copy_of_the_gates_that_never_decides_or_ships(self):
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        gates = workspace / ".vesper-gates"
+        self.assertEqual((gates / "first.py").read_text(), (self.project / "checks" / "first.py").read_text())
+        brief = Path(attempt["brief"]).read_text()
+        self.assertIn("G1: python3 -I -B .vesper-gates/first.py CANDIDATE", brief)
+        self.assertNotIn("G2:", brief)
+        # The copy is read-only, and even a changed copy decides nothing: Vesper runs the approved gates.
+        self.assertEqual((gates / "first.py").stat().st_mode & 0o222, 0)
+        with self.assertRaises(PermissionError):
+            (gates / "first.py").write_text("raise SystemExit(0)\n")
+        (gates / "first.py").chmod(0o644)
+        (gates / "first.py").write_text("raise SystemExit(0)\n")
+        (workspace / "first.txt").write_text("wrong")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        self.assertEqual((workspace / ".vesper-gates" / "first.py").read_text(),
+                         (self.project / "checks" / "first.py").read_text())
+        (workspace / "first.txt").write_text("one")
+        self.command("submit", attempt["id"])
+        # The copy is never promoted; the last job's brief names every gate.
+        attempt, workspace = self.candidate("J2")
+        self.assertIn("G1:", Path(attempt["brief"]).read_text())
+        self.assertIn("G2: python3 -I -B .vesper-gates/last.py CANDIDATE", Path(attempt["brief"]).read_text())
+        (workspace / "second.txt").write_text("two")
+        self.command("submit", attempt["id"])
+        export = self.project.parent / "export"
+        self.command("export", str(export))
+        self.assertEqual(sorted(path.name for path in export.iterdir()), ["first.txt", "second.txt"])
+
+    def test_python_caches_a_worker_leaves_are_dropped_not_fatal(self):
+        # P1-G run 5 (finding 49): a worker that imported its own server.py left
+        # __pycache__/server.cpython-313.pyc, and the whole attempt was rejected unchecked.
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("one")
+        (workspace / "__pycache__").mkdir()
+        (workspace / "__pycache__" / "server.cpython-313.pyc").write_bytes(b"\x00")
+        (workspace / ".vesper-gates" / "__pycache__").mkdir()
+        outside = self.project.parent / "kept"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("keep")
+        (workspace / "deps").mkdir()
+        (workspace / "deps" / "__pycache__").symlink_to(outside)
+        # Caches go (a linked one is unlinked, never followed); only the stray folder is reported.
+        result = self.command("submit", attempt["id"], code=1)
+        self.assertEqual(result["reason"], "Changes outside job scope: deps")
+        self.assertEqual((outside / "keep.txt").read_text(), "keep")
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("one")
+        (workspace / "__pycache__").mkdir()
+        (workspace / "__pycache__" / "server.cpython-313.pyc").write_bytes(b"\x00")
+        self.command("submit", attempt["id"])
+        self.assertEqual(self.command("status")["completed"], ["J1"])
+
+    def test_seed_cannot_use_the_reserved_gates_folder(self):
+        (self.project / "seed" / ".vesper-gates").mkdir()
+        self.approve()
+        self.assertIn(".vesper-gates", self.command("prepare", code=2))
+
     def test_isolation_launcher_receives_workers_and_checks(self):
         self.approve()
         launcher = self.project.parent / "launcher"
@@ -167,7 +306,7 @@ class BuilderTests(unittest.TestCase):
             "else: raise AssertionError(sys.argv)\n")
         launcher.chmod(0o700)
         env = dict(os.environ, PILOT_SECRET="should not cross the worker boundary")
-        self.command("run", "--provider", "codex", "--launcher", str(launcher), env=env)
+        self.command("run", "--brain", "codex", "--launcher", str(launcher), env=env)
         self.assertEqual(self.command("status")["status"], "complete")
 
     def test_rejects_tampered_accepted_snapshot(self):
@@ -195,7 +334,13 @@ class BuilderTests(unittest.TestCase):
 
     def test_provider_dispatch_checks_protocol_and_uses_fresh_scoped_jobs(self):
         self.approve()
-        self.command("run", "--provider", "codex", code=2)
+        # A sandbox whose engine isn't installed stops the run before any attempt.
+        empty = self.project.parent / "empty-bin"
+        empty.mkdir()
+        stderr = self.command("run", "--brain", "codex", "--sandbox", "docker", code=2,
+                              env=dict(os.environ, PATH=str(empty)))
+        self.assertIn("docker not found", stderr)
+        self.assertEqual(self.command("status")["attempts"], [])
         env = self.provider_environment(
             "from pathlib import Path\nimport sys\n"
             "assert '--skip-git-repo-check' in sys.argv and sys.argv[-1] == '-'\n"
@@ -204,7 +349,7 @@ class BuilderTests(unittest.TestCase):
             "if 'Job J1' in prompt: Path('first.txt').write_text('one')\n"
             "elif 'Job J2' in prompt: Path('second.txt').write_text('two')\n"
             "else: raise AssertionError(prompt)\n")
-        self.command("run", "--provider", "codex", "--trust-host", env=env)
+        self.command("run", "--brain", "codex", "--trust-host", env=env)
         self.assertEqual(self.command("status")["status"], "complete")
 
     def test_claude_adapter_supports_provider_switch(self):
@@ -217,7 +362,21 @@ class BuilderTests(unittest.TestCase):
             "assert '-p' in sys.argv and 'Job J2' in sys.stdin.read()\n"
             "assert Path('first.txt').read_text() == 'one'\n"
             "Path('second.txt').write_text('two')\n", name="claude")
-        self.command("run", "--provider", "claude", "--trust-host", env=env)
+        self.command("run", "--brain", "claude-code", "--trust-host", env=env)
+        self.assertEqual(self.command("status")["status"], "complete")
+
+    def test_gemini_adapter_supports_brain_switch(self):
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("one")
+        self.command("submit", attempt["id"])
+        env = self.provider_environment(
+            "from pathlib import Path\nimport sys\n"
+            "assert sys.argv[sys.argv.index('--approval-mode') + 1] == 'auto_edit'\n"
+            "assert '-p' in sys.argv and 'Job J2' in sys.stdin.read()\n"
+            "assert Path('first.txt').read_text() == 'one'\n"
+            "Path('second.txt').write_text('two')\n", name="gemini")
+        self.command("run", "--brain", "gemini-cli", "--trust-host", env=env)
         self.assertEqual(self.command("status")["status"], "complete")
 
     def test_supervisor_stops_descendants_when_leader_and_coordinator_exit(self):
@@ -232,7 +391,7 @@ class BuilderTests(unittest.TestCase):
             " Path('spawned').touch()\n"
             " while not Path('release').exists(): time.sleep(.01)\n"
             " Path('leader-done').touch()\n")
-        proc = subprocess.Popen(self.args("run", "--provider", "codex", "--trust-host"), env=env,
+        proc = subprocess.Popen(self.args("run", "--brain", "codex", "--trust-host"), env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         supervisor = None
         try:
@@ -274,7 +433,7 @@ class BuilderTests(unittest.TestCase):
             "from pathlib import Path\nimport time\n"
             "Path('first.txt').write_text('unverified')\n"
             "time.sleep(20)\n")
-        proc = subprocess.Popen(self.args("run", "--provider", "codex", "--trust-host"), env=env,
+        proc = subprocess.Popen(self.args("run", "--brain", "codex", "--trust-host"), env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             deadline = time.monotonic() + 5
@@ -295,7 +454,7 @@ class BuilderTests(unittest.TestCase):
                 "assert not Path('first.txt').exists() if 'Job J1' in p else True\n"
                 "if 'Job J1' in p: Path('first.txt').write_text('one')\n"
                 "else: Path('second.txt').write_text('two')\n")
-            self.command("run", "--provider", "codex", "--trust-host", env=env)
+            self.command("run", "--brain", "codex", "--trust-host", env=env)
             state = self.command("status")
             self.assertEqual(state["attempts"][0]["outcome"], "interrupted")
             self.assertEqual(state["completed"], ["J1", "J2"])

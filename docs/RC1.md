@@ -53,14 +53,14 @@ comparison in `plan/design.json`. The JSON has `audience`, `primary_task`,
 `name`, `composition`, `benefit`, and `tradeoff`.
 
 `submit` runs the approved checks and returns `awaiting_review` for a passing
-candidate. Use `review-candidate --provider codex --launcher /path/to/launcher`
-or choose `claude`. In supervised mode, open the returned review copy in an
+candidate. Use `review-candidate --brain codex --launcher /path/to/launcher`
+or another brain (`claude-code`, `gemini-cli`, or one named in your config). In supervised mode, open the returned review copy in an
 independent editor session, have it follow `review.md`, save its JSON outside
 that copy, and submit `review-candidate --report FILE --attest-independent`.
 The verdict binds to the attempt, baseline and candidate digests. A blocking
 finding returns the job for correction. The accepted snapshot advances only
 after the review passes. See [launcher interfaces](../START-HERE.md) for
-automatic execution with `run` or a different `--reviewer-provider`.
+automatic execution with `run` or a different `--reviewer-brain`.
 
 ## Repair Vesper's own source
 
@@ -81,11 +81,11 @@ vesper repair --idea 'Describe the confirmed Vesper defect' \
   --failure-id resume-defect --repro /path/to/repro.py --path builder/runner.py
 vesper --project REPAIR_RUN review
 vesper --project REPAIR_RUN repair-run --digest APPROVED_PLAN_DIGEST \
-  --provider codex --reviewer-provider claude --launcher /path/to/launcher --commit
+  --brain codex --reviewer-brain claude-code --launcher /path/to/launcher --commit
 ```
 
 Use the project path returned by `repair`. Optionally pass `--from-project RUN`
-to attach its latest recorded incident. Use the provider you have configured.
+to attach its latest recorded incident. Use the brains you have configured.
 The runner reproduces the failure on pinned Vesper source, runs the bounded
 repair, checks the reproducer and frozen baseline suite, and launches a separate
 reviewer. With `--commit` it writes the verified tree to a local `vesper/repair/…`

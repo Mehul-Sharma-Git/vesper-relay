@@ -54,22 +54,50 @@ python3 -B build_local.py --project ~/my-product submit ATTEMPT_ID
 python3 -B build_local.py --project ~/my-product status
 ```
 
-Repeat until complete. Only the runner publishes snapshots. Submit executes
-the approved checks on the host by default, so use this mode with trusted
-code and trusted checks, or supply the isolation launcher below.
+Repeat until complete. Only the runner publishes snapshots. Submit runs the
+approved checks in the sandbox (below); `--sandbox none` runs them on this machine,
+with a warning, for trusted code and trusted checks only.
 Managed team jobs pause at `awaiting_review`. Follow the separate review step
 in [the RC1 guide](docs/RC1.md) before preparing the next job.
 
 ### Automatic mode
 
-With a supported, authenticated provider CLI installed:
+With a supported, authenticated agent CLI installed (Claude Code, Codex or Gemini CLI):
 
 ```sh
-python3 -B build_local.py --project ~/my-product run --provider codex --launcher /absolute/path/to/launcher
-# Or select --provider claude. The native Claude adapter expects v2.1.248+.
+vesper sandbox build                 # once, and after the image definition changes
+sh sandbox/selftest.sh               # every escape attempt must fail
+python3 -B build_local.py --project ~/my-product run --brain codex
+# Or --brain claude-code or --brain gemini-cli, or a brain named in
+# ~/.config/vesper/config.toml. Add --reviewer-brain NAME for a different reviewer.
 ```
 
-For a trusted local experiment, explicitly replace `--launcher …` with
+Brains, gates and reviewers run in the sandbox: `sandbox.backend` in the config, `docker` by
+default, or `--sandbox docker|podman|none`. The image (`sandbox/Dockerfile`, arm64 and amd64)
+holds Python, Go, Node with pnpm, Playwright's Chromium and the three agent CLIs. Every job
+runs as your uid with a read-only root filesystem, no capabilities, `no-new-privileges`, and
+memory and process limits; only its own directories are mounted, never your home, SSH keys or
+the engine's socket. Gates get no network (loopback works); build setup gets the network;
+brains reach only their provider's hosts, through a filtering proxy.
+
+Sandboxed brains need a login of their own, because the sandbox can't read your Mac's Keychain
+logins:
+
+| Brain | Login |
+|---|---|
+| `claude-code` | `claude setup-token`, then `security add-generic-password -s vesper-relay -a CLAUDE_CODE_OAUTH_TOKEN -w` |
+| `codex` | `codex login`; `~/.codex/auth.json` is mounted read-only |
+| `gemini-cli` | a Gemini API key: `security add-generic-password -s vesper-relay -a GEMINI_API_KEY -w` |
+
+Instead of the Keychain, put `NAME=value` lines in `~/.config/vesper/secrets.env` (mode 600).
+With Colima, keep runs under your home directory (the default state directory is), since
+Colima shares only the home directory with its engine.
+
+`--sandbox none` (or `--trust-host`) runs everything on this machine and warns on every run.
+A launcher (`--launcher PATH`) is the option for a custom setup. It is called as `LAUNCHER worker|reviewer|consult CLI` (with `CLI` one of
+`claude`, `codex`, `gemini`) and builds that CLI's command itself.
+
+For a trusted local experiment, explicitly pass
 `--trust-host`. The direct Codex adapter requests workspace-write. The direct
 Claude adapter requests restricted mode and file tools. These controls depend
 on the local installation. In host mode, the worker can reach resources
@@ -81,10 +109,12 @@ The launcher is a user-configured executable. Its interface is:
 
 | Invocation | Working directory and inputs | Expected boundary |
 |---|---|---|
-| `launcher worker codex` or `launcher worker claude` | CWD is the disposable work copy. The job brief arrives on stdin. | Give the provider the candidate as its writable project. Limit other mounts and network access to those needed for the selected provider. |
+| `launcher worker CLI` (`claude`, `codex` or `gemini`) | CWD is the disposable work copy. The job brief arrives on stdin. | Give the brain the candidate as its writable project. Limit other mounts and network access to those needed for the selected brain. |
 | `launcher check /path/to/gate.py /path/to/candidate` | CWD is a temporary gate directory. Gate inputs are in the script's parent directory. | Run Python with the gate package and candidate mounted read-only. Give it separate temporary space. Permit loopback inside the isolated environment for checks that start a server. |
-| `launcher reviewer codex` or `launcher reviewer claude` | CWD contains the baseline, candidate, frozen plan, diff, and check evidence. The review prompt arrives on stdin. | Mount the review copy read-only. Return the JSON verdict on stdout. Exclude the writer workspace and accepted snapshots. |
-| `launcher consult codex` or `launcher consult claude` | CWD is a copy of the baseline. The specialist brief and requested handoff arrive on stdin. | Mount the baseline read-only and return the handoff on stdout. |
+| `launcher check-command /path/to/work -- PROGRAM ARGS...` | CWD is `/path/to/work`, a throwaway copy of the candidate with the check's overlay already copied in. `PROGRAM` is a bare name, never a path. | Mount the work copy writable and nothing from `checks/` or the verified candidate. Resolve `PROGRAM` on the sandbox's own `PATH`, run it with the given arguments in the work copy, and give it separate temporary space. Permit loopback as for `check`. When the contract has build setup, `GOMODCACHE` and `PNPM_STORE_DIR` name the run's dependency cache: mount it read-only. |
+| `launcher setup /path/to/work -- PROGRAM ARGS...` | CWD is `/path/to/work`, a throwaway copy of the candidate. Runs once per verification, before the first command gate, for each command in the contract's `build.setup`. `PNPM_STORE_DIR` and `GOMODCACHE` name the run's dependency cache. | The only gate-side step that may have network access. Mount the work copy and the two cache directories writable, nothing else. Resolve `PROGRAM` as for `check-command`. |
+| `launcher reviewer CLI` | CWD contains the baseline, candidate, frozen plan, diff, and check evidence (for a plan critique: `plan/`, `checks/` and `seed/`), plus `review.schema.json`, the JSON Schema the verdict must match. The review prompt arrives on stdin. | Mount the review copy read-only. Pass `review.schema.json` to the brain's structured-output option where it has one (Claude Code: `--json-schema "$(cat review.schema.json)"`). Return the JSON verdict on stdout. Exclude the writer workspace and accepted snapshots. |
+| `launcher consult CLI` | CWD is a copy of the baseline. The specialist brief and requested handoff arrive on stdin. | Mount the baseline read-only and return the handoff on stdout. |
 
 A launcher returns the provider or gate exit status. Launchers and their OS
 isolation are supplied and validated by the operator. A launcher can also
@@ -109,5 +139,71 @@ assert behavior and exit nonzero on failure. Write databases, build caches, and
 other check outputs in temporary locations. The runner tracks candidate file
 contents and modes and rejects links, special files, and unrelated changes.
 On the final job it reruns the full approved gate set.
+
+A check can also be a command in any language, such as `go test`, Vitest or
+Playwright, in place of a script:
+
+```json
+{"id": "G1", "command": ["go", "test", "./..."],
+ "overlay": {"from": "gotests", "to": "."}, "timeout": 300}
+```
+
+The first item must be a bare program name (`go`, `pnpm`, `node`), not a
+path. Without a launcher, the runner finds it on its own `PATH`, and the gate's
+`PATH` is that program's directory plus `/bin:/usr/bin`. The command runs in a
+throwaway copy of the candidate, so tools may write caches and reports there.
+The optional `overlay` copies a directory from `checks/` into that copy first
+(`"to": "."` is the candidate root), so QA's own tests sit next to the code
+without being part of the candidate. Overlay files replace candidate files of
+the same name. The verified candidate and `checks/` must stay unchanged, or the
+check fails.
+
+Gates get a minimal environment: `PATH`, a temporary `HOME` and `TMPDIR`,
+`LANG`, `PYTHONDONTWRITEBYTECODE`, and tool caches inside that temporary
+directory (`XDG_CACHE_HOME`, `GOCACHE`, `GOPATH`). When a gate needs more, for example a
+Playwright gate that must find its browsers, list the variable names in the
+contract's top-level `gate_env`:
+
+```json
+"gate_env": ["PLAYWRIGHT_BROWSERS_PATH"]
+```
+
+Only names go in the contract, so they are part of the reviewed digest. The
+runner copies each value from its own environment when the gate runs and
+leaves out names that are unset. With a launcher, the variables reach the
+launcher process, which decides what enters its sandbox. `review` rejects
+names that look like secrets (any containing `key`, `token`, `secret`,
+`password`, `credential` or `auth`, in any case), provider login variables such
+as `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, and the names the
+runner sets itself (the eight above plus `GOMODCACHE`, `PNPM_STORE_DIR`,
+`pnpm_config_store_dir` and `npm_config_store_dir`).
+
+### Toolchains: build setup and ignored directories
+
+Projects that need `pnpm install` or Go modules declare a top-level `build`:
+
+```json
+"build": {"ignore": ["node_modules", "dist", ".pnpm-store", "test-results", ".turbo"],
+          "setup": [["pnpm", "install", "--frozen-lockfile"], ["go", "mod", "download"]],
+          "timeout": 600}
+```
+
+`ignore` names top-level directories that hold build output. Worker work
+copies may contain them, links included, but they are never checked for
+scope, promoted to a snapshot, exported or put in a Git patch. Everything else
+keeps the strict rules: links and special files are rejected, and lockfiles
+such as `pnpm-lock.yaml` and `go.sum` are ordinary tracked files. A job may
+not write inside an ignored directory, and the seed may not contain one.
+
+`setup` commands run once per verification, before the first command gate,
+in a throwaway copy of the candidate (launcher operation `setup`). They must
+leave tracked files unchanged, so commit the lockfile: `pnpm install
+--frozen-lockfile` writes one when none exists, which fails the check. Each
+command gate then gets the setup's ignored directories in its own copy.
+`GOMODCACHE` and the pnpm store (`PNPM_STORE_DIR`, plus `pnpm_config_store_dir`,
+the name pnpm 10 and later reads) point into `.builder/cache/` in the run, so
+repeat verifications reuse downloads. Script gates never trigger setup, and
+Vesper repairs cannot use it. `timeout` is per setup command (1 to 1800
+seconds, default 600).
 
 See [PILOT.md](docs/PILOT.md) for the results, limitations, and next gaps.

@@ -49,6 +49,8 @@ you. Run `vesper runs --repo .` to find previous runs for the current checkout.
 See [WORKFLOWS.md](docs/WORKFLOWS.md) for routing and [START-HERE.md](START-HERE.md)
 for the underlying supervised and provider commands.
 
+The ordered upgrade plan and its status board live in [docs/plan/README.md](docs/plan/README.md).
+
 The initial Git seed comes from HEAD. A reviewable patch can be applied to the
 working tree after approval. Vesper rejects a moved HEAD and tracked, staged,
 or untracked changes that overlap the patch. Unrelated edits stay in place.

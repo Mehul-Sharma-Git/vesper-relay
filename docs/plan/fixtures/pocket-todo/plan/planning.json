@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "impact": {
+    "new_system": true,
+    "data": true,
+    "security": true,
+    "integrations": false,
+    "deployment": false,
+    "cross_layer": true
+  },
+  "rationale": "New build: a standard-library Python server with SQLite persistence and a browser UI, reachable on the home network without login, so it refuses requests from other websites. Full architecture and independent critique apply to every build.",
+  "authors": [
+    "planner-session",
+    "architecture-session"
+  ],
+  "architecture": {
+    "owner": "technical-lead",
+    "author": "architecture-session",
+    "revision": "e8bba7da86baac2443ed7cbd3bd5a18cbe2848b05fd1c93f63a6b07ba9a7ebc2",
+    "artifact": "architecture.md",
+    "inputs": [
+      "product.md",
+      "decisions.md"
+    ],
+    "consumers": [
+      "backend",
+      "frontend",
+      "qa"
+    ]
+  },
+  "handoff": {
+    "canonical_contract": "api-contract.md",
+    "acknowledged_by": [
+      "backend",
+      "frontend",
+      "qa"
+    ]
+  }
+}

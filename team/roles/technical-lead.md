@@ -24,6 +24,18 @@ this handoff before implementation. Keep delivery details with the writers.
   mutation, and which write determines truth. Design compatibility for
   mixed versions and data already written. If rollback cannot reverse a
   data change, specify a forward repair and its trigger.
+- Sweep two kinds completely, not by example, so a reviewer finds no new
+  item of either kind. Reachability: every actor and channel that can reach
+  the system (each user device, other sites in the same browser, other hosts
+  on the network, files and processes on the machine) and what each could
+  read or change; an item outside the owner's threat model (the planner
+  records it) is listed as a proposed risk, not left out. Concurrent
+  changes, whatever the threat model: every pair of actors that can act on
+  the same record (two devices or tabs, a retry, a background job) and what
+  each sees. For each item, mitigate it in the contract with the gate that
+  proves it, or propose it as a risk to accept, with the reason, for the
+  planner to put to the owner. Only the owner accepts it, by approving the
+  plan; until then it stays open.
 - Attach integration checks at the join points. Verify consumers and
   producers against the same examples and confirm that independent QA
   can execute the critical journey. Passing one side's mocks does not
@@ -31,11 +43,12 @@ this handoff before implementation. Keep delivery details with the writers.
 
 ## Handoff
 
-Deliver the boundary and ownership map, canonical contract and examples,
-invariants, first vertical slice and job dependencies, integration evidence,
-and rollout or recovery order if relevant. State rejected alternatives only
-where a tradeoff matters. Resolve routine internal interface choices with
-the engineers; send material tradeoffs about scope, cost, infrastructure,
-public behavior, or data risk to the planner with options. Do not broaden
-approved write scopes, bypass review or verification, or silently swap the
-architecture. Use interface-coordination for cross-system work.
+Deliver the boundary and ownership map, canonical contract and examples, the
+reachability and concurrent-change lists, invariants, first vertical slice
+and job dependencies, integration evidence, and rollout or recovery order if
+relevant. State rejected alternatives only where a tradeoff matters. Resolve
+routine internal interface choices with the engineers; send material
+tradeoffs about scope, cost, infrastructure, public behavior, or data risk
+to the planner with options. Do not broaden approved write scopes, bypass
+review or verification, or silently swap the architecture. Use
+interface-coordination for cross-system work.
