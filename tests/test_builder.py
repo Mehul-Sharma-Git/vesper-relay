@@ -209,6 +209,14 @@ class BuilderTests(unittest.TestCase):
         self.assertIn("first.txt held draft-1", brief)
         self.assertIn("Changes outside job scope: second.txt", brief)
 
+    def test_history_stays_within_its_limit(self):
+        from builder.runner import HISTORY_LIMIT, attempt_history
+        for count in (1, 2, 20):
+            previous = [{"outcome": "rejected", "failure_kind": "check", "reason": "x" * 50_000}] * count
+            text = attempt_history(previous)
+            self.assertLessEqual(len(text), HISTORY_LIMIT + 60 * count)
+            self.assertEqual(text.count("Attempt "), count)
+
     def test_changed_earlier_candidate_is_not_carried(self):
         self.approve()
         attempt, workspace = self.candidate("J1")
@@ -228,7 +236,10 @@ class BuilderTests(unittest.TestCase):
         brief = Path(attempt["brief"]).read_text()
         self.assertIn("G1: python3 -I -B .vesper-gates/first.py CANDIDATE", brief)
         self.assertNotIn("G2:", brief)
-        # Editing the copy changes nothing: Vesper runs the approved gates.
+        # The copy is read-only, and even a changed copy decides nothing: Vesper runs the approved gates.
+        with self.assertRaises(PermissionError):
+            (gates / "first.py").write_text("raise SystemExit(0)\n")
+        (gates / "first.py").chmod(0o644)
         (gates / "first.py").write_text("raise SystemExit(0)\n")
         (workspace / "first.txt").write_text("wrong")
         self.command("submit", attempt["id"], code=1)

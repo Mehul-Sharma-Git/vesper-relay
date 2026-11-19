@@ -46,7 +46,7 @@ def attempt_history(previous, limit=HISTORY_LIMIT):
     """Every earlier failure of a job, oldest first; a long reason keeps its start and end."""
     if not previous:
         return None
-    share = max(800, limit // len(previous))
+    share = limit // len(previous)
     parts = []
     for number, item in enumerate(previous, 1):
         reason = (item.get("reason") or "").strip() or item["outcome"]
@@ -411,8 +411,15 @@ class Runner:
             require(inventory(workspace) == base, "Accepted snapshot changed while copying")
         # Workers read and run the gates (owner decision 2026-11-19). The copy is ignored by
         # verify, so it is never checked for scope or promoted; Vesper runs the approved gates.
-        copy_tree(self.approval(state) / "checks", workspace / GATES_DIR)
-        require(inventory(workspace / GATES_DIR) == state["bundle"]["checks"], "Approved checks changed while copying")
+        gates_copy = workspace / GATES_DIR
+        copy_tree(self.approval(state) / "checks", gates_copy)
+        copied = inventory(gates_copy)
+        require({path: record[0] for path, record in copied.items()}
+                == {path: record[0] for path, record in state["bundle"]["checks"].items()},
+                "Approved checks changed while copying")
+        for path, (digest, _) in copied.items():
+            if digest is not None:
+                (gates_copy / path).chmod(0o444)  # read-only files; folders stay removable
         final = len(state["completed"]) + 1 == len(contract["jobs"])
         gates = [check for check in contract["checks"] if final or check["id"] in job["checks"]]
         origin = None

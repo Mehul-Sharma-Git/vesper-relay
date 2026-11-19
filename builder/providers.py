@@ -88,7 +88,7 @@ def worker_prompt(contract, job, plans, manifest, failure, intake=None, speciali
             sections.append("Approved workflow guidance\n" + "\n".join(lessons.values()))
     if gates:
         action = ("Run the gates before finishing." if shell else
-                  "Read the gates: you cannot run commands here, and they define what is checked.")
+                  "Read the gates: they define what is checked.")
         sections.append(
             f"Approved gates (a copy is in {GATES_DIR}/; Vesper runs its own approved copy, so editing "
             f"this one changes nothing, and {GATES_DIR}/ is never shipped). {action}\n"
