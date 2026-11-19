@@ -19,6 +19,10 @@
 - "Add list" adds the list to the panel and keeps the phone menu open; the current list does not change.
 - Saving a rename updates the toggle to the new name; the phone menu may stay open or close.
 - Confirming "Delete list" removes the list and makes Inbox the current list; cancelling changes nothing.
+- The delete request sends the list name and todo count the dialog showed. If the server answers
+  409 (the list changed on another device), the list stays current, the status region says it
+  changed, and the lists and the current list's todos reload, so the next "Delete list" names
+  the new count.
 - Filter: three buttons with `aria-pressed`, labels All, Active, Done.
 - Add todo: labelled input `id="new-todo"` ("New todo") + Add button; Enter submits.
 - Each todo: a checkbox labelled by its title, and a Delete button ("Delete <title>").

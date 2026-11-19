@@ -12,12 +12,14 @@
 ## Delegated defaults (planner)
 - Inbox cannot be deleted or renamed (it is the always-present list).
 - Server listens on 127.0.0.1 by default; `--host 0.0.0.0` exposes it to the home network for the phone. No login: anyone on that Wi-Fi can use it.
-- Todo title 1-200 chars, list name 1-40 chars, list names unique ignoring case. Todos ordered oldest first.
+- Todo title 1-200 chars, list name 1-40 chars, list names unique ignoring case (Unicode case folding). Todos ordered oldest first.
+- Open the app by `localhost` or the laptop's IP address (for example `http://192.168.1.20:8080`); other host names are refused. Requests from other websites are refused (Host, Origin and JSON checks in architecture.md).
+- A list delete only goes through if the list still has the name and todo count the user confirmed.
 - Deleting a todo needs no confirmation; deleting a list does.
 - Stack, file layout, names: engineers decide within plan.
 
 ## Open / risks
-- No authentication on the home network (accepted for v1 by D3; revisit before any hosting).
+- No authentication on the home network (accepted for v1 by D3; revisit before any hosting). Other websites in the owner's browser are refused, but anyone on that Wi-Fi can still use the app.
 - Phone access depends on the laptop being on and the OS firewall allowing the port.
 
 ## Escalate if

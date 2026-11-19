@@ -3,12 +3,12 @@
   "impact": {
     "new_system": true,
     "data": true,
-    "security": false,
+    "security": true,
     "integrations": false,
     "deployment": false,
     "cross_layer": true
   },
-  "rationale": "New build: a standard-library Python server with SQLite persistence and a browser UI. Full architecture and independent critique apply to every build.",
+  "rationale": "New build: a standard-library Python server with SQLite persistence and a browser UI, reachable on the home network without login, so it refuses requests from other websites. Full architecture and independent critique apply to every build.",
   "authors": [
     "planner-session",
     "architecture-session"

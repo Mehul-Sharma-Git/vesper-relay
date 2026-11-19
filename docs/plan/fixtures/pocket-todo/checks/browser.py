@@ -11,7 +11,7 @@ for candidate in ("/opt/pw-browsers", str(Path.home() / ".cache/ms-playwright"))
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = candidate
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from api import server
+from api import call, server
 from playwright.sync_api import expect, sync_playwright
 
 expect.set_options(timeout=4000)
@@ -24,10 +24,13 @@ def no_horizontal_scroll(page):
 
 def phone(browser, base):
     page = browser.new_page(viewport={"width": 375, "height": 740})
-    dialogs, answer = [], {"accept": False}
+    dialogs, answer = [], {"accept": False, "before": None}
 
     def on_dialog(dialog):
         dialogs.append(dialog.message)
+        before, answer["before"] = answer["before"], None
+        if before:
+            before()  # what another device does while this dialog is open
         dialog.accept() if answer["accept"] else dialog.dismiss()
 
     page.on("dialog", on_dialog)
@@ -96,12 +99,31 @@ def phone(browser, base):
     assert "Office" in dialogs[0] and re.search(r"\b1\b", dialogs[0]), \
         f"Confirmation must name the list and its todo count: {dialogs[0]!r}"
     expect(toggle).to_contain_text("Office")
+
+    # While the dialog is open, another device adds a todo to Office: the confirmed count is
+    # stale, so the delete is refused, Office stays, and the lists reload with the new count.
+    def another_device():
+        office = next(item for item in call(base, "/api/lists")[1] if item["name"] == "Office")
+        assert call(base, "/api/todos", "POST", {"listId": office["id"], "title": "Book room"})[0] == 201
+
     if toggle.get_attribute("aria-expanded") != "true":
         toggle.click()
-    answer["accept"] = True
+    answer.update(accept=True, before=another_device)
+    page.get_by_role("button", name="Delete list").click()
+    for _ in range(40):
+        if len(dialogs) == 2:
+            break
+        page.wait_for_timeout(100)
+    assert len(dialogs) == 2, "Delete list did not ask again"
+    expect(page.get_by_role("checkbox", name="Book room")).to_be_visible()
+    expect(toggle).to_contain_text("Office")
+    if toggle.get_attribute("aria-expanded") != "true":
+        toggle.click()
     page.get_by_role("button", name="Delete list").click()
     expect(toggle).to_contain_text("Inbox")
-    assert len(dialogs) == 2, dialogs
+    assert len(dialogs) == 3, dialogs
+    assert "Office" in dialogs[2] and re.search(r"\b2\b", dialogs[2]), \
+        f"After a refused delete the confirmation must show the new count: {dialogs[2]!r}"
     if toggle.get_attribute("aria-expanded") != "true":
         toggle.click()
     expect(panel.get_by_role("button", name=re.compile("^Office"))).to_have_count(0)
