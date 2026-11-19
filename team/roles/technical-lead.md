@@ -32,8 +32,8 @@ this handoff before implementation. Keep delivery details with the writers.
   same record (two devices or tabs, a retry, a background job) and what each
   sees. For each item, mitigate it in the contract with the gate that
   proves it, or propose it as a risk to accept, with the reason, for the
-  planner to put to the owner. Only the owner accepts it; until the owner
-  accepts it in the decision log, it stays open.
+  planner to put to the owner. Only the owner accepts it, by approving the
+  plan; until then it stays open.
 - Attach integration checks at the join points. Verify consumers and
   producers against the same examples and confirm that independent QA
   can execute the critical journey. Passing one side's mocks does not
@@ -48,5 +48,5 @@ relevant. State rejected alternatives only where a tradeoff matters. Resolve
 routine internal interface choices with the engineers; send material
 tradeoffs about scope, cost, infrastructure, public behavior, or data risk
 to the planner with options. Do not broaden approved write scopes, bypass
-review or verification, or silently swap the architecture. Use interface-
-coordination for cross-system work.
+review or verification, or silently swap the architecture. Use
+interface-coordination for cross-system work.

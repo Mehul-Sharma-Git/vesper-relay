@@ -60,6 +60,9 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
      - each job: its role, its goal in one line, and the only files it may change;
      - the independent critique: verdict, blocker count, and the top advisory findings
        in one line each; at `skip` depth, "no critique (skip depth)" and the recorded reason;
+     - every risk the plan proposes to accept (P2-T5), each in plain words with its reason,
+       and every critique finding marked "Accepted risk: owner must confirm", all listed
+       in full: confirming the plan approval is the owner's acceptance of each;
      - what changed since the last **human confirmation of a plan approval** recorded for
        this run (files added, removed or edited, with line counts before and after, against
        that confirmation's file list), or "first approval". Printing a sheet never moves
@@ -158,8 +161,10 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
        `stack` (choice + reason, or "existing repo"), and the tech lead's `reachability` and
        `concurrency` lists plus QA's `failure_paths` matrix (requirement or list item →
        scenario → assertion → the wrong implementation it catches). Every list item is
-       mitigated with the gate that proves it, or accepted by the owner with a reason in the
-       decision log (an acceptance only an AI recorded does not count). The roles and the
+       mitigated with the gate that proves it, or proposed as a risk to accept with a reason.
+       A proposed risk is accepted only by the owner's confirmed plan approval, never by a
+       decision-log entry: `review` shows each in full, and the plan-approval sheet (P2-T2)
+       lists each one. The roles and the
        critique already ask for these (P1-G, `appendix-b` finding 45); this makes `review`
        refuse a plan without them;
      - `full`: `options` (2–3 approaches with trade-offs and the recommendation),

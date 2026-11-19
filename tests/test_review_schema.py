@@ -227,10 +227,11 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
             self.assertIn(kind, seen["prompt"])
         self.assertIn("report every instance in this one review", seen["prompt"])
         self.assertIn("Blocking means:", seen["prompt"])
-        # Only the owner accepts a risk (00-context.md, Human-only approvals): an acceptance the
-        # decision log does not show the owner confirmed is a missing user decision, which blocks.
-        self.assertIn("confirmed by the owner in the decision log", seen["prompt"])
-        self.assertIn("an acceptance only the plan's authors recorded is a missing user decision", seen["prompt"])
+        # Only the owner accepts a risk, by approving the plan (00-context.md, Human-only approvals):
+        # the critique never downgrades one on the plan's word; it reports each for the approval.
+        self.assertIn("Accepted risk: owner must confirm", seen["prompt"])
+        self.assertIn("the plan's own record of an acceptance is not the owner's confirmation", seen["prompt"])
+        self.assertNotIn("confirmed by the owner in the decision log", seen["prompt"])
 
         listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
         self.assertIn("plan/architecture.md", listed)
@@ -242,14 +243,14 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
 
         lead = role("technical-lead")
         for marker in ("Reachability:", "Concurrent changes:", "mitigate it in the contract with the gate",
-                       "the owner accepts it"):
+                       "Only the owner accepts it, by approving the plan"):
             self.assertIn(marker, lead)
         qa = role("qa")
         self.assertIn("failure-path matrix", qa)
         self.assertIn("the wrong implementation that assertion catches", qa)
         planner = role("planner")
         self.assertIn("reachability and concurrent-change lists", planner)
-        self.assertIn("accepted by the owner in the decision log", planner)
+        self.assertIn("a decision-log entry is not the owner's confirmation", planner)
 
     def test_a_rejected_critique_reply_is_kept_for_the_owner(self):
         from builder.planning import review_plan
