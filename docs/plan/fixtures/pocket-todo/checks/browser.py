@@ -1,7 +1,7 @@
 """G_BROWSER: real Chromium at phone (320px) and laptop widths. Usage: browser.py CANDIDATE_DIR
 Requires Python Playwright with Chromium on the gate host.
 
-Rows of plan/acceptance.md checked here: R5, R7 and items A6, C1, C2, C4. "Another device" is
+Rows of plan/acceptance.md checked here: R5, R7 and items A6, C1, C2, C4, C7, C9. "Another device" is
 this script calling the API directly while the page is open."""
 import os
 from pathlib import Path
@@ -227,6 +227,39 @@ def phone(browser, base):
     assert "Buy stamps" not in all_titles(base), "The draft was posted to another list"
     new_todo.fill("")
 
+    # C9: renaming or deleting a list another device deleted falls back to Inbox and says why.
+    for name, action in (("Shed", "rename"), ("Loft", "delete")):
+        open_menu(toggle)
+        page.locator("#new-list").fill(name)
+        page.get_by_role("button", name="Add list").click()
+        panel.get_by_role("button", name=re.compile(f"^{name}")).click()
+        expect(toggle).to_contain_text(name)
+        settle()
+        gone = list_named(base, name)
+        assert call(base, f"/api/lists/{gone['id']}?rev={gone['rev']}", "DELETE")[0] == 204
+        open_menu(toggle)
+        if action == "rename":
+            page.get_by_role("button", name="Rename list").click()
+            page.locator("#rename-list").fill("Barn")
+            page.locator("#rename-list").press("Enter")
+        else:
+            page.get_by_role("button", name="Delete list").click()
+        expect(toggle).to_contain_text("Inbox")
+        expect(status).to_contain_text(ANOTHER_DEVICE)
+        settle()
+    assert "Barn" not in [item["name"] for item in call(base, "/api/lists")[1]]
+
+    # C9: a list name another device just took is refused, the app says so, and the text stays.
+    assert call(base, "/api/lists", "POST", {"name": "Garage"})[0] == 201
+    open_menu(toggle)
+    page.locator("#new-list").fill("garage")
+    page.get_by_role("button", name="Add list").click()
+    expect(status).to_contain_text(re.compile("already", re.I))
+    expect(page.locator("#new-list")).to_have_value("garage")
+    settle()
+    page.locator("#new-list").fill("")
+    page.keyboard.press("Escape")
+
     page.get_by_role("button", name="Delete Buy milk").click()
     expect(page.get_by_role("checkbox", name="Buy milk")).to_have_count(0)
     no_horizontal_scroll(page)
@@ -254,6 +287,28 @@ def laptop(browser, base):
     expect(slides).to_be_checked()
     settle()
     expect(page.get_by_role("checkbox", name=re.compile("^Call bank"))).to_have_count(0)
+    # C7: an older reply never shows under a newer choice. Inbox's todos are held while the
+    # owner switches to Desk, then released.
+    inbox = list_named(base, "Inbox")
+    held, pattern = [], re.compile(rf"/api/todos\?(.*&)?list={inbox['id']}(&|$)")
+
+    def hold(route):
+        held.append(route)
+
+    page.route(pattern, hold)
+    panel.get_by_role("button", name=re.compile("^Inbox")).click()
+    wait_for(page, lambda: held, "Choosing Inbox did not load its todos")
+    panel.get_by_role("button", name=re.compile("^Desk")).click()
+    expect(page.get_by_role("checkbox", name="Print slides")).to_be_visible()
+    for route in held:
+        route.continue_()
+    page.unroute(pattern, hold)
+    settle()
+    page.wait_for_timeout(300)
+    expect(panel.get_by_role("button", name=re.compile("^Desk"))).to_have_attribute("aria-current", "true")
+    expect(page.get_by_role("checkbox", name="Print slides")).to_be_visible()
+    expect(page.get_by_role("checkbox", name=re.compile("^Call bank"))).to_have_count(0)
+
     panel.get_by_role("button", name=re.compile("^Inbox")).click()
     expect(page.get_by_role("checkbox", name=re.compile("^Call bank"))).to_be_checked()
     no_horizontal_scroll(page)

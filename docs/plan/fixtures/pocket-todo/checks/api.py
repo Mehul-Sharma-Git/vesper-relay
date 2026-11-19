@@ -1,14 +1,17 @@
 """G_API: Pocket Todo HTTP API, browser safety and persistence. Usage: api.py CANDIDATE_DIR
 
-Rows of plan/acceptance.md checked here: R1-R3, R6, R7 and items A2-A5, A7, A8, C1, C3, C4."""
+Rows of plan/acceptance.md checked here: R1-R3, R6, R7 and items A2-A5, A7, A8, A10, C1, C3, C4, C9,
+C10."""
 from contextlib import contextmanager
 import http.client
 import json
 from pathlib import Path
 import selectors
+import stat
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -48,13 +51,13 @@ def call(base, path, method="GET", payload=None, raw=None, headers=None):
 
 
 def raw(base, path, method="GET", host=None, headers=None, body=None):
-    """One request with full control of Host (None sends no Host header); returns (status, headers)."""
+    """One request with full control of Host (None sends none; a list sends each); returns (status, headers)."""
     address = urlsplit(base)
     connection = http.client.HTTPConnection(address.hostname, address.port, timeout=5)
     try:
         connection.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
-        if host is not None:
-            connection.putheader("Host", host)
+        for value in ([] if host is None else host if isinstance(host, list) else [host]):
+            connection.putheader("Host", value)
         for name, value in (headers or {}).items():
             connection.putheader(name, value)
         if body is not None:
@@ -86,6 +89,9 @@ def check(root):
             port = base.rsplit(":", 1)[1]
             here = f"127.0.0.1:{port}"
             assert call(base, "/health") == (200, {"ok": True})
+            # A10: the database and its journal files are the owner's only.
+            for file in Path(directory).iterdir():
+                assert stat.S_IMODE(file.stat().st_mode) & 0o077 == 0, f"{file.name} is readable by others"
             # A7: only /, /app.js and /styles.css are static: never the server's files or the database.
             for path in ("/server.py", "/%2e%2e/server.py", "/todos.sqlite3", "/missing.txt"):
                 assert raw(base, path, host=here)[0] == 404, f"GET {path} must be 404"
@@ -137,6 +143,20 @@ def check(root):
             assert call(base, "/api/todos", "POST", {"listId": inbox["id"], "title": "x" * 201})[0] == 400
             assert call(base, "/api/todos", "POST", {"listId": 99999, "title": "Lost"})[0] == 404
 
+            # R2: wrong types are refused and change nothing (Python's True is an int).
+            for body in ({"listId": inbox["id"], "title": 5}, {"listId": inbox["id"], "title": None},
+                         {"listId": inbox["id"], "title": []}, {"listId": True, "title": "Coerced"},
+                         {"listId": str(inbox["id"]), "title": "Coerced"}, {"listId": None, "title": "Coerced"},
+                         {"title": "Coerced"}, [inbox["id"], "Coerced"], 5, None):
+                assert call(base, "/api/todos", "POST", raw=json.dumps(body).encode())[0] == 400, body
+            for body in ({"done": 1}, {"done": None}, {}, [True], None):
+                assert call(base, f"/api/todos/{bank['id']}", "PATCH", raw=json.dumps(body).encode())[0] == 400, body
+            for body in ([{"name": "Arr"}], 7, None, {"name": None}, {}):
+                assert call(base, "/api/lists", "POST", raw=json.dumps(body).encode())[0] == 400, body
+                assert call(base, f"/api/lists/{home['id']}", "PATCH", raw=json.dumps(body).encode())[0] == 400, body
+            assert titles(base, inbox["id"]) == ["Buy milk", "Call bank"]
+            assert list(lists(base)) == ["Inbox", "House", "Work"]
+
             code, done = call(base, f"/api/todos/{bank['id']}", "PATCH", {"done": True})
             assert code == 200 and done["done"] is True
             assert call(base, f"/api/todos/{bank['id']}", "PATCH", {"done": "yes"})[0] == 400
@@ -171,6 +191,13 @@ def check(root):
             assert call(base, "/api/todos", "POST", {"listId": work["id"], "title": "Book hall"})[0] == 201
             assert lists(base)["Work"]["total"] == 2
             assert delete_list(base, work["id"], same_count)[0] == 409, "same todo count, but the list changed"
+            # Completing, reopening and re-sending the same value each raise the revision.
+            sent = next(t for t in call(base, f"/api/todos?list={work['id']}&status=all")[1] if t["title"] == "Send report")
+            for done in (True, False, False):
+                before = lists(base)["Work"]["rev"]
+                assert call(base, f"/api/todos/{sent['id']}", "PATCH", {"done": done})[0] == 200
+                assert lists(base)["Work"]["rev"] > before, f"PATCH done={done} must raise the revision"
+                assert delete_list(base, work["id"], before)[0] == 409
             renamed_rev = lists(base)["Work"]["rev"]
             assert call(base, f"/api/lists/{work['id']}", "PATCH", {"name": "Jobs"})[0] == 200
             assert delete_list(base, work["id"], renamed_rev)[0] == 409, "a rename raises the revision"
@@ -194,14 +221,17 @@ def check(root):
             assert raw(base, "/api/lists", "POST", here, {"Content-Type": "application/json"}, big)[0] == 413
 
             # A3: only localhost or an IP address may be the Host (stops DNS rebinding).
-            for host in (f"evil.example:{port}", f"localhost.evil.example:{port}", None):
+            for host in (f"evil.example:{port}", f"localhost.evil.example:{port}", f"127.0.0.1.evil.example:{port}",
+                         "1.2.3.4.evil.example", f"localhost.:{port}", "127.0.0.1:x", "a@127.0.0.1", "", None,
+                         [here, f"evil.example:{port}"]):
                 assert raw(base, "/api/lists", host=host)[0] == 403, f"Host {host!r} must be refused"
                 assert raw(base, "/", host=host)[0] == 403, f"Host {host!r} must be refused"
-            for host in (f"localhost:{port}", f"[::1]:{port}", here):
+            for host in ("localhost", f"localhost:{port}", "[::1]", f"[::1]:{port}", here):
                 assert raw(base, "/api/lists", host=host)[0] == 200, f"Host {host!r} must be served"
 
             # A2: writes another website could send are refused and change nothing.
-            for origin in ("http://evil.example", "null"):
+            for origin in ("http://evil.example", "null", f"https://{here}", "http://127.0.0.1:1",
+                           f"http://localhost:{port}", f"http://{here}.evil.example"):
                 foreign = {"Origin": origin}
                 assert call(base, "/api/lists", "POST", {"name": "Evil"}, headers=foreign)[0] == 403
                 assert call(base, f"/api/lists/{home['id']}", "PATCH", {"name": "Evil"}, headers=foreign)[0] == 403
@@ -221,13 +251,32 @@ def check(root):
             assert delete_list(base, garden["id"], lists(base)["Garden"]["rev"], local)[0] == 204
 
             # A4, A5: no CORS, not frameable, no MIME sniffing, on every response.
-            for path in ("/", "/api/lists", "/missing.txt"):
-                headers = raw(base, path, host=here, headers={"Origin": "http://evil.example"})[1]
+            json_type = {"Content-Type": "application/json"}
+            replies = [raw(base, path, host=here, headers={"Origin": "http://evil.example"})
+                       for path in ("/", "/api/lists", "/missing.txt")]
+            replies += [raw(base, "/api/lists", host=f"evil.example:{port}"),
+                        raw(base, "/api/lists", "POST", here, {**json_type, "Origin": "http://evil.example"}, b"{}"),
+                        raw(base, "/api/lists", "POST", here, json_type, big),
+                        raw(base, "/api/lists", "POST", here, {"Content-Type": "text/plain"}, b"{}"),
+                        raw(base, "/api/lists", "POST", here, json_type, b"not json")]
+            assert [code for code, _ in replies[3:]] == [403, 403, 413, 415, 400], [code for code, _ in replies]
+            assert replies[1][1].get("content-type", "").startswith("application/json"), replies[1][1]
+            for path, (_, headers) in zip(("/", "/api/lists", "/missing.txt", "403 host", "403 origin", "413",
+                                          "415", "400"), replies):
                 assert "access-control-allow-origin" not in headers, f"{path} sends a CORS header"
                 policy = headers.get("content-security-policy", "")
                 assert "frame-ancestors 'none'" in policy and "default-src 'self'" in policy, (path, policy)
                 assert headers.get("x-frame-options", "").upper() == "DENY", path
                 assert headers.get("x-content-type-options", "").lower() == "nosniff", path
+
+            # C10: simultaneous writes wait for each other instead of failing.
+            code, busy = call(base, "/api/lists", "POST", {"name": "Busy"})
+            with ThreadPoolExecutor(20) as pool:
+                codes = list(pool.map(lambda n: call(base, "/api/todos", "POST",
+                                                     {"listId": busy["id"], "title": f"Task {n}"})[0], range(20)))
+            assert codes == [201] * 20, codes
+            assert lists(base)["Busy"]["total"] == 20
+            assert delete_list(base, busy["id"], lists(base)["Busy"]["rev"])[0] == 204
 
         # R3: data survives a restart.
         with server(root, db) as base:

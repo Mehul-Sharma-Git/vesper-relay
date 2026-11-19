@@ -9,8 +9,9 @@ delete it. They create, rename and delete their own lists.
 ## Scope
 - Lists: Inbox always exists. Create, rename, delete other lists. Deleting a list
   deletes its todos after the user confirms, and only if the list has not changed since.
-- Two devices at once: a change made on one device never silently undoes or loses one made
-  on the other; the app says when something changed on another device.
+- Two devices at once: no todo or list is lost or undone without notice. Deleting a list that
+  changed on another device is refused; acting on something another device deleted says so.
+  Renames and ticking a todo done or not done are last write wins (architecture.md, C5).
 - Other websites open in the same browser cannot read, change or frame the todos.
 - Todos: title + done state, in exactly one list. Add, mark done/not done, delete.
 - Filter the current list by All / Active / Done.

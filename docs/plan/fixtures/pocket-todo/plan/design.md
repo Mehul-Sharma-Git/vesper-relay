@@ -27,6 +27,12 @@
   region says the list was deleted on another device.
 - Completing or deleting a todo another device deleted (404): the current list reloads, the
   todo disappears, and the status region says it was deleted on another device.
+- Any other 404 or 409 from a list or todo action (rename, delete, select, complete, add list):
+  reload the lists and the current list's todos, make Inbox current if the current list is
+  gone, keep any typed text (`#new-todo`, `#new-list`, `#rename-list`), and announce it in the
+  status region: "… another device …" when something changed or was deleted elsewhere, and
+  "… already …" when a list name is taken.
+- Switching lists while todos are loading shows only the latest list's todos.
 - Todo titles and list names always show as plain text, never as markup.
 - Filter: three buttons with `aria-pressed`, labels All, Active, Done.
 - Add todo: labelled input `id="new-todo"` ("New todo") + Add button; Enter submits.
