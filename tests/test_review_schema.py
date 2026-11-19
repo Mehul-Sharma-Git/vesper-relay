@@ -227,19 +227,29 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
             self.assertIn(kind, seen["prompt"])
         self.assertIn("report every instance in this one review", seen["prompt"])
         self.assertIn("Blocking means:", seen["prompt"])
+        # Only the owner accepts a risk (00-context.md, Human-only approvals): an acceptance the
+        # decision log does not show the owner confirmed is a missing user decision, which blocks.
+        self.assertIn("confirmed by the owner in the decision log", seen["prompt"])
+        self.assertIn("an acceptance only the plan's authors recorded is a missing user decision", seen["prompt"])
 
         listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
         self.assertIn("plan/architecture.md", listed)
         self.assertNotIn("plan", listed)
 
     def test_plan_roles_sweep_each_kind_and_name_what_a_gate_catches(self):
-        lead = (ROOT / "team/roles/technical-lead.md").read_text()
-        for marker in ("Reachability:", "Concurrent changes:", "mitigate it in the contract, name the gate"):
+        def role(name):  # wrapped prose: compare with whitespace collapsed
+            return " ".join((ROOT / "team/roles" / f"{name}.md").read_text().split())
+
+        lead = role("technical-lead")
+        for marker in ("Reachability:", "Concurrent changes:", "mitigate it in the contract with the gate",
+                       "the owner accepts it"):
             self.assertIn(marker, lead)
-        qa = (ROOT / "team/roles/qa.md").read_text()
+        qa = role("qa")
         self.assertIn("failure-path matrix", qa)
         self.assertIn("the wrong implementation that assertion catches", qa)
-        self.assertIn("reachability and concurrent-change lists", (ROOT / "team/roles/planner.md").read_text())
+        planner = role("planner")
+        self.assertIn("reachability and concurrent-change lists", planner)
+        self.assertIn("accepted by the owner in the decision log", planner)
 
     def test_a_rejected_critique_reply_is_kept_for_the_owner(self):
         from builder.planning import review_plan

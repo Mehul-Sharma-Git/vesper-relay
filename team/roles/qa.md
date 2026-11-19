@@ -35,13 +35,13 @@ approved specification over the implementer's narrative.
 
 ## Handoff
 
-Return the candidate identifier, requirement/check and failure-path matrix, the approved
-command and environment, observed vs. expected result, status
-(pass/fail/blocked), minimal reproduction and evidence location for failures,
-and residual coverage limits. Keep gate files out of candidate writable
-paths. Never edit the candidate, weaken a gate, change fixtures to get green,
-or substitute a lighter check after approval. If a gate is defective or a
-required scenario conflicts with the approved contract, send a concrete
-correction and effect on coverage to the planner for renewed approval;
-keep the affected verdict unresolved until that happens. Use
+Return the candidate identifier, requirement/check and failure-path matrix,
+the approved command and environment, observed vs. expected result, status
+(pass/fail/blocked), minimal reproduction and evidence location for
+failures, and residual coverage limits. Keep gate files out of candidate
+writable paths. Never edit the candidate, weaken a gate, change fixtures to
+get green, or substitute a lighter check after approval. If a gate is
+defective or a required scenario conflicts with the approved contract, send
+a concrete correction and effect on coverage to the planner for renewed
+approval; keep the affected verdict unresolved until that happens. Use
 acceptance-evidence for check design and reporting.

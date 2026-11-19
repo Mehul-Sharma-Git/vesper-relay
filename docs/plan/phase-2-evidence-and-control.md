@@ -158,7 +158,8 @@ decided; a plan missing a required section is refused at `review`; an AI-issued
        `stack` (choice + reason, or "existing repo"), and the tech lead's `reachability` and
        `concurrency` lists plus QA's `failure_paths` matrix (requirement or list item →
        scenario → assertion → the wrong implementation it catches). Every list item is
-       mitigated with the gate that proves it, or accepted with a reason. The roles and the
+       mitigated with the gate that proves it, or accepted by the owner with a reason in the
+       decision log (an acceptance only an AI recorded does not count). The roles and the
        critique already ask for these (P1-G, `appendix-b` finding 45); this makes `review`
        refuse a plan without them;
      - `full`: `options` (2–3 approaches with trade-offs and the recommendation),
