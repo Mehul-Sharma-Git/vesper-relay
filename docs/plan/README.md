@@ -178,14 +178,14 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P1-T9 | Pluggable sandbox: Docker and Podman backends, selftest | P1-T5, P1-T8 | L | done |
 | P1-T10 | Worker tool layer (shell only inside the sandbox) | P1-T9 | M | done |
 | P1-T11 | `vesper setup` wizard and `vesper doctor` | P1-T9 | M | done |
-| P1-G | Phase 1 gate: Pocket Todo unattended in the sandbox with one AI | P1-T1..T11 | M | blocked (Codex plan critique does not converge; Codex job review converges since #31–#33 but needs more attempts than the plan's 2: J_API accepted on attempt 4, J_UI still 1 blocker after 4; two critique replies not parsed the first time, fixed by #22) |
+| P1-G | Phase 1 gate: Pocket Todo unattended in the sandbox with one AI | P1-T1..T11 | M | done |
 | P2-T1 | Gate logs, scripts and artifacts in the review copy | P1-G | S | todo |
 | P2-T2 | Human-only approvals and a plain-language approval sheet, in every door | P1-G | L | todo |
 | P2-T3 | Usage ledger and plan-limit estimates | P1-G | M | todo |
 | P2-T4 | Limit-aware scheduling (pause and resume) | P2-T3 | M | todo |
 | P2-T5 | Required plan sections by depth (extend `planning.json`) | P1-G | M | todo |
 | P2-T6 | Additive checks after approval | P1-G, P2-T2 | M | todo |
-| P2-T7 | Advisory backlog and decision gate | P1-G, P2-T2 | M | todo |
+| P2-T7 | Advisory backlog and decision gate (advisories and blockers) | P1-G, P2-T2 | L | todo |
 | P2-G | Phase 2 gate | P2-T1..T7 | S | todo |
 | P3-T1 | Shared agent foundation (reasoning note, claim labels, self-critique) | P2-G | M | todo |
 | P3-T2 | Knowledge pack structure and `vesper kb` search | P2-G | M | todo |

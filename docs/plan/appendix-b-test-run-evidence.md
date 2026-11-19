@@ -279,3 +279,26 @@ Follow-ups from these runs:
 - `team/roles/reviewer.md` still says "use blockers for material correctness or security
   defects", which the plan critique shares; the candidate prompt's rule follows it and is
   more specific. Align the wording when the role next changes.
+
+### Re-scoped by the owner (19 Nov 2026): PASSED
+
+The owner chose to pass Phase 1 on one brain and move the Codex repeat to P2-G, after
+P2-T5 (required plan sections, including the threat model) and P2-T7, widened so that every
+plan-critique blocker and every job-review blocker left when attempts run out ends in the
+owner's decision (fix it, or accept it as a risk with a reason). Both decisions are in
+`00-context.md`. On the re-scoped criteria, run 2 (Claude for every role, `bd81422`) passes:
+
+| Criterion | Result | Evidence (run 2) |
+| --- | --- | --- |
+| Status `complete` with no manual step | Pass | J_API accepted on its first attempt; J_UI's first worker attempt hit `ERR_PROXY_TUNNEL` and the runner's own retry, inside the job's budget, was accepted (finding 42). 11 min 08 s |
+| Every review parsed the first time | Pass | Its plan critique and both job reviews (J_API, J_UI) parsed on their first reply. Outside run 2, run 1's Claude critique reply was rejected for citing `seed/` before #22 (finding 41); every reply after #22 parsed the first time |
+| The exported app starts and its three gates pass | Pass | `READY`, `/health` 200; G_API, G_UI, G_BROWSER exit 0 in the sandbox image |
+| `selftest.sh` passes | Pass | At `bd81422` and again at `bdfc6bc` |
+| Repeat with Codex as reviewer | Moved to P2-G | Runs 3–7 above are its evidence so far |
+
+Limits: run 2 tested `bd81422`. The runner changes since (#22–#35) are covered by the test
+suite, the three replays and CI, and runs 5–7 exercised the build and review code end to
+end with Codex; no Claude-only run has been repeated on today's `dev`, because round 2's
+plan predates the current planning roles and the current fixture's plan has not yet
+passed a critique. P2-G's runs exercise both. The follow-ups above marked "blocks P1-G"
+now block P2-G.
