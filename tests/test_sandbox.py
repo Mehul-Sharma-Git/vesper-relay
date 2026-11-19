@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 from builder.brains import ADAPTERS, Brain, job as brain_job
 from builder.contracts import BuilderError
 from builder.runner import Runner
-from builder.sandbox import (Docker, Job, Podman, Sandbox, backend, check_job, command_job, image_tag,
+from builder.sandbox import (Docker, Job, Podman, Sandbox, agent_job, backend, check_job, command_job, image_tag,
                              secrets)
 
 import test_rc1
@@ -204,6 +204,59 @@ class ArgumentTests(unittest.TestCase):
         self.assertIn("FilterDefaultDeny Yes", config)
         self.assertIn("ConnectPort 443", config)
         self.assertEqual(filters.splitlines(), [r"^api\.anthropic\.com$", r"^chatgpt\.com$"])
+
+    def test_the_proxy_log_is_kept_beside_the_job_log(self):
+        # P1-G run 2: a worker died on ERR_PROXY_TUNNEL and the proxy's log went with its container.
+        calls = self.root / "calls"
+        script = (f'echo "$*" >> {calls}\n'
+                  'case "$*" in\n'
+                  '  logs*) echo "NOTICE: Proxying refused on filtered domain \\"statsig.anthropic.com\\"";;\n'
+                  '  "run -d"*) echo proxy-id;;\n'
+                  '  run*) echo "API Error: ERR_PROXY_TUNNEL"; exit 1;;\n'
+                  'esac\n')
+        job = agent_job("worker", ("claude", "-p"), self.work, hosts=("api.anthropic.com",))
+        log = self.root / "worker.log"
+        with self.fake_engine(script):
+            code = Docker().run(job, input_text="", log=log, timeout=30)
+        self.assertEqual(code, 1)
+        kept = self.root / "worker.proxy.log"
+        self.assertIn('refused on filtered domain "statsig.anthropic.com"', kept.read_text())
+        commands = calls.read_text().splitlines()
+        logs = next(i for i, line in enumerate(commands) if line.startswith("logs vesper-"))
+        removed = next(i for i, line in enumerate(commands) if line.startswith("rm -f vesper-") and "-proxy" in line)
+        self.assertLess(logs, removed)  # read before the container is gone
+
+        # A proxy log that can't be read never changes the job's result.
+        failing = script.replace('  logs*) echo', '  logs*) exit 1; echo')
+        kept.unlink()
+        with self.fake_engine(failing):
+            self.assertEqual(Docker().run(job, input_text="", log=log, timeout=30), 1)
+        self.assertFalse(kept.exists())
+
+    def test_a_proxy_log_that_is_not_utf8_never_stops_the_cleanup(self):
+        # A sandboxed worker can put raw bytes in the proxy's log (it logs refused host names).
+        calls = self.root / "calls"
+        script = (f'echo "$*" >> {calls}\n'
+                  'case "$*" in\n'
+                  '  logs*) printf \'NOTICE: Proxying refused on filtered domain "\\377\\376evil"\\n\';;\n'
+                  '  "run -d"*) echo proxy-id;;\n'
+                  '  run*) exit 0;;\n'
+                  'esac\n')
+        job = agent_job("worker", ("claude", "-p"), self.work, hosts=("api.anthropic.com",))
+        log = self.root / "worker.log"
+        with self.fake_engine(script):
+            self.assertEqual(Docker().run(job, input_text="", log=log, timeout=30), 0)
+        commands = calls.read_text().splitlines()
+        self.assertTrue(any(line.startswith("rm -f vesper-") and line.endswith("-proxy") for line in commands))
+        self.assertTrue(any(line.startswith("network rm vesper-") for line in commands))
+        self.assertEqual(list(self.root.glob("vesper-proxy-*")), [])
+        self.assertIn("\ufffd\ufffdevil", (self.root / "worker.proxy.log").read_text(encoding="utf-8"))
+
+    def test_jobs_without_a_proxy_keep_no_proxy_log(self):
+        log = self.root / "gate.log"
+        with self.fake_engine("exit 0\n"):
+            self.assertEqual(Docker().run(check_job(self.work, "gate.py"), input_text="", log=log, timeout=30), 0)
+        self.assertFalse((self.root / "gate.proxy.log").exists())
 
 
 class SecretStoreTests(unittest.TestCase):
