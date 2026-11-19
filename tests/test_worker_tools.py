@@ -231,8 +231,17 @@ class RunnerToolTests(unittest.TestCase):
         self.assertIn(SHELL_PROMPT, prompt)
         self.assertIn("Run the project's own unit tests and start the app before finishing.", prompt)
         self.assertIn("Report the exact commands and results.", prompt)
-        # The independent gates stay hidden: the workspace holds no checks/ and the prompt names ids only.
-        self.assertNotIn("def main", prompt)
+        # Workers see the gates (owner decision, 2026-11-19): a copy in .vesper-gates/ and how to run each.
+        self.assertIn(".vesper-gates/", prompt)
+        self.assertIn("Run the gates before finishing.", prompt)
+
+    def test_host_worker_is_told_to_read_the_gates_not_run_them(self):
+        project, command = self.plan()
+        self.approve(command)
+        brief = Path(command("prepare")["brief"]).read_text()
+        self.assertIn(".vesper-gates/", brief)
+        self.assertIn("Read the gates", brief)
+        self.assertNotIn("Run the gates before finishing.", brief)
 
     def test_prepared_attempt_on_the_host_is_not_told_about_shell(self):
         project, command = self.plan()

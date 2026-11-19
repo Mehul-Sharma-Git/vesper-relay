@@ -162,6 +162,96 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual([item["outcome"] for item in state["attempts"]], ["rejected", "accepted"])
         self.assertEqual(state["retry_grants"][0]["reason"], "Fixed local provider login")
 
+    def say_what_first_got(self):
+        (self.project / "checks" / "first.py").write_text(
+            "from pathlib import Path\nimport sys\n"
+            "text = (Path(sys.argv[1]) / 'first.txt').read_text()\n"
+            "assert text == 'one', 'first.txt held ' + text\n")
+
+    def test_retry_starts_from_the_last_candidate_and_carries_every_reason(self):
+        # P1-G run 4 (finding 48): retries rewrote from the empty base and were told only the
+        # last failure, so each fix undid the one before.
+        self.say_what_first_got()
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("draft-1")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        self.assertEqual((workspace / "first.txt").read_text(), "draft-1")
+        (workspace / "first.txt").write_text("draft-2")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        self.assertEqual((workspace / "first.txt").read_text(), "draft-2")
+        brief = Path(attempt["brief"]).read_text()
+        self.assertIn("first.txt held draft-1", brief)
+        self.assertIn("first.txt held draft-2", brief)
+        self.assertLess(brief.index("Attempt 1 (failed a gate)"), brief.index("Attempt 2 (failed a gate)"))
+        self.assertIn("starts from attempt 2's files", brief)
+        (workspace / "first.txt").write_text("one")
+        self.command("submit", attempt["id"])
+        self.assertEqual(self.command("status")["completed"], ["J1"])
+
+    def test_retry_skips_an_attempt_that_left_no_checked_candidate(self):
+        self.say_what_first_got()
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("draft-1")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("draft-2")
+        (workspace / "second.txt").write_text("out of scope")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        self.assertEqual((workspace / "first.txt").read_text(), "draft-1")
+        self.assertFalse((workspace / "second.txt").exists())
+        brief = Path(attempt["brief"]).read_text()
+        self.assertIn("starts from attempt 1's files", brief)
+        self.assertIn("first.txt held draft-1", brief)
+        self.assertIn("Changes outside job scope: second.txt", brief)
+
+    def test_changed_earlier_candidate_is_not_carried(self):
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        (workspace / "first.txt").write_text("draft-1")
+        self.command("submit", attempt["id"], code=1)
+        earlier = self.command("status")["attempts"][0]["candidate"]
+        (self.project / earlier["path"] / "first.txt").write_text("changed after the check")
+        attempt, workspace = self.candidate("J1")
+        self.assertFalse((workspace / "first.txt").exists())
+        self.assertIn("starts from the accepted version", Path(attempt["brief"]).read_text())
+
+    def test_workers_get_a_copy_of_the_gates_that_never_decides_or_ships(self):
+        self.approve()
+        attempt, workspace = self.candidate("J1")
+        gates = workspace / ".vesper-gates"
+        self.assertEqual((gates / "first.py").read_text(), (self.project / "checks" / "first.py").read_text())
+        brief = Path(attempt["brief"]).read_text()
+        self.assertIn("G1: python3 -I -B .vesper-gates/first.py CANDIDATE", brief)
+        self.assertNotIn("G2:", brief)
+        # Editing the copy changes nothing: Vesper runs the approved gates.
+        (gates / "first.py").write_text("raise SystemExit(0)\n")
+        (workspace / "first.txt").write_text("wrong")
+        self.command("submit", attempt["id"], code=1)
+        attempt, workspace = self.candidate("J1")
+        self.assertEqual((workspace / ".vesper-gates" / "first.py").read_text(),
+                         (self.project / "checks" / "first.py").read_text())
+        (workspace / "first.txt").write_text("one")
+        self.command("submit", attempt["id"])
+        # The copy is never promoted; the last job's brief names every gate.
+        attempt, workspace = self.candidate("J2")
+        self.assertIn("G1:", Path(attempt["brief"]).read_text())
+        self.assertIn("G2: python3 -I -B .vesper-gates/last.py CANDIDATE", Path(attempt["brief"]).read_text())
+        (workspace / "second.txt").write_text("two")
+        self.command("submit", attempt["id"])
+        export = self.project.parent / "export"
+        self.command("export", str(export))
+        self.assertEqual(sorted(path.name for path in export.iterdir()), ["first.txt", "second.txt"])
+
+    def test_seed_cannot_use_the_reserved_gates_folder(self):
+        (self.project / "seed" / ".vesper-gates").mkdir()
+        self.approve()
+        self.assertIn(".vesper-gates", self.command("prepare", code=2))
+
     def test_isolation_launcher_receives_workers_and_checks(self):
         self.approve()
         launcher = self.project.parent / "launcher"
