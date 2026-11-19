@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket Todo</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <button type="button" id="list-toggle" aria-expanded="false" aria-controls="list-panel">☰ <span id="list-toggle-name">Inbox</span> ▾</button>
+  <h1>Pocket Todo</h1>
+</header>
+<div class="layout">
+  <nav id="list-panel" aria-label="Lists" class="panel">
+    <h2>Lists</h2>
+    <ul id="list-items" class="list-items"></ul>
+    <form id="new-list-form" class="row">
+      <label for="new-list">New list</label>
+      <div class="field"><input id="new-list" type="text" maxlength="40" autocomplete="off"><button type="submit">Add list</button></div>
+    </form>
+    <div id="list-actions" class="actions">
+      <button type="button" id="rename-btn">Rename list</button>
+      <button type="button" id="delete-list-btn">Delete list</button>
+    </div>
+    <form id="rename-form" class="row" hidden>
+      <label for="rename-list">Rename list</label>
+      <div class="field"><input id="rename-list" type="text" maxlength="40" autocomplete="off"><button type="submit">Save</button></div>
+    </form>
+  </nav>
+  <main>
+    <h2 id="current-title">Inbox</h2>
+    <div class="filters" role="group" aria-label="Filter todos">
+      <button type="button" data-status="all" aria-pressed="true">All</button>
+      <button type="button" data-status="active" aria-pressed="false">Active</button>
+      <button type="button" data-status="done" aria-pressed="false">Done</button>
+    </div>
+    <form id="add-form" class="row">
+      <label for="new-todo">New todo</label>
+      <div class="field"><input id="new-todo" type="text" maxlength="200" autocomplete="off"><button type="submit">Add</button></div>
+    </form>
+    <div id="status" role="status" aria-live="polite"></div>
+    <p id="empty" hidden></p>
+    <ul id="todos" class="todos"></ul>
+  </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

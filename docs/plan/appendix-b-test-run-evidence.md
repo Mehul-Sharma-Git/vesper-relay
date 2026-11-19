@@ -115,11 +115,12 @@ Python 3.11+ without a venv through P1-T11 step 3.
 
 ## Gate P1-G — 2026-11-19 00:54
 
-Result: **FAILED** on two criteria, both in the Codex repeat. (1) The Codex plan critique
-never approved the Pocket Todo plan in five rounds. (2) With Codex reviewing every job
-(run 4), J_API was never accepted in five attempts, three of them granted by hand, because
-a retry starts from scratch and is told only the last failure (finding 48). With Claude
-as the only brain (run 2) every criterion passed.
+Result: **FAILED** on three criteria. (1) The Codex plan critique never approved the
+Pocket Todo plan in five rounds. (2) With Codex reviewing every job (run 4), J_API was
+never accepted in five attempts, three of them granted by hand, because a retry starts
+from scratch and is told only the last failure (finding 48). (3) Two plan-critique replies
+were rejected on their first reply for citing a folder (finding 41, fixed by #22); every
+reply after #22 parsed the first time. Run 2 (Claude only) met every other criterion.
 
 Setup: owner's Mac (macOS 15, Docker Desktop), sandbox image `vesper-sandbox:acbcacc59f3b`,
 Claude Code and codex-cli 0.170.0, `vesper setup` (one brain for every role) and
@@ -130,8 +131,8 @@ procedure says.
 
 | Run | Vesper commit | Plan | Plan critique | Job reviewer | Result |
 | --- | --- | --- | --- | --- | --- |
-| 2 | `bd81422` (gate branch) | as at gate start, plus `1170ae9` | Claude: approve, 0 blockers | Claude | `complete`, 11 min 08 s (04:28:40Z to 04:39:48Z) |
-| 3 | `dc01eb5` | same, then rounds 2–5 | Codex: never approved | (not run) | stopped at the critique |
+| 2 | `bd81422` (gate branch) | as at gate start, plus `1170ae9` | Claude: approve, 0 blockers (before #22) | Claude | `complete`, 11 min 08 s (04:28:40Z to 04:39:48Z) |
+| 3 | gate-branch head of each round: `bd81422` (round 1's rejected reply), `e850b81` (round 1 after #22, #23), `dc01eb5` (round 2), then `5ecaf55` to `bdfc6bc` (rounds 3–5) | rounds 1–5 | Codex: never approved | (not run) | stopped at the critique |
 | 4 | `dc01eb5` | round 2 (`957144b`), digest `b9490de1…74a` | Claude: approve, 0 blockers, 4 advisories | Codex | `blocked` at J_API after 5 attempts (2 + 3 owner-approved `retry` grants), 27 min 19 s (12:51:23Z to 13:18:42Z) |
 
 Run 4 uses `dc01eb5` because round 2's plan predates the role revisions in #26–#28;
@@ -141,8 +142,8 @@ Run 4 uses `dc01eb5` because round 2's plan predates the role revisions in #26�
 
 | Criterion | Result | Evidence |
 | --- | --- | --- |
-| Status `complete` with no manual step | Pass (runs 2 and 4) | Run 2: J_API and J_UI accepted; J_UI's first worker attempt hit `ERR_PROXY_TUNNEL` and the runner's retry was accepted unattended (finding 42). Run 4: **fail**, table below |
-| Every review parsed the first time | Pass | Every plan critique and job review in every run parsed on its first reply, both brains, after the citation fix (#22; finding 41 was the only parse failure) |
+| Status `complete` with no manual step | Pass (run 2); **fail** (run 4) | Run 2: J_API and J_UI accepted; J_UI's first worker attempt hit `ERR_PROXY_TUNNEL` and the runner's retry was accepted unattended (finding 42). Run 4: **fail**, table below |
+| Every review parsed the first time | **Fail**, then fixed | Two plan-critique replies were rejected for citing a folder: Claude's `seed/` (run 1) and Codex's `plan/` (run 3, at `bd81422`), each spending one of the packet's 3 attempts (finding 41). After #22 every plan critique (rounds 1–5, both brains) and every job review (run 2 with Claude, run 4 with Codex) parsed on its first reply. Run 2's two job reviews (J_API, J_UI) parsed the first time before #22 too |
 | The exported app starts and its three gates pass | Pass (run 2) | `export /tmp/pocket-todo-app`; `server.py --db … --port …` printed `READY`; `/health` 200; G_API, G_UI, G_BROWSER exit 0 in the sandbox image against the export. Run 4 never reached export |
 | `selftest.sh` passes | Pass | `sh sandbox/selftest.sh` (docker) at `bd81422` and again at `bdfc6bc`: every escape attempt failed; loopback ok |
 | Repeat with Codex as reviewer | **Fail** | Codex as the plan critic never approved (critique rounds below); with Codex as the job reviewer the build never completed (run 4 attempts below) |
@@ -170,7 +171,7 @@ the commit named).
 
 | Round | Plan | Claude | Codex |
 | --- | --- | --- | --- |
-| 1 | gate start (`185bc9c`), then `1170ae9` | 2 blocking, fixed in `1170ae9`; then approve (after the citation fix, #22) | 4 blocking (3 on the plan, 1 the `planning.json` revision, finding 44) |
+| 1 | gate start (`185bc9c`), then `1170ae9` | 2 blocking, fixed in `1170ae9`; one reply rejected for citing `seed/` (finding 41); then approve | 4 blocking (3 on the plan, 1 the `planning.json` revision, finding 44) |
 | 2 | `957144b` | approve, 0 blocking | 3 blocking |
 | 3 | `1be6931`, `68fbafc` (sweep by kind, #26) | 8 blocking | timed out at 180 s (finding 46, #27) |
 | 4 | `1f4da89` | 3 blocking | 23 blocking (finding 47, #28) |
@@ -202,7 +203,9 @@ recorded as the failed criterion rather than a sixth round.
 The Pocket Todo fixture was revised alongside (canonical contract, reachability and
 concurrent-change lists, failure-path matrix, threat model, rewritten `checks/api.py` and
 `checks/browser.py`). The rewritten gates were mutation-tested: a reference app passes,
-and each broken variant fails at the assertion named for it in `acceptance.md`.
+and each broken variant fails at the assertion named for it in `acceptance.md`. The
+reference app is now `fixtures/pocket-todo/reference/`, the known-good candidate for
+P3-T3; `solution/` stays the 9 Nov app, which fails the revised checks.
 
 ### Time and usage
 
