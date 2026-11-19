@@ -15,7 +15,7 @@ from builder.learning import record
 
 def review_limit_options(parser):
     parser.add_argument("--review-timeout", type=int, default=180, metavar="SECONDS",
-                        help="Reviewer wall-time limit, 1 to 1800 seconds (default 180)")
+                        help="Reviewer wall-time limit, 1 to 1800 seconds (default %(default)s)")
     parser.add_argument("--review-max-turns", type=int, default=20, metavar="N",
                         help="Reviewer agent turn limit, 1 to 100 (default 20)")
 

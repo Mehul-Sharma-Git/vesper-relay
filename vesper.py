@@ -17,6 +17,7 @@ from builder.contracts import BuilderError, fingerprint, inventory, read_json, r
 from builder.git_bridge import apply_change, change, repository, seed_repository
 from builder.learning import RULES, guidance, memory, promote, record, record_repair, state_home, summary
 from builder.maintenance import MAINTENANCE_GATE
+from builder.planning import PLAN_REVIEW_TIMEOUT
 from builder.runner import Runner, atomic_json, copy_tree
 from builder.repair import commit_repair, draft as draft_repair, incident_report, repair_paths, reproduce, validate_failure_id
 from builder.team import catalog, profile, render
@@ -200,6 +201,7 @@ def main():
     plan_review.add_argument("--attest-independent", action="store_true")
     boundary_options(plan_review)
     review_limit_options(plan_review)
+    plan_review.set_defaults(review_timeout=PLAN_REVIEW_TIMEOUT)
     commands.add_parser("incidents")
     boundary_options(commands.add_parser("repair-reproduce"))
     commands.add_parser("repair-commit").add_argument("--digest", required=True)

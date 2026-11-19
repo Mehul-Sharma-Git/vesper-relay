@@ -96,7 +96,8 @@ different AI as reviewer also passes.
   1. A check entry may carry `"timeout"`: integer seconds, 1 to 1800, default 45
      (`VESPER_REGRESSION` keeps 300; raised to 900 at P1-G, appendix B finding 40). Validate in `contracts.validate`; it is part of the
      digest because it sits in the contract.
-  2. Add `--review-timeout SECONDS` (default 180, max 1800) and `--review-max-turns N`
+  2. Add `--review-timeout SECONDS` (default 180; 600 for `review-plan` since P1-G, appendix B
+     finding 46; max 1800) and `--review-max-turns N`
      (default 20, max 100) to `run` and `review-candidate` in `build_local.py` and to
      `review-plan` in `vesper.py`; thread them to `review_candidate`, `review_plan` and
      `provider_command`.
