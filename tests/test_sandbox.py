@@ -233,6 +233,25 @@ class ArgumentTests(unittest.TestCase):
             self.assertEqual(Docker().run(job, input_text="", log=log, timeout=30), 1)
         self.assertFalse(kept.exists())
 
+    def test_a_proxy_log_that_is_not_utf8_never_stops_the_cleanup(self):
+        # A sandboxed worker can put raw bytes in the proxy's log (it logs refused host names).
+        calls = self.root / "calls"
+        script = (f'echo "$*" >> {calls}\n'
+                  'case "$*" in\n'
+                  '  logs*) printf \'NOTICE: Proxying refused on filtered domain "\\377\\376evil"\\n\';;\n'
+                  '  "run -d"*) echo proxy-id;;\n'
+                  '  run*) exit 0;;\n'
+                  'esac\n')
+        job = agent_job("worker", ("claude", "-p"), self.work, hosts=("api.anthropic.com",))
+        log = self.root / "worker.log"
+        with self.fake_engine(script):
+            self.assertEqual(Docker().run(job, input_text="", log=log, timeout=30), 0)
+        commands = calls.read_text().splitlines()
+        self.assertTrue(any(line.startswith("rm -f vesper-") and line.endswith("-proxy") for line in commands))
+        self.assertTrue(any(line.startswith("network rm vesper-") for line in commands))
+        self.assertEqual(list(self.root.glob("vesper-proxy-*")), [])
+        self.assertIn("\ufffd\ufffdevil", (self.root / "worker.proxy.log").read_text(encoding="utf-8"))
+
     def test_jobs_without_a_proxy_keep_no_proxy_log(self):
         log = self.root / "gate.log"
         with self.fake_engine("exit 0\n"):

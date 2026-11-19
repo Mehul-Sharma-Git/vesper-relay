@@ -266,11 +266,12 @@ class Container(Sandbox):
         """Copy the proxy's log (which hosts it refused, and why) to ``<job log>.proxy.log``
         before its container is removed. Never changes the job's result."""
         try:
-            result = self.engine(env, "logs", proxy)
-            text = (result.stdout + result.stderr)[-PROXY_LOG_LIMIT:]
-            if result.returncode == 0 and text:
-                Path(log).with_suffix(".proxy.log").write_text(text, encoding="utf-8")
-        except (OSError, subprocess.SubprocessError):
+            # Bytes, not text: a worker can put any bytes in the log (tinyproxy logs refused host names).
+            result = subprocess.run([self.program, "logs", proxy], env=env, capture_output=True, timeout=120)
+            data = (result.stdout + result.stderr)[-PROXY_LOG_LIMIT:]
+            if result.returncode == 0 and data:
+                Path(log).with_suffix(".proxy.log").write_text(data.decode("utf-8", "replace"), encoding="utf-8")
+        except Exception:  # noqa: BLE001 - it runs in run()'s cleanup: it must never raise
             pass
 
     def run(self, job, *, input_text, log, timeout, on_start=None):
