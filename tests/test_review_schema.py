@@ -254,7 +254,7 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
             return " ".join((ROOT / "team/roles" / f"{name}.md").read_text().split())
 
         lead = role("technical-lead")
-        for marker in ("Reachability,", "Concurrent changes,", "mitigate it in the contract with the gate",
+        for marker in ("Reachability:", "Concurrent changes,", "mitigate it in the contract with the gate",
                        "Only the owner accepts it, by approving the plan"):
             self.assertIn(marker, lead)
         qa = role("qa")
@@ -264,7 +264,8 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         self.assertIn("reachability and concurrent-change lists", planner)
         self.assertIn("a decision-log entry is not the owner's confirmation", planner)
         self.assertIn("threat model", planner)
-        self.assertIn("Reachability, inside the owner's threat model", lead)
+        self.assertIn("an item outside the owner's threat model (the planner records it) is listed as a "
+                      "proposed risk, not left out", lead)
         self.assertIn("Concurrent changes, whatever the threat model", lead)
         self.assertIn("Aim the matrix at plausible mistakes", qa)
 
