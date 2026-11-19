@@ -5,8 +5,8 @@ whichever AI the user has, for projects that use Go and React toolchains. Everyt
 later depends on this.
 
 **Phase gate (P1-G):** the Pocket Todo fixture builds unattended inside the Docker
-sandbox using ONE AI for every role, and exports a working app. A second run with a
-different AI as reviewer also passes.
+sandbox using ONE AI for every role, and exports a working app. (The second run with a
+different AI as reviewer moved to P2-G on 19 Nov 2026, by the owner's decision.)
 
 ---
 

@@ -8,8 +8,9 @@ estimates land inside their band; a seeded security advisory blocks acceptance u
 decided; a plan missing a required section is refused at `review`; an AI-issued
 `approve` without human confirmation is refused. Then Pocket Todo again with
 `[brains.reviewer] use = "codex"` (moved from P1-G on 19 Nov 2026): it reaches `complete`
-with every plan-critique and job-review finding either fixed or decided by the owner
-through P2-T7, and the exported app's three gates pass.
+with every blocker and every security or data advisory, from the plan critique and from
+job reviews, either fixed or decided by the owner through P2-T7; every review parses the
+first time; and the exported app's three gates pass.
 
 ---
 
@@ -34,8 +35,8 @@ through P2-T7, and the exported app's three gates pass.
 - **Read first:** `build_local.py` (`approve`), `vesper.py` (`apply`, `repair-commit`),
   `builder/runner.py` (`approve`), `integrations/vesper-relay/SKILL.md`.
 - **Change:**
-  1. Protected actions: approving a plan, applying a patch to a repo, accepting a security
-     or data risk (P2-T7), adding checks after approval (P2-T6), merging or committing a
+  1. Protected actions: approving a plan, applying a patch to a repo, accepting a risk or a
+     reviewer blocker (P2-T7), adding checks after approval (P2-T6), merging or committing a
      repair, promoting a release (P5), and **attesting that a report came from an
      independent reviewer** (`review-plan --report --attest-independent` and
      `review-candidate --report --attest-independent`). b7da4d1's own notes say declared
@@ -223,4 +224,6 @@ through P2-T7, and the exported app's three gates pass.
   security advisory; the confirmer receives the risk sheet (the finding in plain words, its
   severity and source, and what is accepted); a plan whose critique blockers the owner
   accepted can be approved and its sheet lists each acceptance; a job out of attempts with
-  open blockers reaches `awaiting_decision`, and both decisions work.
+  open blockers reaches `awaiting_decision`, and both decisions work; an AI-issued
+  `--accept-risk` on a plan-critique blocker or a job-review blocker is refused without a
+  human confirmation, and the confirmer shows the risk sheet for each.
