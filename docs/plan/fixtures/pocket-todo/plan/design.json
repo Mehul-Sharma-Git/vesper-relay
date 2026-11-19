@@ -14,7 +14,7 @@
   "wide": "At 720px and above the panel is a fixed left sidebar and the toggle is hidden",
   "focus": "Menu toggle sets aria-expanded; Escape closes and returns focus; focus stays on the add input after adding",
   "motion": "None required; respect prefers-reduced-motion for any panel transition",
-  "browser_evidence": "G_BROWSER drives Chromium at 375px and 1280px: picker, add, complete, filter, list create/rename/delete",
+  "browser_evidence": "G_BROWSER drives Chromium at 320px and 1280px: picker, add, complete, filter, list create/rename/delete",
   "states": {
     "empty": "Nothing here yet",
     "error": "Status region shows the problem and the draft stays in the input",

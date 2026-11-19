@@ -63,7 +63,8 @@ reported about $1.26 at list price (informational; the owner's plans are fixed-f
 | 44 | P1-G run 3 (19 Nov 2026): both Codex plan critiques raised a blocker on `plan/planning.json`'s `architecture.revision`, reading it as an unverified digest of `architecture.md`. It is the technical-lead role revision, which the runner checks with the authors, and the approval binds every plan file by digest; the critique prompt never said so. The prompt now explains the manifest's revision field. (Codex's other blockers on the Pocket Todo plan were about the plan itself and are recorded with the gate run.) | Fixed in the P1-G planning-manifest PR |
 | 45 | P1-G (19 Nov 2026): the Pocket Todo plan went through six critique rounds (Claude 3, Codex 3), and each round found new items of the same four kinds: who can reach the app (server files served, cross-site writes, DNS rebinding, clickjacking), two devices changing the same record (stale delete count twice, reused ids), gates a wrong build could pass (confirm dialog unchecked, laptop flow unexercised, stale delete unobserved, 320 px promised but 375 px tested), and unclear spec (phone panel, accented case). Claude marked as advisory what Codex blocked. Cause: nothing in plan creation required a complete sweep of any kind; the roles mentioned "who can act" and "stale versus invalid" in passing, and the critique prompt only said "distinguish blockers from advice", so each critique sampled a few items, each fix patched exactly those, and the brains drew the blocker line differently. Now: the technical lead delivers complete reachability and concurrent-change lists (each item mitigated with its gate, or proposed as a risk that only the owner accepts, by approving the plan; a decision-log entry never counts), QA a failure-path matrix naming the wrong implementation each assertion catches, the planner's packet carries both, and the critique sweeps each kind in one pass under a stated blocker rule. P2-T5 will make `review` refuse a plan without them | Fixed in the P1-G plan-sweep PR (roles and critique); runner enforcement in P2-T5 |
 | 46 | P1-G (19 Nov 2026): with the sweep (finding 45), the Codex plan critique of the Pocket Todo plan ran about 182 s and was killed by the 180 s reviewer default; Vesper said only "Plan reviewer failed". Claude finished its sweep just inside the limit. `review-plan` now defaults to 600 s (`PLAN_REVIEW_TIMEOUT`; candidate reviewers keep 180 s) and the error says "timed out after N s; raise --review-timeout" or gives the exit code | Fixed in the P1-G plan-critique timeout PR |
-| 47 | P1-G round 4 (19 Nov 2026): after the sweep (finding 45) Claude's critique converged (7 blockers, then 3, all plausible) but Codex's diverged (4, 3, then 22), most out of proportion for a one-person local app (cleartext on home Wi-Fi, a stale service worker, VPN interfaces, snapshot coherence). Cause: the blocker rule said "a requirement can be broken by an implementation that passes every gate", which no finite gate set can satisfy, since a reviewer can always invent a build made to slip past it; and nothing bounded security findings to the owner's threat model. Now a gate gap blocks only for a requirement with no assertion or a plausible mistake by a competent engineer following the plan (a build made to evade gates is the candidate reviewer's, who reads the code); security blocks only inside the owner's threat model, which the planner records; a threat placed outside it is still reported as "Accepted risk: owner must confirm", never dropped. P2-T5 adds `threat_model` to the required sections | Fixed in the P1-G critique-proportionality PR |
+| 47 | P1-G round 4 (19 Nov 2026): after the sweep (finding 45) Claude's critique converged (8 blockers, then 3, all plausible) but Codex's diverged (4, 3, then 23), most out of proportion for a one-person local app (cleartext on home Wi-Fi, a stale service worker, VPN interfaces, snapshot coherence). Cause: the blocker rule said "a requirement can be broken by an implementation that passes every gate", which no finite gate set can satisfy, since a reviewer can always invent a build made to slip past it; and nothing bounded security findings to the owner's threat model. Now a gate gap blocks only for a requirement with no assertion or a plausible mistake by a competent engineer following the plan (a build made to evade gates is the candidate reviewer's, who reads the code); security blocks only inside the owner's threat model, which the planner records; a threat placed outside it is still reported as "Accepted risk: owner must confirm", never dropped. P2-T5 adds `threat_model` to the required sections | Fixed in the P1-G critique-proportionality PR |
+| 48 | P1-G run 4 (19 Nov 2026): with Codex reviewing every job, J_API was never accepted in five attempts (2 + 3 owner-approved `retry` grants). Each attempt rewrote `server.py` from the empty base snapshot, and each brief carried only the previous attempt's reason (`builder/runner.py:370`): attempt 2 fixed Codex's review blockers and broke a gate assertion (`inbox` as `1`), attempt 3 fixed the gate and repeated the review blockers, attempt 4 timed out, attempt 5 broke the gate again. Workers never see the gate scripts, so they test with their own requests | Open: retries that keep the last gated candidate and every earlier reason (P1-G follow-up) |
 
 What worked and must be kept: plan digests, scope enforcement, the final full-gate rerun,
 export, the Claude adapter flags, and reviewers that traced every fetch against the
@@ -111,3 +112,121 @@ sudo), ignores it in Git, and reports go/node/pnpm/docker for later tasks. Docum
 commands and `verify-facts.sh` now call `.venv/bin/python3`, and a Claude Code
 SessionStart hook runs `dev-setup.sh --check`. The runner is unchanged; users get a
 Python 3.11+ without a venv through P1-T11 step 3.
+
+## Gate P1-G — 2026-11-19 00:54
+
+Result: **FAILED** on three criteria. (1) The Codex plan critique never approved the
+Pocket Todo plan in five rounds. (2) With Codex reviewing every job (run 4), J_API was
+never accepted in five attempts, three of them granted by hand, because a retry starts
+from scratch and is told only the last failure (finding 48). (3) Two plan-critique replies
+were rejected on their first reply for citing a folder (finding 41, fixed by #22); every
+reply after #22 parsed the first time. Run 2 (Claude only) met every other criterion.
+
+Setup: owner's Mac (macOS 15, Docker Desktop), sandbox image `vesper-sandbox:acbcacc59f3b`,
+Claude Code and codex-cli 0.170.0, `vesper setup` (one brain for every role) and
+`vesper doctor` clean. Fixture `fixtures/pocket-todo/` copied into each run as the
+procedure says.
+
+### Runs
+
+| Run | Vesper commit | Plan | Plan critique | Job reviewer | Result |
+| --- | --- | --- | --- | --- | --- |
+| 2 | `bd81422` (gate branch) | as at gate start, plus `1170ae9` | Claude: approve, 0 blockers (before #22) | Claude | `complete`, 11 min 08 s (04:28:40Z to 04:39:48Z) |
+| 3 | gate-branch head of each round: `bd81422` (round 1's rejected reply), `e850b81` (round 1 after #22, #23), `dc01eb5` (round 2), then `5ecaf55` to `bdfc6bc` (rounds 3–5) | rounds 1–5 | Codex: never approved | (not run) | stopped at the critique |
+| 4 | `dc01eb5` | round 2 (`957144b`), digest `b9490de1…74a` | Claude: approve, 0 blockers, 4 advisories | Codex | `blocked` at J_API after 5 attempts (2 + 3 owner-approved `retry` grants), 27 min 19 s (12:51:23Z to 13:18:42Z) |
+
+Run 4 uses `dc01eb5` because round 2's plan predates the role revisions in #26–#28;
+`dc01eb5`'s build, review and export code is the same as `dev`'s.
+
+### Criteria
+
+| Criterion | Result | Evidence |
+| --- | --- | --- |
+| Status `complete` with no manual step | Pass (run 2); **fail** (run 4) | Run 2: J_API and J_UI accepted; J_UI's first worker attempt hit `ERR_PROXY_TUNNEL` and the runner's retry was accepted unattended (finding 42). Run 4: **fail**, table below |
+| Every review parsed the first time | **Fail**, then fixed | Two plan-critique replies were rejected for citing a folder: Claude's `seed/` (run 1) and Codex's `plan/` (run 3, at `bd81422`), each spending one of the packet's 3 attempts (finding 41). After #22 every plan critique (rounds 1–5, both brains) and every job review (run 2 with Claude, run 4 with Codex) parsed on its first reply. Run 2's two job reviews (J_API, J_UI) parsed the first time before #22 too |
+| The exported app starts and its three gates pass | Pass (run 2) | `export /tmp/pocket-todo-app`; `server.py --db … --port …` printed `READY`; `/health` 200; G_API, G_UI, G_BROWSER exit 0 in the sandbox image against the export. Run 4 never reached export |
+| `selftest.sh` passes | Pass | `sh sandbox/selftest.sh` (docker) at `bd81422` and again at `bdfc6bc`: every escape attempt failed; loopback ok |
+| Repeat with Codex as reviewer | **Fail** | Codex as the plan critic never approved (critique rounds below); with Codex as the job reviewer the build never completed (run 4 attempts below) |
+| Elapsed time and plan usage recorded | Recorded | Below |
+
+### Run 4 attempts (J_API, Claude worker, Codex reviewer)
+
+| # | Brief told it | G_API | Codex review | Outcome |
+| --- | --- | --- | --- | --- |
+| 1 | the plan | pass | 3 blocking: ids can be reused (the round-2 plan never forbade it; the later fixture adds C3), the reply is read after the commit so another device's delete in between gives 404 or 500, and a 64-bit-overflow `listId` or an unpaired surrogate gives 500 not 400 | rejected |
+| 2 | attempt 1's 3 blockers | fail: `inbox` returned as `1`, not `true` (`api.py:71`) | — | rejected |
+| 3 (grant 1) | attempt 2's gate failure only | pass | 4 blocking: the same three again, plus the Host check it had called advisory in attempt 1 | rejected |
+| 4 (grant 2) | attempt 3's 4 blockers | — | — | worker timed out at 600 s |
+| 5 (grant 3) | attempt 4's timeout only | fail: `inbox` as `1` again | — | rejected |
+
+Every attempt rewrote `server.py` from the empty base, and each brief carried only the
+previous attempt's reason (`builder/runner.py:370`), so each fix undid the one before
+(finding 48). Codex's job reviews parsed the first time and cited lines; its blockers are
+real gaps, not noise.
+
+### Plan critique rounds
+
+Blocking findings per critique, from each `review-plan` reply (the round's plan fixes are
+the commit named).
+
+| Round | Plan | Claude | Codex |
+| --- | --- | --- | --- |
+| 1 | gate start (`185bc9c`), then `1170ae9` | 2 blocking, fixed in `1170ae9`; one reply rejected for citing `seed/` (finding 41); then approve | 4 blocking (3 on the plan, 1 the `planning.json` revision, finding 44) |
+| 2 | `957144b` | approve, 0 blocking | 3 blocking |
+| 3 | `1be6931`, `68fbafc` (sweep by kind, #26) | 8 blocking | timed out at 180 s (finding 46, #27) |
+| 4 | `1f4da89` | 3 blocking | 23 blocking (finding 47, #28) |
+| 5 | `d31c8a2` (proportionality, threat model) | 6 blocking | 30 blocking |
+
+Claude's critique stays in single figures and approved twice; Codex's grows with each
+round even after the blocker rule and the owner's threat model (#28). Round 5's 30 split
+evenly between the gates (15) and the plan (15), and many are out of proportion for a
+one-person local app: VPN and bridged interfaces, power loss mid-commit, a lock held over
+five seconds, a label element with no text.
+The plan cannot reach a Codex approval by patching findings one at a time, so this is
+recorded as the failed criterion rather than a sixth round.
+
+### Fixed during the gate (all merged into `dev`)
+
+| PR | Fix | Finding |
+| --- | --- | --- |
+| #19 | Plain-language approval sheet added to P2-T2 | — |
+| #20 | Python Playwright in the sandbox image; run the resolved image ID | — |
+| #21 | `VESPER_REGRESSION` defaults to 900 s | — |
+| #22 | A plan-critique finding cites one listed file, never a folder | 41 |
+| #23 | A sandboxed Codex reviewer runs under `danger-full-access` | 43 |
+| #24 | The egress proxy's log is kept beside the job's log | 42 |
+| #25 | The critique prompt explains `planning.json`'s revision | 44 |
+| #26 | Plan creation sweeps each risk kind; the critique blocks by a stated rule | 45 |
+| #27 | `review-plan` defaults to 600 s and says when it timed out | 46 |
+| #28 | Gaps block only for plausible mistakes; security inside the owner's threat model | 47 |
+
+The Pocket Todo fixture was revised alongside (canonical contract, reachability and
+concurrent-change lists, failure-path matrix, threat model, rewritten `checks/api.py` and
+`checks/browser.py`). The rewritten gates were mutation-tested: a reference app passes,
+and each broken variant fails at the assertion named for it in `acceptance.md`. The
+reference app is now `fixtures/pocket-todo/reference/`, the known-good candidate for
+P3-T3; `solution/` stays the 9 Nov app, which fails the revised checks.
+
+### Time and usage
+
+- Start 2026-11-19 00:54 IST, end 2026-11-19 18:53 IST: about 18 h of wall time, including
+  ten PRs, five critique rounds and a pause at the session usage limit.
+- Plan usage before: session 2%, weekly 37%. After: session 41% (the session window reset
+  during the gate), weekly 60%: the gate used about 23 points of the weekly limit.
+
+### Follow-ups
+
+- **Codex plan critique convergence (blocks P1-G):** decide in Phase 2 how a critique
+  converges: for example P2-T5's required sections checked by the runner first, the
+  critique limited to gaps against those sections, and an owner-confirmed "accepted risk"
+  outcome per finding (P2-T7's decision gate) instead of rounds of plan edits. Then
+  rerun the Codex critique on the current fixture.
+- **Retries that remember (blocks P1-G):** a retry should start from the last candidate
+  that passed its gates, not the empty base, and its brief should carry every earlier
+  reason for the job (review blockers and gate failures), not only the last. Give workers
+  the job's gate scripts to run (P2-T1 gives them to reviewers). Then rerun run 4 on the
+  current fixture. Finding 48.
+- P2-T5: test that the approval sheet lists every proposed risk and the threat model.
+- Codex as a consultant inside the sandbox still cannot run commands (finding 43).
+- The cause of run 2's `ERR_PROXY_TUNNEL` is open until it recurs with the proxy log
+  (finding 42).
