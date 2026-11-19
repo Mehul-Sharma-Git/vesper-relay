@@ -677,8 +677,9 @@ class Runner:
             omitted = copy_artifacts(directory / "artifacts", workspace / "artifacts")
             if omitted:
                 packet["artifacts_omitted"] = omitted[:50]
-            # The gates' raw folder may hold links or pipes; only the checked copy stays.
-            shutil.rmtree(directory / "artifacts")
+            # The gates' raw folder may hold links or pipes; only the checked copy stays. A folder a
+            # gate left unremovable must not reject the candidate (sync_tree skips non-files anyway).
+            shutil.rmtree(directory / "artifacts", ignore_errors=True)
         write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"])
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
         (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
