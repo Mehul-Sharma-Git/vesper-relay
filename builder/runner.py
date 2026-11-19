@@ -15,12 +15,46 @@ from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract)
 from .process import run_process
 from .brains import command as brain_command, launch, parse_result, tools as brain_tools, usage
-from .providers import review_limits, worker_prompt
+from .providers import GATES_DIR, review_limits, worker_prompt
 from .review_gate import needs_security, prompt as review_prompt, report_schema, validate_report, write_diff
 from .sandbox import Sandbox, check_job, command_job
 
 # VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
 REGRESSION_TIMEOUT = 900
+# A retry's brief carries every earlier failure of its job, each cut to an equal share of this.
+HISTORY_LIMIT = 12_000
+FAILURE_LABELS = {"check": "failed a gate", "review": "rejected by the independent reviewer",
+                  "provider": "the worker failed or timed out", "scope": "changed files outside the job's paths",
+                  "integrity": "failed an integrity check", "environment": "hit a runner error"}
+
+
+def scope_changes(base, proposed, paths):
+    """Paths that differ from the base, and those of them outside the job's paths (a new
+    directory is allowed when it holds an owned path)."""
+    changed = sorted(path for path in base.keys() | proposed.keys() if base.get(path) != proposed.get(path))
+    denied = [
+        path for path in changed
+        if not owned(path, paths)
+        and not (path not in base and proposed[path][0] is None
+                 and any(item.startswith(path + "/") and item in proposed
+                         and owned(item, paths) for item in changed))
+    ]
+    return changed, denied
+
+
+def attempt_history(previous, limit=HISTORY_LIMIT):
+    """Every earlier failure of a job, oldest first; a long reason keeps its start and end."""
+    if not previous:
+        return None
+    share = limit // len(previous)
+    parts = []
+    for number, item in enumerate(previous, 1):
+        reason = (item.get("reason") or "").strip() or item["outcome"]
+        if len(reason) > share:
+            reason = reason[:share // 2] + "\n[...]\n" + reason[-(share // 2):]
+        label = FAILURE_LABELS.get(item.get("failure_kind"), item["outcome"])
+        parts.append(f"Attempt {number} ({label}):\n{reason}")
+    return "\n\n".join(parts)
 
 
 def stamp():
@@ -358,19 +392,47 @@ class Runner:
         previous = self.attempts_for(state, job)
         require(len(previous) < self.budget_for(state, job), f"Retry budget exhausted for {job['id']}")
         base = self.check_snapshot(state)
+        require(GATES_DIR not in base, f"{GATES_DIR} is reserved for the workers' copy of the gates; "
+                                       "rename it in the seed")
         attempt = {"id": uuid4().hex, "job": job["id"], "provider": provider,
                    **({"adapter": adapter} if adapter else {}),
                    "started_at": stamp(), "base": state["snapshot_id"], "checks": []}
         directory = self.attempt_dir(attempt)
         directory.mkdir(parents=True)
         workspace = directory / "workspace"
-        copy_tree(self.snapshot(state), workspace)
-        require(inventory(workspace) == base, "Accepted snapshot changed while copying")
+        carried = self.carried_candidate(state, job, previous, base)
+        if carried:
+            number, source, proposed = carried
+            attempt["started_from"] = previous[number - 1]["id"]
+            copy_tree(source, workspace)
+            require(inventory(workspace) == proposed, "Earlier candidate changed while copying")
+        else:
+            copy_tree(self.snapshot(state), workspace)
+            require(inventory(workspace) == base, "Accepted snapshot changed while copying")
+        # Workers read and run the gates (owner decision 2026-11-19). The copy is ignored by
+        # verify, so it is never checked for scope or promoted; Vesper runs the approved gates.
+        gates_copy = workspace / GATES_DIR
+        copy_tree(self.approval(state) / "checks", gates_copy)
+        copied = inventory(gates_copy)
+        require({path: record[0] for path, record in copied.items()}
+                == {path: record[0] for path, record in state["bundle"]["checks"].items()},
+                "Approved checks changed while copying")
+        for path, (digest, mode) in copied.items():
+            if digest is not None:
+                (gates_copy / path).chmod(mode & ~0o222)  # read-only files; folders stay removable
+        final = len(state["completed"]) + 1 == len(contract["jobs"])
+        gates = [check for check in contract["checks"] if final or check["id"] in job["checks"]]
+        origin = None
+        if previous:
+            origin = (f"Your workspace starts from attempt {carried[0]}'s files, not the accepted version: "
+                      "keep what works and fix what failed." if carried else
+                      "Your workspace starts from the accepted version: no earlier attempt left a checked "
+                      "candidate that is still intact.")
         prompt = worker_prompt(contract, job, self.approval(state) / "plan", state["bundle"]["plan"],
-                               previous[-1].get("reason") if previous else None,
+                               attempt_history(previous),
                                state["bundle"].get("intake"),
                                state["bundle"].get("team", {}).get("jobs", {}).get(job["id"]),
-                               state["bundle"].get("planning"), shell=shell)
+                               state["bundle"].get("planning"), shell=shell, gates=gates, origin=origin)
         if "repair" in state["bundle"]:
             proof = state["repair_reproduction"]
             incident = state["bundle"]["repair"].get("source_incident")
@@ -381,6 +443,24 @@ class Runner:
         state["active"] = attempt
         self.save(state)
         return job, attempt, workspace, prompt
+
+    def carried_candidate(self, state, job, previous, base):
+        """The newest earlier candidate of this job that passed the scope check, as
+        (attempt number, path, inventory), or None when there is none or it changed since."""
+        for number in range(len(previous), 0, -1):
+            item = previous[number - 1]
+            record = item.get("candidate")
+            if not record or item.get("base") != state["snapshot_id"]:
+                continue
+            source = self.root / record["path"]
+            try:
+                proposed = inventory(source)
+            except (BuilderError, OSError):
+                return None
+            unchanged = (fingerprint(proposed) == record["digest"]
+                         and not scope_changes(base, proposed, job["paths"])[1])
+            return (number, source, proposed) if unchanged else None
+        return None
 
     def prepare(self):
         state = self.state()
@@ -427,7 +507,7 @@ class Runner:
         attempt["checks"] = []
         attempt.pop("setup", None)
         self.save(state)
-        ignore = contract.get("build", {}).get("ignore", ())
+        ignore = (*contract.get("build", {}).get("ignore", ()), GATES_DIR)
         try:
             base = self.check_snapshot(state)
             # Worker workspaces may hold build output in ignored directories; it is never promoted.
@@ -437,20 +517,15 @@ class Runner:
                 validate_git_candidate(base, proposed)
             mode = stat.S_IMODE(self.snapshot(state).stat().st_mode)
             require(stat.S_IMODE(workspace.stat().st_mode) == mode, "Workspace root mode has changed")
-            changed = sorted(path for path in base.keys() | proposed.keys() if base.get(path) != proposed.get(path))
-            denied = [
-                path for path in changed
-                if not owned(path, job["paths"])
-                and not (path not in base and proposed[path][0] is None
-                         and any(item.startswith(path + "/") and item in proposed
-                                 and owned(item, job["paths"]) for item in changed))
-            ]
+            changed, denied = scope_changes(base, proposed, job["paths"])
             require(not denied, "Changes outside job scope: " + ", ".join(denied))
             directory = self.attempt_dir(attempt) / ("verify-" + uuid4().hex)
             directory.mkdir()
             candidate = directory / "candidate"
             copy_tree(workspace, candidate, ignore)
             require(inventory(candidate) == proposed, "Attempt changed while copying")
+            # A retry of this job starts from this candidate (finding 48).
+            attempt["candidate"] = {"path": str(candidate.relative_to(self.root)), "digest": fingerprint(proposed)}
             self.run_gates(state, contract, job, candidate, proposed, directory, launcher)
             self.frozen_contract(state)
             attempt["changed"] = changed

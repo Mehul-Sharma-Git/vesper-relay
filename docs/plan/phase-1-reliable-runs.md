@@ -315,7 +315,8 @@ different AI as reviewer also passes.
   2. Shell is granted **only with a real sandbox backend**; with `none`, tools stay as today.
   3. Worker prompt: "You can run commands inside your workspace. Run the project's own unit
      tests and start the app before finishing. Report the exact commands and results."
-     Independent gates stay hidden from the writer.
+     Independent gates stay hidden from the writer. (Changed 2026-11-19, `00-context.md`
+     "Workers see the gates": the worker gets a copy of its gates and runs them.)
 - **Acceptance:** tests that worker commands include shell with `docker`/`podman` and exclude
   it with `none`, for every adapter; the reviewer never gets edit or write.
 
