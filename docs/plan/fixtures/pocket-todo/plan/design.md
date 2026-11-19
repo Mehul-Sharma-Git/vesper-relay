@@ -19,14 +19,24 @@
 - "Add list" adds the list to the panel and keeps the phone menu open; the current list does not change.
 - Saving a rename updates the toggle to the new name; the phone menu may stay open or close.
 - Confirming "Delete list" removes the list and makes Inbox the current list; cancelling changes nothing.
-- The delete request sends the list name and todo count the dialog showed. If the server answers
-  409 (the list changed on another device), the list stays current, the status region says it
-  changed, and the lists and the current list's todos reload, so the next "Delete list" names
-  the new count.
+- The delete request sends the list's `rev` from when the dialog opened. If the server answers
+  409, the list stays current, the status region says "… changed on another device …", and
+  the lists and the current list's todos reload, so the next "Delete list" names the new count.
+- Adding a todo to a list another device deleted (404): the lists reload, Inbox becomes
+  current, the typed title stays in `#new-todo` (it is not posted anywhere), and the status
+  region says the list was deleted on another device.
+- Completing or deleting a todo another device deleted (404): the current list reloads, the
+  todo disappears, and the status region says it was deleted on another device.
+- Todo titles and list names always show as plain text, never as markup.
 - Filter: three buttons with `aria-pressed`, labels All, Active, Done.
 - Add todo: labelled input `id="new-todo"` ("New todo") + Add button; Enter submits.
 - Each todo: a checkbox labelled by its title, and a Delete button ("Delete <title>").
 - Status region `role="status"` announces saves and errors.
+
+## Constraints
+- No inline script or style (the server's Content-Security-Policy blocks them): all script
+  in app.js, all CSS in styles.css. Set styles from script through classes or `element.style`.
+- The phone layout works from 320px wide with no horizontal scroll (design.json).
 
 ## States
 Empty list ("Nothing here yet"), empty filter result, saving, validation error

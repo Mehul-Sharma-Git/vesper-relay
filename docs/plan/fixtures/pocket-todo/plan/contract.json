@@ -3,12 +3,13 @@
   "title": "Pocket Todo",
   "delivery": "Local single-user todo app with lists, SQLite persistence and a responsive browser UI, exported to a new folder",
   "requirements": [
-    {"id": "R1", "description": "Inbox always exists; create, rename, and delete lists with validation and unique case-folded names; Inbox is protected; a delete needs the confirmed name and todo count", "checks": ["G_API"]},
+    {"id": "R1", "description": "Inbox always exists; create, rename, and delete lists with validation and unique case-folded names; Inbox is protected; a delete needs the list's current revision", "checks": ["G_API"]},
     {"id": "R2", "description": "Add, complete, and delete todos in a list, with validation and All/Active/Done filtering", "checks": ["G_API"]},
     {"id": "R3", "description": "Deleting a list deletes its todos; data survives a server restart", "checks": ["G_API"]},
     {"id": "R4", "description": "Served page has labelled controls, list picker, filters, status region and local assets", "checks": ["G_UI"]},
-    {"id": "R5", "description": "In a real browser at phone and laptop widths the user can switch lists, add, complete, filter, and manage lists; a stale list delete is refused and the next confirmation shows the new count", "checks": ["G_BROWSER"]},
-    {"id": "R6", "description": "Requests a foreign website could make (other Host or Origin, or a write without a JSON body) are refused and change nothing", "checks": ["G_API"]}
+    {"id": "R5", "description": "In a real browser at phone (320px) and laptop widths the user can switch lists, add, complete, filter, and manage lists; titles and names show as text, never markup", "checks": ["G_BROWSER"]},
+    {"id": "R6", "description": "What another website could do is refused and changes nothing: other Host or Origin, a write without a JSON body, an oversized body; no CORS; the page cannot be framed", "checks": ["G_API"]},
+    {"id": "R7", "description": "Two devices at once: a stale list delete is refused and announced, an add to a deleted list keeps the draft and moves to Inbox, acting on a deleted todo reloads and announces, and ids are never reused", "checks": ["G_API", "G_BROWSER"]}
   ],
   "checks": [
     {"id": "G_API", "script": "api.py"},
@@ -16,7 +17,7 @@
     {"id": "G_BROWSER", "script": "browser.py"}
   ],
   "jobs": [
-    {"id": "J_API", "role": "backend", "skills": ["sqlite"], "goal": "Implement server.py exactly as in architecture.md: launch flags, READY line, SQLite schema with Inbox, the lists and todos API with its delete precondition and browser-safety rules, and static file serving for index.html, app.js, styles.css (which may be absent at this stage).", "paths": ["server.py"], "depends_on": [], "checks": ["G_API"], "timeout": 600, "max_attempts": 2},
-    {"id": "J_UI", "role": "frontend", "goal": "Build the browser UI in index.html, styles.css and app.js following design.md and design.json (direction B, list picker) against the approved API. Use the exact element ids and labels in design.md.", "paths": ["index.html", "styles.css", "app.js"], "depends_on": ["J_API"], "checks": ["G_UI", "G_BROWSER"], "timeout": 900, "max_attempts": 2}
+    {"id": "J_API", "role": "backend", "skills": ["sqlite"], "goal": "Implement server.py exactly as in architecture.md and api-contract.md: launch flags, READY line, SQLite schema with Inbox and list revisions, the lists and todos API with its revision guard, the browser-safety rules and headers, and static file serving for index.html, app.js, styles.css (which may be absent at this stage).", "paths": ["server.py"], "depends_on": [], "checks": ["G_API"], "timeout": 600, "max_attempts": 2},
+    {"id": "J_UI", "role": "frontend", "goal": "Build the browser UI in index.html, styles.css and app.js following design.md and design.json (direction B, list picker) against the approved API in api-contract.md, including the two-device behaviours in design.md and no inline script or style. Use the exact element ids and labels in design.md.", "paths": ["index.html", "styles.css", "app.js"], "depends_on": ["J_API"], "checks": ["G_UI", "G_BROWSER"], "timeout": 900, "max_attempts": 2}
   ]
 }
