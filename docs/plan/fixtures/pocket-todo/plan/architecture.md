@@ -34,6 +34,8 @@ Creates tables and the Inbox list on first start.
 | A9 | Other devices on the home Wi-Fi when started with `--host 0.0.0.0` | everything | proposed risk (D3): no login in v1; loopback is the default | none: proposed risk |
 | A10 | Other accounts on the laptop | the database file | the database and journal files are owner-only (mode 600) | G_API |
 | A11 | Any program or account on the laptop using the loopback port | everything, like the owner's browser | proposed risk: no login in v1; a local program can do what the owner can | none: proposed risk |
+| A12 | Someone on the home network watching or flooding traffic (with `--host 0.0.0.0`) | read todos in transit (plain HTTP); slow the app | proposed risk: outside the threat model (decisions.md); no TLS in v1 | none: proposed risk |
+| A13 | Another web app the owner ran earlier on the same address and port (its service worker or cached files) | run its code on the app's origin | proposed risk: outside the threat model; give Pocket Todo its own port | none: proposed risk |
 
 ## Concurrent changes (two actors on the same record)
 | # | What happens at once | Handling | Gate |

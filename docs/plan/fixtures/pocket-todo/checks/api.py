@@ -78,6 +78,11 @@ def delete_list(base, list_id, rev, headers=None):
     return call(base, f"/api/lists/{list_id}?rev={rev}", "DELETE", headers=headers)
 
 
+def snapshot(base):
+    """Every list (with its revision) and every todo (with its state): to prove a refusal changed nothing."""
+    return [(item, call(base, f"/api/todos?list={item['id']}&status=all")[1]) for item in call(base, "/api/lists")[1]]
+
+
 def titles(base, list_id):
     return [t["title"] for t in call(base, f"/api/todos?list={list_id}&status=all")[1]]
 
@@ -191,6 +196,19 @@ def check(root):
             assert call(base, "/api/todos", "POST", {"listId": work["id"], "title": "Book hall"})[0] == 201
             assert lists(base)["Work"]["total"] == 2
             assert delete_list(base, work["id"], same_count)[0] == 409, "same todo count, but the list changed"
+            # A todo delete on its own raises the revision; a refused write changes nothing, revision included.
+            hall = next(t for t in call(base, f"/api/todos?list={work['id']}&status=all")[1] if t["title"] == "Book hall")
+            before = lists(base)["Work"]["rev"]
+            assert call(base, f"/api/todos/{hall['id']}", "DELETE")[0] == 204
+            assert lists(base)["Work"]["rev"] > before, "a todo delete must raise the revision"
+            assert delete_list(base, work["id"], before)[0] == 409
+            unchanged = snapshot(base)
+            assert call(base, f"/api/lists/{work['id']}", "PATCH", {"name": "House"})[0] == 409
+            assert call(base, f"/api/lists/{work['id']}", "PATCH", {"name": " "})[0] == 400
+            assert call(base, f"/api/todos/{report['id']}", "PATCH", {"done": "yes"})[0] == 400
+            assert call(base, "/api/todos", "POST", {"listId": work["id"], "title": ""})[0] == 400
+            assert call(base, f"/api/todos/{hall['id']}", "DELETE")[0] == 404
+            assert snapshot(base) == unchanged, "a refused write changed data or a revision"
             # Completing, reopening and re-sending the same value each raise the revision.
             sent = next(t for t in call(base, f"/api/todos?list={work['id']}&status=all")[1] if t["title"] == "Send report")
             for done in (True, False, False):
@@ -220,29 +238,45 @@ def check(root):
             big = json.dumps({"name": "Big", "pad": "x" * 70_000}).encode()
             assert raw(base, "/api/lists", "POST", here, {"Content-Type": "application/json"}, big)[0] == 413
 
+            # A3, A2: the same refusals on every route and method, and a refusal changes nothing.
+            json_type = {"Content-Type": "application/json"}
+            house_rev = lists(base)["House"]["rev"]
+            writes = [("POST", "/api/lists", {"name": "Evil"}),
+                      ("PATCH", f"/api/lists/{home['id']}", {"name": "Evil"}),
+                      ("DELETE", f"/api/lists/{home['id']}?rev={house_rev}", None),
+                      ("POST", "/api/todos", {"listId": inbox["id"], "title": "Evil"}),
+                      ("PATCH", f"/api/todos/{bank['id']}", {"done": False}),
+                      ("DELETE", f"/api/todos/{bank['id']}", None)]
+            reads = [("GET", path, None) for path in
+                     ("/", "/health", "/api/lists", f"/api/todos?list={inbox['id']}&status=all")]
+            before = snapshot(base)
+
+            def send(method, path, payload, host=here, headers=None, body=None):
+                if body is None and payload is not None:
+                    body = json.dumps(payload).encode()
+                extra = {**(json_type if body is not None else {}), **(headers or {})}
+                return raw(base, path, method, host, extra, body)[0]
+
             # A3: only localhost or an IP address may be the Host (stops DNS rebinding).
             for host in (f"evil.example:{port}", f"localhost.evil.example:{port}", f"127.0.0.1.evil.example:{port}",
                          "1.2.3.4.evil.example", f"localhost.:{port}", "127.0.0.1:x", "a@127.0.0.1", "", None,
                          [here, f"evil.example:{port}"]):
-                assert raw(base, "/api/lists", host=host)[0] == 403, f"Host {host!r} must be refused"
-                assert raw(base, "/", host=host)[0] == 403, f"Host {host!r} must be refused"
+                for method, path, payload in reads + writes:
+                    assert send(method, path, payload, host) == 403, f"{method} {path} with Host {host!r}"
             for host in ("localhost", f"localhost:{port}", "[::1]", f"[::1]:{port}", here):
                 assert raw(base, "/api/lists", host=host)[0] == 200, f"Host {host!r} must be served"
-
-            # A2: writes another website could send are refused and change nothing.
+            # A2: writes another website could send are refused on every write route.
             for origin in ("http://evil.example", "null", f"https://{here}", "http://127.0.0.1:1",
                            f"http://localhost:{port}", f"http://{here}.evil.example"):
-                foreign = {"Origin": origin}
-                assert call(base, "/api/lists", "POST", {"name": "Evil"}, headers=foreign)[0] == 403
-                assert call(base, f"/api/lists/{home['id']}", "PATCH", {"name": "Evil"}, headers=foreign)[0] == 403
-                assert delete_list(base, home["id"], lists(base)["House"]["rev"], foreign)[0] == 403
-                assert call(base, f"/api/todos/{bank['id']}", "DELETE", headers=foreign)[0] == 403
-            assert call(base, "/api/lists", "POST", raw=json.dumps({"name": "Evil"}).encode(),
-                        headers={"Content-Type": "text/plain"})[0] == 415
-            assert call(base, "/api/lists", "POST", raw=b"name=Evil",
-                        headers={"Content-Type": "application/x-www-form-urlencoded"})[0] == 415
-            assert list(lists(base)) == ["Inbox", "House"]
-            assert titles(base, inbox["id"]) == ["Call bank"]
+                for method, path, payload in writes:
+                    assert send(method, path, payload, headers={"Origin": origin}) == 403, f"{method} {path} {origin}"
+            for method, path, payload in writes:
+                if payload is None:
+                    continue
+                for kind in ("text/plain", "application/x-www-form-urlencoded"):
+                    assert send(method, path, payload, headers={"Content-Type": kind}) == 415, f"{method} {path} {kind}"
+                assert send(method, path, None, body=big) == 413, f"{method} {path} oversized"
+            assert snapshot(base) == before, "a refused request changed data or a revision"
             # The app's own page (same Origin, by IP or localhost, JSON with a charset) still works.
             same = {"Origin": base, "Content-Type": "application/json; charset=utf-8"}
             code, garden = call(base, "/api/lists", "POST", {"name": "Garden"}, headers=same)
@@ -251,7 +285,6 @@ def check(root):
             assert delete_list(base, garden["id"], lists(base)["Garden"]["rev"], local)[0] == 204
 
             # A4, A5: no CORS, not frameable, no MIME sniffing, on every response.
-            json_type = {"Content-Type": "application/json"}
             replies = [raw(base, path, host=here, headers={"Origin": "http://evil.example"})
                        for path in ("/", "/api/lists", "/missing.txt")]
             replies += [raw(base, "/api/lists", host=f"evil.example:{port}"),
@@ -271,11 +304,13 @@ def check(root):
 
             # C10: simultaneous writes wait for each other instead of failing.
             code, busy = call(base, "/api/lists", "POST", {"name": "Busy"})
+            first = lists(base)["Busy"]["rev"]
             with ThreadPoolExecutor(20) as pool:
                 codes = list(pool.map(lambda n: call(base, "/api/todos", "POST",
                                                      {"listId": busy["id"], "title": f"Task {n}"})[0], range(20)))
             assert codes == [201] * 20, codes
             assert lists(base)["Busy"]["total"] == 20
+            assert lists(base)["Busy"]["rev"] == first + 20, "each add raises the revision by exactly one"
             assert delete_list(base, busy["id"], lists(base)["Busy"]["rev"])[0] == 204
 
         # R3: data survives a restart.

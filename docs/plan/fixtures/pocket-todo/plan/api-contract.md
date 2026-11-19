@@ -22,6 +22,7 @@ architecture.md does not repeat it.
   an array, a number or `null`), a `name` or `title` that is not a string, a `listId` that is
   not an integer (`true` and `"1"` are not integers), a `done` that is not `true` or `false`,
   a missing field, or a `rev` that is not digits. A body over 64 KB returns 413.
+- A refused request (any 4xx) changes nothing: no record and no `rev`.
 - List names are unique after trimming and Unicode case folding (Python `str.casefold()`):
   "Work" and "WORK", or "École" and "école", are duplicates. A list may be renamed to a
   different casing of its own name ("Work" to "WORK"). The name keeps the casing typed.
@@ -34,6 +35,7 @@ architecture.md does not repeat it.
 - List and todo ids are never reused, even after a delete.
 
 ## Browser safety (no login, so the server refuses what another website could do)
+These checks run before any route, for every path and method.
 - Every request must carry exactly one `Host` header whose whole value is `localhost`, a
   dotted IPv4 address (`127.0.0.1`) or a bracketed IPv6 address (`[::1]`), optionally
   followed by `:` and a port of digits. Anything else gets 403: no or an empty `Host`, two
