@@ -14,6 +14,8 @@ from builder.review_gate import decode_provider_report, prompt, report_schema
 REPLIES = ROOT / "docs/plan/fixtures/pocket-todo/reviewer-replies"
 STRICT_ENDING = "Return only the JSON object. No text before or after it."
 TYPES = {"object": dict, "array": list, "string": str}
+PLANNING_NOTE = ("plan/planning.json is Vesper's routing manifest: its architecture.revision is the "
+                 "technical-lead role revision, not a digest of architecture.md")
 
 
 def schema_errors(schema, data, where="$"):
@@ -216,6 +218,8 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         self.assertEqual(seen["schema"]["properties"]["packet_digest"]["const"], template["packet_digest"])
         self.assertTrue(seen["prompt"].endswith(STRICT_ENDING))
         self.assertIn("never a folder", seen["prompt"])
+        # P1-G: Codex twice blocked a plan because it read the role revision as an architecture digest.
+        self.assertIn(PLANNING_NOTE, seen["prompt"])
         listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
         self.assertIn("plan/architecture.md", listed)
         self.assertNotIn("plan", listed)
