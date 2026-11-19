@@ -149,13 +149,26 @@ class AdapterFlagTests(unittest.TestCase):
 
     def test_reviewer_never_gets_edit_or_write(self):
         for name in ADAPTERS:
-            for sandboxed in (True, False):
-                with self.subTest(adapter=name, sandboxed=sandboxed):
-                    if sandboxed:
-                        argv = brain_job(Brain(name, ADAPTERS[name]), "reviewer", self.work, out=self.work).argv
-                    else:
-                        argv = self.host(name, "reviewer")
-                    self.assertFalse(grants_edit(name, argv), argv)
+            with self.subTest(adapter=name, sandboxed=False):
+                self.assertFalse(grants_edit(name, self.host(name, "reviewer")))
+            with self.subTest(adapter=name, sandboxed=True):
+                job = brain_job(Brain(name, ADAPTERS[name]), "reviewer", self.work, out=self.work)
+                # In the sandbox the engine mounts the review copy read-only, whatever the CLI allows.
+                self.assertTrue(job.work_readonly)
+                argv = Docker(image="vesper-sandbox:test").run_argv(job, "vesper-test", "none")
+                self.assertIn(f"type=bind,source={self.work},target=/work,readonly", value_after(argv, "--mount"))
+                if name != "codex":
+                    self.assertFalse(grants_edit(name, job.argv), job.argv)
+
+    def test_a_sandboxed_codex_reviewer_can_run_commands(self):
+        # P1-G run 3: inside the container Codex's own read-only sandbox (bubblewrap) cannot
+        # create a user namespace, so every command failed and the critique read nothing.
+        codex = Brain("codex", ADAPTERS["codex"])
+        job = brain_job(codex, "reviewer", self.work, out=self.work)
+        self.assertEqual(value_after(list(job.argv), "--sandbox"), ["danger-full-access"])
+        self.assertEqual(value_after(self.host("codex", "reviewer"), "--sandbox"), ["read-only"])
+        consult = brain_job(codex, "consult", self.work, out=self.work, role="planner")
+        self.assertEqual(value_after(list(consult.argv), "--sandbox"), ["read-only"])
         claude = brain_job(Brain("claude-code", ADAPTERS["claude-code"]), "reviewer", self.work, out=self.work)
         self.assertEqual(value_after(list(claude.argv), "--tools"), ["Read,Glob,Grep,Bash"])
 
@@ -169,11 +182,15 @@ class AdapterFlagTests(unittest.TestCase):
                     self.assertFalse(grants_edit(name, argv), argv)
 
     def test_writer_tools_cannot_reach_a_reviewer_command(self):
+        writer = frozenset({"read", "edit", "write", "search", "shell"})
         for name in ADAPTERS:
-            with self.subTest(adapter=name):
-                argv = arguments(Brain(name, ADAPTERS[name]), "reviewer", program=ADAPTERS[name].binary,
-                                 tools=frozenset({"read", "edit", "write", "search", "shell"}))
-                self.assertFalse(grants_edit(name, argv), argv)
+            # Codex has no per-tool list: shell means danger-full-access, granted only in a sandbox
+            # job, where the engine's read-only mount keeps the review copy unchanged (tested above).
+            for granted in (writer, writer - {"shell"}) if name != "codex" else (writer - {"shell"},):
+                with self.subTest(adapter=name, shell="shell" in granted):
+                    argv = arguments(Brain(name, ADAPTERS[name]), "reviewer", program=ADAPTERS[name].binary,
+                                     tools=granted)
+                    self.assertFalse(grants_edit(name, argv), argv)
 
     def test_unknown_tools_are_refused(self):
         with self.assertRaises(BuilderError):
