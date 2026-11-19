@@ -12,7 +12,7 @@ import tempfile
 from uuid import uuid4
 
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
-                        require, review_bundle, reviewed_contract)
+                        require, review_bundle, reviewed_contract, safe_path)
 from .process import run_process
 from .brains import command as brain_command, launch, parse_result, tools as brain_tools, usage
 from .providers import GATES_DIR, review_limits, worker_prompt
@@ -21,6 +21,9 @@ from .sandbox import Sandbox, check_job, command_job
 
 # VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
 REGRESSION_TIMEOUT = 900
+# The reviewer's copy of each gate's log and of what gates saved (P2-T1).
+REVIEW_LOG_LIMIT = 256_000
+REVIEW_ARTIFACTS_LIMIT = 20_000_000
 # A retry's review lists the blockers earlier reviews of its job raised (newest kept).
 EARLIER_BLOCKERS_LIMIT = 20
 EARLIER_EVIDENCE_LIMIT = 600
@@ -60,6 +63,48 @@ def drop_python_caches(root, ignore=()):
                 cache.unlink()
             else:
                 shutil.rmtree(cache)
+
+
+def copy_log_tail(source, destination, limit=REVIEW_LOG_LIMIT):
+    """A gate log for the reviewer: whole, or its last part from a line start, under a first
+    line that says how much was left out (failures are reported at the end)."""
+    size = source.stat().st_size
+    with source.open("rb") as file:
+        if size <= limit:
+            data = file.read()
+        else:
+            keep = limit - 120
+            file.seek(size - keep)
+            data = file.read()
+            start = data.find(b"\n")
+            data = data[start + 1:] if 0 <= start < 4096 else data
+            data = (f"[earlier output omitted: showing the last {len(data)} of {size} bytes]\n").encode() + data
+    destination.write_bytes(data)
+
+
+def copy_artifacts(source, destination, limit=REVIEW_ARTIFACTS_LIMIT):
+    """Copy the regular files gates saved, under safe names, until the size limit. Links are
+    never followed. Returns the paths left out."""
+    omitted, used = [], 0
+    for folder, folders, files in os.walk(source):
+        folders.sort()
+        for name in sorted(files):
+            path = Path(folder) / name
+            relative = path.relative_to(source).as_posix()
+            info = path.lstat()
+            try:
+                safe_path(relative)
+            except BuilderError:
+                omitted.append(relative)
+                continue
+            if not stat.S_ISREG(info.st_mode) or used + info.st_size > limit:
+                omitted.append(relative)
+                continue
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            copy_file(path, target)
+            used += info.st_size
+    return omitted
 
 
 def attempt_history(previous, limit=HISTORY_LIMIT):
@@ -105,7 +150,11 @@ def atomic_json(path, value):
 def sync_tree(path):
     for directory, _, files in os.walk(path, topdown=False):
         for file in files:
-            with (Path(directory) / file).open("rb") as stream:
+            entry = Path(directory) / file
+            # Only regular files: opening a link follows it, and opening a pipe blocks (P2-T1).
+            if not stat.S_ISREG(entry.lstat().st_mode):
+                continue
+            with entry.open("rb") as stream:
                 os.fsync(stream.fileno())
         sync_dir(Path(directory))
     sync_dir(path.parent)
@@ -160,11 +209,12 @@ def gate_environment(temp, gate_env, path=os.defpath, dependencies=None):
 
 
 def launch_command(operation, command, work, temp, log, launcher, timeout, gate_env, dependencies=None,
-                   extra_env=None):
+                   extra_env=None, artifacts=None):
     """Run a bare-program argv in work: in the sandbox backend, through the launcher as
     `<operation> <work> -- argv`, or on the host with the program resolved on the runner's own PATH."""
     if isinstance(launcher, Sandbox):
-        job = command_job(operation, command, work, dependencies=dependencies, gate_env=gate_env, extra=extra_env)
+        job = command_job(operation, command, work, dependencies=dependencies, gate_env=gate_env, extra=extra_env,
+                          artifacts=artifacts)
         return launcher.run(job, input_text="", log=log, timeout=timeout)
     if launcher:
         argv, path = [launcher, operation, str(work), "--", *command], os.defpath
@@ -178,6 +228,8 @@ def launch_command(operation, command, work, temp, log, launcher, timeout, gate_
         path = os.pathsep.join((os.path.dirname(program), os.defpath))
     env = gate_environment(temp, gate_env, path, dependencies)
     env.update(extra_env or {})
+    if artifacts is not None:
+        env["VESPER_ARTIFACTS"] = str(artifacts)
     return run_process(argv, cwd=work, input_text="", env=env, log=log, timeout=timeout)
 
 
@@ -194,7 +246,7 @@ def copy_build_dirs(source, target, ignore):
 
 
 def execute_check(script_name, package_source, checks_manifest, candidate, candidate_manifest, log, launcher,
-                  timeout=45, gate_env=()):
+                  timeout=45, gate_env=(), artifacts=None):
     """Give every gate the same isolated input layout, including baseline reproducers."""
     with tempfile.TemporaryDirectory(dir=log.parent, prefix="gate-") as temp:
         home = Path(temp)
@@ -206,12 +258,15 @@ def execute_check(script_name, package_source, checks_manifest, candidate, candi
         script = package / script_name
         mode = stat.S_IMODE(isolated.stat().st_mode)
         if isinstance(launcher, Sandbox):
-            code = launcher.run(check_job(home, script_name, gate_env), input_text="", log=log, timeout=timeout)
+            code = launcher.run(check_job(home, script_name, gate_env, artifacts), input_text="", log=log,
+                                timeout=timeout)
         else:
             command = ([launcher, "check", str(script), str(isolated)] if launcher
                        else [sys.executable, "-I", "-B", str(script), str(isolated)])
-            code = run_process(command, cwd=home, input_text="", env=gate_environment(temp, gate_env),
-                               log=log, timeout=timeout)
+            env = gate_environment(temp, gate_env)
+            if artifacts is not None:
+                env["VESPER_ARTIFACTS"] = str(artifacts)
+            code = run_process(command, cwd=home, input_text="", env=env, log=log, timeout=timeout)
         intact = (inventory(package) == checks_manifest and inventory(isolated) == candidate_manifest
                   and stat.S_IMODE(isolated.stat().st_mode) == mode)
         return code, intact
@@ -239,7 +294,8 @@ def merge_overlay(source, target):
 
 
 def execute_command_check(command, overlay, package_source, checks_manifest, candidate, candidate_manifest, log,
-                          launcher, timeout=45, gate_env=(), prepared=None, ignore=(), dependencies=None):
+                          launcher, timeout=45, gate_env=(), prepared=None, ignore=(), dependencies=None,
+                          artifacts=None):
     """Run an approved argv in a throwaway copy of the candidate, with QA's overlay copied in first.
 
     Tools may write caches and reports in that copy. The gate never gets checks/ or the verified
@@ -269,7 +325,8 @@ def execute_command_check(command, overlay, package_source, checks_manifest, can
             if problem:
                 log.write_text(problem + "\n", encoding="utf-8")
                 return 1, unchanged()
-        code = launch_command("check-command", command, work, temp, log, launcher, timeout, gate_env, dependencies)
+        code = launch_command("check-command", command, work, temp, log, launcher, timeout, gate_env, dependencies,
+                              artifacts=artifacts)
         return code, unchanged()
 
 
@@ -608,6 +665,21 @@ class Runner:
                 and fingerprint(inventory(workspace / "candidate")) == packet["candidate_digest"]
                 and inventory(workspace / "plan") == state["bundle"]["plan"],
                 "Review copy changed during preparation")
+        # Gate evidence (P2-T1): the approved scripts, each gate's log and what it saved. All of it
+        # is inside the review view digest, so a changed copy is refused.
+        copy_tree(self.approval(state) / "checks", workspace / "checks")
+        require(inventory(workspace / "checks") == state["bundle"]["checks"], "Review copy changed during preparation")
+        (workspace / "logs").mkdir()
+        for check in attempt["checks"]:
+            copy_log_tail(self.root / check["log"], workspace / "logs" / (check["id"] + ".log"))
+        (workspace / "artifacts").mkdir()
+        if (directory / "artifacts").is_dir():
+            omitted = copy_artifacts(directory / "artifacts", workspace / "artifacts")
+            if omitted:
+                packet["artifacts_omitted"] = omitted[:50]
+            # The gates' raw folder may hold links or pipes; only the checked copy stays. A folder a
+            # gate left unremovable must not reject the candidate (sync_tree skips non-files anyway).
+            shutil.rmtree(directory / "artifacts", ignore_errors=True)
         write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"])
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
         (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
@@ -752,17 +824,20 @@ class Runner:
         logs = directory / "logs"
         logs.mkdir(exist_ok=True)
         log = logs / (check["id"] + ".log")
+        # Whatever the gate saves here (screenshots, traces) reaches the reviewer (P2-T1).
+        artifacts = directory / "artifacts" / check["id"]
+        artifacts.mkdir(parents=True, exist_ok=True)
         limit = check.get("timeout", REGRESSION_TIMEOUT if check["id"] == "VESPER_REGRESSION" else 45)
         if "command" in check:
             code, intact = execute_command_check(check["command"], check.get("overlay"),
                                                  self.approval(state) / "checks", state["bundle"]["checks"],
                                                  candidate, inventory(candidate), log, launcher,
                                                  timeout=limit, gate_env=gate_env, prepared=prepared,
-                                                 ignore=ignore, dependencies=dependencies)
+                                                 ignore=ignore, dependencies=dependencies, artifacts=artifacts)
         else:
             code, intact = execute_check(check["script"], self.approval(state) / "checks",
                                          state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,
-                                         timeout=limit, gate_env=gate_env)
+                                         timeout=limit, gate_env=gate_env, artifacts=artifacts)
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
         state["active"]["checks"].append(result)
         self.save(state)

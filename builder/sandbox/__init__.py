@@ -104,18 +104,28 @@ def gate_environment(gate_env=(), dependencies=False, extra=None, environ=os.env
     return tuple(sorted(env.items()))
 
 
-def check_job(home, script, gate_env=()):
+def artifact_mount(artifacts):
+    """A gate's writable artifacts folder at /artifacts, named in VESPER_ARTIFACTS (P2-T1)."""
+    if artifacts is None:
+        return (), {}
+    return ((Path(artifacts), "/artifacts", False),), {"VESPER_ARTIFACTS": "/artifacts"}
+
+
+def check_job(home, script, gate_env=(), artifacts=None):
     """A Python gate: home holds checks/ and candidate/, both read-only."""
+    mounts, extra = artifact_mount(artifacts)
     return Job("check", ("python3", "-I", "-B", f"/work/checks/{script}", "/work/candidate"), Path(home), True,
-               env=gate_environment(gate_env), network=NETWORKS["check"])
+               mounts, env=gate_environment(gate_env, extra=extra), network=NETWORKS["check"])
 
 
-def command_job(operation, argv, work, *, dependencies=None, gate_env=(), extra=None):
+def command_job(operation, argv, work, *, dependencies=None, gate_env=(), extra=None, artifacts=None):
     """Build setup (network open, cache writable) or a command gate (no network, cache read-only)."""
     require(operation in ("setup", "check-command"), f"Not a command operation: {operation}")
     mounts = ((Path(dependencies), "/cache", operation != "setup"),) if dependencies else ()
-    return Job(operation, tuple(argv), Path(work), False, mounts,
-               gate_environment(gate_env, bool(dependencies), extra), network=NETWORKS[operation])
+    saved, names = artifact_mount(artifacts)
+    return Job(operation, tuple(argv), Path(work), False, mounts + saved,
+               gate_environment(gate_env, bool(dependencies), {**(extra or {}), **names}),
+               network=NETWORKS[operation])
 
 
 class Sandbox:

@@ -106,6 +106,78 @@ class TeamTests(unittest.TestCase):
         attempt = command("prepare")
         self.assertIn("failed-save branch", Path(attempt["brief"]).read_text())
 
+    def test_review_copy_holds_gate_scripts_full_logs_and_artifacts(self):
+        # P2-T1 (finding 3): the reviewer saw one-line gate summaries and no logs.
+        project, command = self.plan()
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+        gate = (project / "checks" / "gate.py")
+        gate.write_text(
+            "import os\nfrom pathlib import Path\nimport sys\n"
+            f"(Path(os.environ['VESPER_ARTIFACTS']) / 'shot.png').write_bytes({png!r})\n"
+            "print('x' * 300_000)\nprint('END OF GATE')\n"
+            "assert (Path(sys.argv[1]) / 'app.js').read_text() == 'export const loading = false;\\n'\n")
+        self.approve(command)
+        _, preview = self.submit(command)
+        review = Path(preview["review"]["workspace"])
+        self.assertEqual((review / "checks" / "gate.py").read_text(), gate.read_text())
+        self.assertEqual((review / "artifacts" / "G1" / "shot.png").read_bytes(), png)
+        log = (review / "logs" / "G1.log").read_text()
+        self.assertLessEqual(len(log.encode()), 256_000)
+        self.assertTrue(log.rstrip().endswith("END OF GATE"))
+        self.assertIn("omitted", log.splitlines()[0])
+        prompt = (review / "review.md").read_text()
+        for place in ("checks/", "logs/G1.log", "artifacts/G1/"):
+            self.assertIn(place, prompt)
+        # Tampering with a copied log or artifact changes the view digest and is refused.
+        report = self.write_report(verdict(preview))
+        with (review / "logs" / "G1.log").open("a") as file:
+            file.write("tampered\n")
+        self.assertIn("Staged review evidence changed",
+                      command("review-candidate", "--report", report, "--attest-independent", code=2))
+
+    def test_links_and_pipes_a_gate_saves_never_hang_or_fail_the_run(self):
+        # P2-T1 review: a FIFO or a link in $VESPER_ARTIFACTS hung or failed staging.
+        project, command = self.plan()
+        outside = self.root / "outside.txt"
+        outside.write_text("host file")
+        (project / "checks" / "gate.py").write_text(
+            "import os\nfrom pathlib import Path\nimport sys\n"
+            "saved = Path(os.environ['VESPER_ARTIFACTS'])\n"
+            "(saved / 'kept.txt').write_text('kept')\n"
+            "os.mkfifo(saved / 'pipe')\n"
+            "os.symlink('/nonexistent/x', saved / 'dangling')\n"
+            f"os.symlink({str(outside)!r}, saved / 'outside')\n"
+            "assert (Path(sys.argv[1]) / 'app.js').read_text() == 'export const loading = false;\\n'\n")
+        self.approve(command)
+        attempt = command("prepare")
+        (Path(attempt["workspace"]) / "app.js").write_text("export const loading = false;\n")
+        done = subprocess.run([sys.executable, "-B", str(test_vesper.ROOT / "vesper.py"), "--project", str(project),
+                               "submit", attempt["id"]], cwd=self.repo, env=self.env, capture_output=True,
+                              timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout.decode() + done.stderr.decode())
+        preview = json.loads(done.stdout)
+        self.assertEqual(preview["outcome"], "awaiting_review")
+        review = Path(preview["review"]["workspace"])
+        self.assertEqual(sorted(path.name for path in (review / "artifacts" / "G1").iterdir()), ["kept.txt"])
+        self.assertEqual(sorted(preview["review"]["artifacts_omitted"]),
+                         ["G1/dangling", "G1/outside", "G1/pipe"])
+        self.assertFalse((review.parent / "artifacts").exists())
+        self.assertEqual(outside.read_text(), "host file")
+
+    def test_tampered_artifact_is_refused(self):
+        project, command = self.plan()
+        (project / "checks" / "gate.py").write_text(
+            "import os\nfrom pathlib import Path\nimport sys\n"
+            "(Path(os.environ['VESPER_ARTIFACTS']) / 'trace.txt').write_text('trace')\n"
+            "assert (Path(sys.argv[1]) / 'app.js').read_text() == 'export const loading = false;\\n'\n")
+        self.approve(command)
+        _, preview = self.submit(command)
+        artifact = Path(preview["review"]["workspace"]) / "artifacts" / "G1" / "trace.txt"
+        artifact.write_text("forged")
+        self.assertIn("Staged review evidence changed",
+                      command("review-candidate", "--report", self.write_report(verdict(preview)),
+                              "--attest-independent", code=2))
+
     def test_retry_review_rechecks_earlier_blockers_under_a_stated_blocker_rule(self):
         # P1-G run 6: each fresh review raised new blockers on the next version, so a job
         # with two attempts never converged.
