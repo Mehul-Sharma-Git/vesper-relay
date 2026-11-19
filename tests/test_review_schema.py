@@ -27,6 +27,8 @@ def schema_errors(schema, data, where="$"):
         errors.append(f"{where}: not one of {schema['enum']}")
     if isinstance(data, str) and len(data) < schema.get("minLength", 0):
         errors.append(f"{where}: too short")
+    if isinstance(data, str) and "pattern" in schema and not re.search(schema["pattern"], data):
+        errors.append(f"{where}: does not match {schema['pattern']}")
     if isinstance(data, dict):
         errors += [f"{where}.{key}: missing" for key in schema.get("required", ()) if key not in data]
         for key, sub in schema.get("properties", {}).items():
@@ -107,6 +109,21 @@ class PlanReportSchemaTests(unittest.TestCase):
                        {"findings": [{key: value for key, value in finding.items() if key != "scenario"}]}):
             with self.subTest(change=change):
                 self.assertTrue(schema_errors(schema, self.critique(**change)))
+
+    def test_a_finding_cites_one_supplied_file_never_a_folder(self):
+        # Codex (P1-G run 3) cited "plan/" and Claude (run 1) "seed/": each lost the whole critique.
+        from builder.planning import plan_report_schema
+        schema = plan_report_schema("d" * 64, "reviewer-abc")
+        finding = self.critique()["findings"][0]
+        for path in ("plan/architecture.md", "plan/architecture.md:12-30", "checks/api.py", "seed/app/main.go:4",
+                     "seed/.env.example", "seed/..notes"):
+            with self.subTest(path=path):
+                self.assertEqual(schema_errors(schema, self.critique(findings=[{**finding, "path": path}])), [])
+        # "plan/." is what Claude produced when asked for the folder under this schema.
+        for path in ("plan/", "seed/", "checks/", "plan", "seed", "/etc/passwd", "plan//a.md", "docs/a.md",
+                     "architecture.md", "plan/.", "plan/..", "plan/./a.md", "seed/a/../b.go"):
+            with self.subTest(path=path):
+                self.assertTrue(schema_errors(schema, self.critique(findings=[{**finding, "path": path}])))
 
 
 class ReviewerCommandTests(unittest.TestCase):
@@ -198,6 +215,39 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         self.assertEqual(seen["schema"]["properties"]["reviewer"]["const"], seen["identity"])
         self.assertEqual(seen["schema"]["properties"]["packet_digest"]["const"], template["packet_digest"])
         self.assertTrue(seen["prompt"].endswith(STRICT_ENDING))
+        self.assertIn("never a folder", seen["prompt"])
+        listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
+        self.assertIn("plan/architecture.md", listed)
+        self.assertNotIn("plan", listed)
+
+    def test_a_rejected_critique_reply_is_kept_for_the_owner(self):
+        from builder.planning import review_plan
+        from tests.test_planning import PlanningTests
+
+        case = PlanningTests("test_canonical_contract_reaches_worker")
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        case.full()
+        template = case.report("request_changes")
+
+        def fake_run(command, *, cwd, input_text, env, log, timeout, **_):
+            identity = re.search(r'"reviewer": "(reviewer-[0-9a-f]+)"', input_text).group(1)
+            finding = {**template["findings"][0], "path": "plan/"}
+            report = {**template, "reviewer": identity, "findings": [finding]}
+            log.write_text(json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                                       "result": "", "structured_output": report}))
+            return 0
+
+        with mock.patch("builder.brains.base.shutil.which", return_value="/usr/local/bin/claude"), \
+                mock.patch("builder.process.run_process", fake_run), \
+                self.assertRaisesRegex(BuilderError, r"Invalid relative path: 'plan/'.*kept in .*"
+                                       r"plan-critique-rejected-1\.txt") as raised:
+            review_plan(case.runner, brain=Brain("claude-code", ADAPTERS["claude-code"]), trust_host=True)
+        kept = case.runner.control / "plan-critique-rejected-1.txt"
+        self.assertIn(str(kept), str(raised.exception))
+        self.assertIn('"path": "plan/"', kept.read_text(encoding="utf-8"))
+        self.assertEqual(kept.stat().st_mode & 0o777, 0o600)
+        self.assertFalse((case.runner.control / "plan-critique.json").exists())
 
 
 if __name__ == "__main__":
