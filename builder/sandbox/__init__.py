@@ -39,6 +39,7 @@ HOME = "/home/vesper"
 MEMORY = "4g"
 PIDS = "1024"
 PROXY_PORT = 8888
+PROXY_LOG_LIMIT = 64_000  # the last characters of the proxy's log kept beside the job's log
 NETWORKS = {"worker": "egress", "reviewer": "egress", "consult": "egress",
             "setup": "open", "check": "none", "check-command": "none"}
 # What the engine's own command-line process may see (it is not the container's environment).
@@ -257,8 +258,20 @@ class Container(Sandbox):
                     *self.mount(settings, "/etc/vesper-proxy", True), self.ref(),
                     "tinyproxy", "-d", "-c", "/etc/vesper-proxy/tinyproxy.conf", check=True)
         cleanup.append(("rm", "-f", proxy))
+        cleanup.append(("proxy-log", proxy))
         self.engine(env, "network", "connect", network, proxy, check=True)
         return network, proxy
+
+    def keep_proxy_log(self, env, proxy, log):
+        """Copy the proxy's log (which hosts it refused, and why) to ``<job log>.proxy.log``
+        before its container is removed. Never changes the job's result."""
+        try:
+            result = self.engine(env, "logs", proxy)
+            text = (result.stdout + result.stderr)[-PROXY_LOG_LIMIT:]
+            if result.returncode == 0 and text:
+                Path(log).with_suffix(".proxy.log").write_text(text, encoding="utf-8")
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     def run(self, job, *, input_text, log, timeout, on_start=None):
         from ..process import run_process
@@ -279,6 +292,8 @@ class Container(Sandbox):
             for item in reversed(cleanup):
                 if item[0] == "dir":
                     shutil.rmtree(item[1], ignore_errors=True)
+                elif item[0] == "proxy-log":
+                    self.keep_proxy_log(env, item[1], log)
                 else:
                     self.engine(env, *item)
 
