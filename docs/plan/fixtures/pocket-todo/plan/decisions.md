@@ -22,7 +22,7 @@
 ## Open / risks
 - No authentication on the home network (accepted for v1 by D3; revisit before any hosting). Other websites in the owner's browser are refused, but anyone on that Wi-Fi can still use the app.
 - Phone access depends on the laptop being on and the OS firewall allowing the port.
-- Accepted for v1, each with its reason in architecture.md: Wi-Fi devices (A9), other programs on the laptop (A10), two devices renaming at once (C5), a duplicate after a lost response (C6), stale reads (C7), two servers on one database (C8).
+- Risks proposed for v1, each with its reason in architecture.md: Wi-Fi devices (A9), other programs on the laptop (A10), two devices renaming at once (C5), a duplicate after a lost response (C6), stale reads (C7), two servers on one database (C8). Only the owner accepts them, by approving this plan.
 
 ## Escalate if
 - Any need for accounts, hosting, sync conflict handling, or tags arises.

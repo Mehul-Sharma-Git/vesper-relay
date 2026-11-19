@@ -1,8 +1,8 @@
 # Acceptance: failure-path matrix (QA)
 
 Each row: a requirement or an item from architecture.md (A = reachability, C = concurrent
-change), the scenario, the gate assertion, and the wrong build it catches. Items accepted in
-architecture.md (A9, A10, C5–C8) have no row. Gates run against the candidate in the sandbox.
+change), the scenario, the gate assertion, and the wrong build it catches. Items proposed as
+risks in architecture.md (A9, A10, C5–C8) have no row; the owner accepts them by approving the plan. Gates run against the candidate in the sandbox.
 
 | Item | Scenario | Assertion (gate) | Wrong build it catches |
 |---|---|---|---|
