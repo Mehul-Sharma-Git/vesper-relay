@@ -66,6 +66,14 @@ def resolve_boundary(args, default=True):
     return (engine.check(), False) if engine else (None, True)
 
 
+def clock_time(value):
+    """--start-after HH:MM, checked while parsing, before any sandbox or state is touched."""
+    import re
+    if not re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", value):
+        raise argparse.ArgumentTypeError("takes a 24-hour time, for example 07:30")
+    return value
+
+
 def initialize(root, idea):
     root.mkdir(parents=True, exist_ok=True)
     if any(root.iterdir()):
@@ -103,7 +111,7 @@ def main():
     commands.add_parser("estimate").add_argument("--json", action="store_true", help="Print the estimate as JSON")
     commands.add_parser("export").add_argument("destination", type=Path)
     run = commands.add_parser("run")
-    run.add_argument("--start-after", metavar="HH:MM",
+    run.add_argument("--start-after", metavar="HH:MM", type=clock_time,
                      help="Wait for this local time first, for example after a plan window resets")
     brain_options(run, reviewer=True)
     boundary_options(run)
