@@ -3,6 +3,8 @@ from pathlib import Path
 import sys
 import unittest
 
+import stand_in  # noqa: F401  (test-only environment: confirmer and state folder)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from builder.contracts import BuilderError
