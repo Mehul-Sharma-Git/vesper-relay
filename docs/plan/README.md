@@ -186,7 +186,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P2-T5 | Required plan sections by depth (extend `planning.json`) | P1-G | M | done |
 | P2-T6 | Additive checks after approval | P1-G, P2-T2 | M | done |
 | P2-T7 | Advisory backlog and decision gate (advisories and blockers) | P1-G, P2-T2 | L | done |
-| P2-T8 | Review the code a change touches (P2-G finding 53) | P2-T7 | M | todo |
+| P2-T8 | Review the code a change touches (P2-G finding 53) | P2-T7 | M | done |
 | P2-T9 | Estimates you can check: marked readings and `usage check` (P2-G finding 54) | P2-T3 | M | todo |
 | P2-G | Phase 2 gate (rerun the two failed criteria; the 20 Nov run's other five stand) | P2-T1..T9 | S | todo |
 | P3-T1 | Shared agent foundation (reasoning note, claim labels, self-critique) | P2-G | M | todo |

@@ -17,7 +17,8 @@ from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
 from .process import run_process
 from .brains import command as brain_command, launch, parse_result, tools as brain_tools, usage
 from .providers import GATES_DIR, review_limits, worker_prompt
-from .review_gate import needs_security, prompt as review_prompt, report_schema, validate_report, write_diff
+from .review_gate import (needs_security, prompt as review_prompt, report_schema, touched_code, validate_report,
+                          write_diff)
 from .sandbox import Sandbox, check_job, command_job
 
 # VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
@@ -785,7 +786,10 @@ class Runner:
             # The gates' raw folder may hold links or pipes; only the checked copy stays. A folder a
             # gate left unremovable must not reject the candidate (sync_tree skips non-files anyway).
             shutil.rmtree(directory / "artifacts", ignore_errors=True)
-        write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"])
+        # The code the change touches, which the reviewer sweeps too (P2-T8, finding 53).
+        packet["touched"] = touched_code(workspace / "base", workspace / "candidate", attempt["changed"])
+        write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"],
+                   packet["touched"])
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
         (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
         (workspace / "review.md").write_text(review_prompt(profile, packet), encoding="utf-8")
@@ -842,7 +846,8 @@ class Runner:
                 profile = state["bundle"]["team"][role_key]
                 (view / "review.json").write_text(json.dumps({key: value for key, value in packet.items()
                                                            if key not in ("workspace", "directory")}, indent=2))
-                write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"])
+                write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"],
+                           packet.get("touched"))
                 schema = report_schema(packet)
                 (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
                 (view / "review.md").write_text(review_prompt(profile, packet))
