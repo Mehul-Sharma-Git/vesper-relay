@@ -14,12 +14,18 @@ first time; and the exported app's three gates pass.
 
 **Rerun (owner, 20 Nov 2026):** the first P2-G run failed two criteria, the seeded security
 advisory and the estimate bands (appendix B, "Gate P2-G — 2026-11-20 18:56", findings 53 and
-54). After P2-T8 and P2-T9, rerun only those two: the seeded bug-fix run on the run-2b seed
-(a reachable SQL injection inside the function the fix touches) must raise a security
-finding that waits for the owner's decision, and two consecutive runs (Pocket Todo, then a
-bug fix) must land inside their bands by `vesper usage check`, with marked readings for
-every account a run uses (Claude and ChatGPT). The other five criteria passed on 20 Nov
-and stand.
+54). After P2-T8 and P2-T9, rerun only those two; the other five passed on 20 Nov and stand.
+1. Seeded finding: the bug-fix run on the run-2b seed (a reachable SQL injection inside the
+   `delete_list` the fix touches), with the job's `max_attempts` set to 1. The owner's threat
+   model for that plan is its decision D3 (other websites refused; local programs trusted),
+   so the injection, reachable only by a local program, is an advisory under P2-T8's rule.
+   Pass when the review reports a security finding on the injection and acceptance waits
+   for the owner's `decide`: as an advisory, or, if the reviewer files it as a blocker, at
+   the job's single attempt running out. Either way the owner decides.
+2. Estimates: first one calibration run with marked readings (any bug fix), then two
+   consecutive runs (Pocket Todo, then a bug fix) whose estimates come from marked readings
+   only. Pass when `vesper usage check` reports both inside for every account each run
+   uses (Claude and ChatGPT).
 
 ---
 
@@ -258,13 +264,17 @@ and stand.
      it, with its category. It is blocking when the job may change that code (it is inside
      the job's paths) and the defect breaks a requirement or decision, or is a security
      defect a threat inside the owner's threat model can reach; otherwise it is an
-     advisory, so a security or data one waits for the owner (P2-T7).
+     advisory, so a security or data one waits for the owner (P2-T7). The threat model is
+     `planning.json`'s `threat_model` when the plan has one; at `skip` depth, the one the
+     plan's decisions record; if neither records one, the threats its decisions defend
+     against (as the candidate blocker rule already says).
 - **Do not:** give the reviewer write access or widen the review copy; require reviewing
   files the candidate did not change; change the plan critique.
 - **Acceptance:** tests that `touched` lists the enclosing Python function and the
   enclosing JavaScript function of a changed line, and the whole file when none is found;
   that the diff shows a touched function in full; that the prompt contains the sweep of
-  touched code and its blocking rule. P2-G's rerun is the real-reviewer check.
+  touched code, its blocking rule and where the threat model comes from at each depth.
+  P2-G's rerun is the real-reviewer check.
 
 ## P2-T9 — Estimates you can check
 
@@ -275,21 +285,27 @@ and stand.
 - **Read first:** `builder/usage.py` (`record_reading`, `calibrate`, `estimate`,
   `limit_check`), `builder/runner.py` (`approve`), `vesper.py` (`usage`), `tests/test_usage.py`.
 - **Change:**
-  1. Readings can be marked as bracketing one run: `vesper usage record --account claude
-     --session 42 --week 13 --before RUN` and `--after RUN`. Calibration prefers marked pairs
-     (taken right before and after the run, with the assistant idle) and says in the
-     estimate when it relies on unmarked ones.
+  1. Readings can be marked as bracketing one stretch of Vesper's own work: `vesper usage
+     record --account claude --session 42 --week 13 --before RUN` and `--after RUN`, taken
+     right before and right after each `review-plan` or `run` invocation (a run that pauses
+     for the owner's decisions or for limits gets a pair around each part), with the
+     assistant otherwise idle. Bands come only from marked pairs: unmarked readings, which
+     can include the host assistant's own use of the same account, no longer calibrate. An
+     account with no marked pair is "uncalibrated" and shows tokens and time only.
   2. `approve` keeps the estimate it showed (per account and limit) in the run's state.
-  3. `vesper --project RUN usage check` compares, per account and limit, the rise between
-     the run's marked readings with that kept estimate: inside, below or above, where a
-     reading within one reading step (1 point) of the band counts as inside because
-     readings are whole points. `status` of a complete run shows the result once both
-     readings exist.
+  3. `vesper --project RUN usage check` compares, per account and limit, the run's observed
+     rise (the sum over its marked pairs) with that kept estimate: inside, below or above,
+     where a rise within one reading step (1 point) of the band counts as inside because
+     readings are whole points. A run whose kept estimate had no band, or with a part not
+     bracketed by marked readings, is reported as unchecked. `status` of a complete run
+     shows the result once its readings exist.
   4. `docs/USAGE.md` says how to take marked readings for every account a run uses
-     (Claude: `/usage`; ChatGPT: Codex `/status`).
+     (Claude: `/usage`; ChatGPT: Codex `/status`; `usage record --account chatgpt` already
+     exists).
 - **Do not:** add dollar figures; change the reserve rule or the pause before a job (P2-T4).
-- **Acceptance:** tests with synthetic ledgers: a marked pair calibrates and an estimate
-  that uses unmarked pairs says so; the approval keeps the estimate; `usage check` reports
-  inside for a rise one step below the band and outside for two steps below; a run with
-  no marked readings is reported as unchecked.
+- **Acceptance:** tests with synthetic ledgers: a marked pair calibrates and unmarked pairs
+  never do (an account with only unmarked readings is uncalibrated); a paused run's two
+  marked parts are summed; the approval keeps the estimate; `usage check` reports inside
+  for a rise one step below the band and outside for two steps below; a run with an
+  unbracketed part, or approved without a band, is reported as unchecked.
 
