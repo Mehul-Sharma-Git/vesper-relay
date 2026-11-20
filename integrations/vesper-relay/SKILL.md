@@ -34,20 +34,27 @@ implementation details within the approved plan.
    `"team": 1` and give each job one `frontend` or `backend` writer with its
    compatible skills, paths, dependencies, and check IDs. Use applicable
    approved local guidance from `plan/intake.json` within the user's authority.
-4. Obtain independent `review-plan` critique for full and focused routes.
-   Resolve blockers, then run `vesper --project PATH review` and show the concrete plan and digest.
-   Approve that exact digest only when the user authorizes it. No product
-   changes before approval.
+4. Obtain independent `review-plan` critique for full and focused routes. A
+   critique supplied as `review-plan --report FILE --attest-independent` needs
+   the user to confirm that it came from a separate reviewer session.
+   Resolve blockers, then run `vesper --project PATH review` and show the user
+   the plan sheet it prints. When the user authorizes it, run
+   `approve --digest DIGEST` and tell the user to confirm it: in their own
+   terminal (type the code it shows) or in the macOS dialog that opens. Approval
+   is human-only; never answer a confirmation yourself or set
+   VESPER_TEST_CONFIRMER. No product changes before approval.
 5. Default to supervised jobs. Run `prepare`, read the returned brief, edit the
    returned work copy within scope, and `submit ATTEMPT_ID`. When the candidate
    is `awaiting_review`, use `review-candidate` with the selected reviewer
    provider and execution boundary. Alternatively, open the returned review copy
    in an independent session. Give it `review.md` and ask for JSON saved outside
-   that copy, then use `review-candidate --report FILE --attest-independent`.
-   A writing session must never attest to its own review. Repeat for ready
+   that copy, then use `review-candidate --report FILE --attest-independent`;
+   the user confirms the attestation. A writing session must never attest to its
+   own review. Repeat for ready
    jobs. `run` can start the writer and reviewer automatically when configured.
 6. For Git work, run `review-change` and inspect `patch`. Show the findings
-   and the exact patch digest. Apply only if authorized. For a new website use
+   and the exact patch digest. Apply only if authorized; the user confirms the
+   apply on its sheet. For a new website use
    `export`. Applying affects the working tree; commit or publish only when
    separately authorized.
 7. Use `incidents` to classify failures and `learn` to inspect verified local
@@ -55,7 +62,8 @@ implementation details within the approved plan.
    trusted minimal reproducer, scope the `repair` plan to Vesper files, and
    show the digest. An authorized `repair-run` with a confined launcher can
    reproduce, fix, verify, independently review, and commit to a local Vesper
-   repair branch. Use `vesper root` to locate the installed checkout and read
+   repair branch; the user confirms the repair plan, and with `--commit` the
+   commit as well. `repair-commit` asks the user to confirm the commit. Use `vesper root` to locate the installed checkout and read
    its `docs/RC1.md` for the source repair flow.
 
 Core subcommands use `vesper --project PATH SUBCOMMAND`. Use the current

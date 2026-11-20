@@ -13,6 +13,7 @@ from builder.contracts import inventory
 from builder.runner import execute_command_check
 
 import test_builder
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 GO_MOD = "module example.com/calc\n\ngo 1.21\n"
 GO_BROKEN = "package calc\n\nfunc Add(a, b int) int { return a - b }\n"
@@ -146,13 +147,13 @@ class CommandGateTests(unittest.TestCase):
         (self.project / "checks" / "qa").mkdir()
         (self.project / "checks" / "qa" / "probe.txt").write_text("qa")
         self.single_job({"command": ["go", "test", "./..."]}, ["first.txt"])
-        digests = {self.command("review")["digest"]}
+        digests = {self.command("review", "--json")["digest"]}
         self.single_job({"command": ["go", "test", "./pkg"]}, ["first.txt"])
-        digests.add(self.command("review")["digest"])
+        digests.add(self.command("review", "--json")["digest"])
         self.single_job({"command": ["go", "test", "./pkg"], "overlay": {"from": "qa", "to": "."}}, ["first.txt"])
-        digests.add(self.command("review")["digest"])
+        digests.add(self.command("review", "--json")["digest"])
         (self.project / "checks" / "qa" / "probe.txt").write_text("changed")
-        digests.add(self.command("review")["digest"])
+        digests.add(self.command("review", "--json")["digest"])
         self.assertEqual(len(digests), 4)
 
 

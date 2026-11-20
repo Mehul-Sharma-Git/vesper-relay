@@ -15,7 +15,9 @@ def replay(destination):
     destination.mkdir(parents=True, exist_ok=False)
     repo = destination / "stockroom-site"
     shutil.copytree(ROOT / "examples" / "stockroom-app", repo)
-    env = dict(os.environ, VESPER_STATE_DIR=str(destination / "vesper-state"))
+    # A replay has no person at hand: protected actions go to the test-only stand-in (P2-T2).
+    env = dict(os.environ, VESPER_STATE_DIR=str(destination / "vesper-state"),
+               VESPER_TEST_CONFIRMER=str(Path(__file__).resolve().parent / "stand_in_confirmer.py"))
     server = repo / "server.py"
     correct = server.read_text()
     original = "if key in filters:"
@@ -67,7 +69,7 @@ def replay(destination):
         "impact": dict.fromkeys(("new_system", "data", "security", "integrations", "deployment", "cross_layer"), False),
         "authors": ["fixture-planner"], "existing_design": "architecture.md",
         "rationale": "Restore the existing parameterized filter; no new state or interface."}))
-    run("approve", "--digest", run("review")["digest"])
+    run("approve", "--digest", run("review", "--json")["digest"])
     initial = run("prepare")
     rejected = run("submit", initial["id"], "--sandbox", "none", code=1)
     assert rejected["checks"][0]["exit_code"] != 0

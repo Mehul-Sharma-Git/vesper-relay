@@ -82,7 +82,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init").add_argument("--idea", required=True)
     commands.add_parser("brief")
-    commands.add_parser("review")
+    commands.add_parser("review").add_argument(
+        "--json", action="store_true", help="Print the review bundle as JSON for tools (default: the plan sheet)")
     commands.add_parser("approve").add_argument("--digest", required=True)
     commands.add_parser("prepare")
     submit = commands.add_parser("submit")
@@ -113,6 +114,9 @@ def main():
         elif args.command == "brief":
             guide = Path(__file__).resolve().parent / "docs" / "PLANNER.md"
             print(f"Project: {root}\nIdea: {root / 'plan' / 'idea.md'}\n\n" + guide.read_text())
+            return 0
+        elif args.command == "review" and not args.json:
+            print(engine.review_sheet(), end="")
             return 0
         elif args.command in {"status", "review"}:
             result = getattr(engine, args.command)()

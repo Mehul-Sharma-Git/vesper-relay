@@ -77,9 +77,10 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `backend` as appropriate. Read the returned guide and keep the returned
   project path. Use `vesper runs --repo .` to find an earlier run.
 - **Plan.** Read the committed seed when applicable. Fill in the planning
-  packet and independent checks. Run `vesper --project PATH review` and show the
-  proposed scope, evidence, and digest. Run
-  `vesper --project PATH approve --digest DIGEST` only after authorization.
+  packet and independent checks. Run `vesper --project PATH review` to print the
+  plain-language approval sheet (`review --json` gives the raw bundle for tools). Run
+  `vesper --project PATH approve --digest DIGEST` only after authorization; the owner
+  then confirms it (see Approvals).
 - **Execute.** Run `vesper --project PATH prepare`, read the returned job brief,
   and edit only its work copy within the assigned scope. Run
   `vesper --project PATH submit ATTEMPT_ID` to run the approved checks, then
@@ -89,6 +90,19 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   diff and digest. Use `apply --digest DIGEST` only after approval. For a new
   site, use `export NEW_DIRECTORY`. Report evidence that passed and any
   behaviors still needing verification.
+- **Approvals.** Approving a plan, applying a patch, committing a repair and
+  attesting that a report came from an independent reviewer are human-only. Each
+  shows a plain-language sheet (what is delivered or changed, each promise and its
+  gate, what each job may change, the critique or review verdict, what changed since
+  the last confirmation, and the short digest) and runs only after a person confirms.
+  `[approvals] confirmer` in the personal config chooses how: `tty` (default) prints
+  the sheet in a terminal and asks you to type back a short code, and refuses when
+  standard input is not a terminal, so an assistant's tool call cannot confirm;
+  `macos-dialog` shows a short form in a native dialog with a "Show full sheet"
+  button. An assistant runs the command and asks you to confirm. Both make approval
+  a deliberate human act; neither is authentication against software that controls
+  your machine. `VESPER_TEST_CONFIRMER` names a test-only stand-in for automated
+  tests; `vesper doctor` warns whenever it is set.
 - **Learn.** Verified Vesper runs record typed local signals automatically.
   Use `vesper learn` to see proposals and `vesper --project PATH incidents` to
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and

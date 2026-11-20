@@ -25,6 +25,7 @@ from builder.sandbox import (Docker, Job, Podman, Sandbox, agent_job, backend, c
 
 import test_rc1
 from test_rc1 import verdict
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 
 ID = "f" * 64  # an engine's full image ID (Docker adds "sha256:", Podman does not)

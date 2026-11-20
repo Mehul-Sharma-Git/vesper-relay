@@ -90,6 +90,7 @@ server and found real issues (a stale-state path, the CSRF hole, 320 px not cove
 | Performance budgets | Beyond Core Web Vitals: API latency at load, query counts per request, bundle budgets as gates |
 | Infrastructure skills | Cache, queue, CDN/HTTP caching and realtime skills with pass conditions, plus runnable services |
 | Remote connector and service | Local connector is in P5-T1; remote access, service mode and the dashboard come after v1.0 (see appendix C) |
+| Confirmers that authenticate | P2-T2's `tty` and `macos-dialog` confirmers make a protected action a deliberate human act, but an AI controlling the machine could open a pseudo-terminal and type the shown code, or script the dialog. Real authentication (Touch ID through LocalAuthentication, a passkey, or a confirmation on another device) needs more than the standard library; revisit with the connector (P5-T1) and the dashboard |
 
 ## 4. Commit b7da4d1 (17 Nov 2026), made outside this plan
 

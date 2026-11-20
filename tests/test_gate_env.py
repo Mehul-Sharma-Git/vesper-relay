@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 from builder.brains import CREDENTIALS
 
 import test_builder
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 ENV_GATE = ("import json, os, sys\n"
             "from pathlib import Path\n"
@@ -87,13 +88,13 @@ class GateEnvTests(unittest.TestCase):
                 self.assertIn("Invalid gate_env", self.command("review", code=2))
 
     def test_gate_env_is_part_of_the_digest(self):
-        before = self.command("review")["digest"]
+        before = self.command("review", "--json")["digest"]
         self.plan["gate_env"] = ["PLAYWRIGHT_BROWSERS_PATH"]
         self.write_plan()
-        self.assertNotEqual(self.command("review")["digest"], before)
+        self.assertNotEqual(self.command("review", "--json")["digest"], before)
         self.plan["gate_env"] = []
         self.write_plan()
-        self.command("review")
+        self.command("review", "--json")
 
 
 if __name__ == "__main__":

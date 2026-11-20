@@ -10,6 +10,7 @@ from builder.brains import ADAPTERS, Brain
 from builder.contracts import BuilderError
 from builder.runner import Runner
 from builder.team import profile
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 
 def narrow(root):

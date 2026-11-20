@@ -221,6 +221,17 @@ def doctor(config=None, call=True, probe=None, project=None):
     except (BuilderError, OSError, UnicodeError) as exc:
         add("config", FAIL, str(exc), f"Fix the file named above, or run vesper setup to write a new {personal}")
 
+    from .approvals import TEST_CONFIRMER
+    confirmer = values.get("approvals.confirmer", "tty")
+    if probe.environ.get(TEST_CONFIRMER):
+        add("approvals", WARN, f"{TEST_CONFIRMER} is set: protected actions are confirmed by a test stand-in "
+            f"({probe.environ[TEST_CONFIRMER]}), not by you", f"unset {TEST_CONFIRMER}; it is for tests only")
+    elif confirmer == "macos-dialog" and probe.system() != "Darwin":
+        add("approvals", FAIL, "approvals.confirmer is macos-dialog, which needs macOS",
+            '[approvals] confirmer = "tty" in the config')
+    else:
+        add("approvals", OK, f"approvals are confirmed by you through {confirmer}")
+
     system, backend = probe.system(), values.get("sandbox.backend", "docker")
     tag, program, engine = image_tag(), None, None
     if backend == "none":

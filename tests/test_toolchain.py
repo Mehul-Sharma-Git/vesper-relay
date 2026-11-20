@@ -14,6 +14,7 @@ from builder.git_bridge import change
 from builder.runner import Runner
 
 import test_builder
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 IGNORE = ["node_modules", "dist", ".pnpm-store", "test-results", ".turbo"]
 
