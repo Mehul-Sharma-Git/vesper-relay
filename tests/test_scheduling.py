@@ -200,6 +200,21 @@ class SchedulingTests(unittest.TestCase):
         self.assertEqual(result["pause"]["last_reading"], 70)
         self.assertEqual(self.calls(), [])
 
+    def test_calls_after_the_earliest_possible_reset_still_count(self):
+        # Review round 3: the window holding the reading ended somewhere between P + 5 h and
+        # R + 5 h. J1 ran after the earliest end, so it may be in the current window: a resume
+        # past R + 5 h must still count it and pause before J2.
+        self.reading(session=90, ago=timedelta(hours=9))
+        self.reading(session=5, ago=timedelta(hours=4, minutes=1))
+        self.control(60000)
+        pause = self.run_jobs()["pause"]
+        self.assertEqual(pause["job"], "J2")
+        result = self.run_jobs(start_after=pause["start_after"])
+        self.assertEqual((result["status"], result["pause"]["job"]), ("paused_for_limits", "J2"))
+        self.assertEqual(result["pause"]["last_reading"], 0)
+        self.assertGreater(result["pause"]["used_since"], 30)
+        self.assertEqual(self.calls(), ["J1"])
+
     def test_never_interrupts_a_running_job(self):
         # J1's first attempt fails and pushes usage over the line; its retry still runs, and the
         # pause comes only before J2.

@@ -320,11 +320,14 @@ def next_reset(rows, account, limit, now):
 
 
 def certain_reset(rows, account, limit, reading, now):
-    """When the window holding `reading` certainly reset by `now`, the time it reset by; else None.
+    """When the window holding `reading` certainly reset by `now`: the earliest it could have
+    reset (count usage from there); else None.
 
     Windows start at first use, so a reset is only certain inside the window that began at the
-    last recorded drop (between P, the reading before the drop, and R, the reading that showed
-    it): that window ends by R + window. The last reading must fall in it (before P + window)."""
+    last recorded drop, between P (the reading before the drop) and R (the reading that showed
+    it). That window ended somewhere in (P + window, R + window]: it has certainly ended once now
+    is past R + window, and the last reading must fall in it (before P + window). Usage counts from
+    P + window, the earliest end, so calls after it are never dropped (round-3 review)."""
     readings = sorted((row for row in rows if row.get("kind") == "reading" and row["account"] == account),
                       key=lambda row: row["at"])
     drops = [(earlier, later) for earlier, later in zip(readings, readings[1:]) if later[limit] < earlier[limit]]
@@ -332,9 +335,9 @@ def certain_reset(rows, account, limit, reading, now):
         return None
     before, after = drops[-1]
     window = WINDOWS[limit]
-    ends = parse_time(after["at"]) + window
-    if parse_time(reading["at"]) < parse_time(before["at"]) + window and ends <= now:
-        return ends
+    earliest, latest = parse_time(before["at"]) + window, parse_time(after["at"]) + window
+    if parse_time(reading["at"]) < earliest and latest <= now:
+        return earliest
     return None
 
 
