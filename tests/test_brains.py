@@ -33,6 +33,9 @@ with open(Path(sys.argv[0]).parent.parent / 'calls.jsonl', 'a') as calls:
 if not Path('review.json').is_file():
     assert 'Fix spinner' in prompt
     Path('app.js').write_text('export const loading = false;\\n')
+    if NAME == 'claude' and '--output-format' in argv:
+        print(json.dumps({'type': 'result', 'result': 'Fixed the spinner.', 'usage': {'input_tokens': 20,
+                                                                                      'output_tokens': 5}}))
     raise SystemExit(0)
 packet = json.loads(Path('review.json').read_text())
 report = {key: packet[key] for key in ('attempt_id', 'base_digest', 'candidate_digest')}
@@ -244,6 +247,25 @@ class StandInRunTests(unittest.TestCase):
                 self.assertEqual([(call["binary"], call["review"]) for call in calls],
                                  [(binary, False), (binary, True)])
                 self.assertEqual("usage" in attempt["review"], ADAPTERS[name].capabilities.usage_report)
+
+    def test_every_ai_call_is_in_the_usage_ledger(self):
+        # P2-T3: one line per AI call, with tokens when the adapter reports them.
+        self.stand_ins()
+        project, command = self.plan()
+        self.approve(command)
+        self.assertEqual(command("run", "--brain", "claude-code", "--reviewer-brain", "codex",
+                                 "--trust-host")["status"], "complete")
+        ledger = Path(self.env["VESPER_STATE_DIR"]) / "usage.jsonl"
+        calls = [json.loads(line) for line in ledger.read_text().splitlines()]
+        self.assertEqual([(call["kind"], call["role"], call["adapter"], call["account"], call["tokens"])
+                          for call in calls],
+                         [("call", "frontend", "claude-code", "claude", 25), ("call", "reviewer", "codex",
+                                                                              "chatgpt", None)])
+        for call in calls:
+            self.assertEqual((call["run"], call["job"]), (str(project.resolve()), "J1"))
+            self.assertLessEqual(call["start"], call["end"])
+        worker = self.calls_made()[0]
+        self.assertEqual(worker["argv"][worker["argv"].index("--output-format") + 1], "json")
 
     def test_a_different_reviewer_brain_also_completes(self):
         self.stand_ins()
