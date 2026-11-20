@@ -225,6 +225,24 @@ def launch(brain, operation, launcher, trust_host, *, work, input_text, log, tim
 REPLY_LIMIT = 4_000_000  # read no more than this to find a usage block
 
 
+def read_end(path, limit):
+    """The last ``limit`` bytes of a file as text: a long event log keeps its final turns."""
+    with open(path, "rb") as file:
+        file.seek(max(0, os.fstat(file.fileno()).st_size - limit))
+        return file.read().decode("utf-8", errors="replace")
+
+
+def reply_path(brain, response, log, launcher=None):
+    """Where a call's reply is: the reply file it wrote, else its log, unless the adapter's log
+    is not its reply (an event stream, P2-T10); then None: the call gave no reply. An external
+    launcher builds its own command and gets no reply file, so its log is always the reply."""
+    from ..sandbox import Sandbox
+    if response is not None and Path(response).is_file():
+        return Path(response)
+    external = bool(launcher) and not isinstance(launcher, Sandbox)
+    return Path(log) if external or brain.adapter.reply_in_log else None
+
+
 def note_call(brain, ledger, start, response, log):
     """Add one AI call to the usage ledger; a ledger problem never fails the call."""
     from ..usage import now, record_call
@@ -232,9 +250,9 @@ def note_call(brain, ledger, start, response, log):
     counts = None
     try:
         for path in (response, log):
-            if path is not None and Path(path).is_file() and not Path(path).is_symlink() \
-                    and Path(path).stat().st_size <= REPLY_LIMIT:
-                counts = usage(brain, Path(path).read_text(encoding="utf-8", errors="replace"))
+            if path is not None and Path(path).is_file() and not Path(path).is_symlink():
+                # A log over the limit is read from its end, where the last turns' usage is.
+                counts = usage(brain, read_end(path, REPLY_LIMIT))
                 if counts:
                     break
         record_call(run=ledger.get("run"), job=ledger.get("job"), role=ledger.get("role"), brain=brain,
@@ -282,5 +300,5 @@ def usage(brain, text):
 
 
 __all__ = ["ADAPTERS", "Brain", "Capabilities", "CREDENTIALS", "LEGACY", "Selection", "arguments", "brain",
-           "command", "environment", "job", "launch", "legacy", "load_settings", "parse_result", "resolve",
-           "tools", "usage"]
+           "command", "environment", "job", "launch", "legacy", "load_settings", "parse_result", "reply_path",
+           "resolve", "tools", "usage"]

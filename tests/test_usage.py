@@ -120,6 +120,39 @@ class LedgerTests(unittest.TestCase):
                    input_text="", log=Path(work) / "log", timeout=5, ledger={"run": "r", "job": "J", "role": "x"})
         self.assertEqual(usage.entries(), [])
 
+    def codex_call(self, run, log_text):
+        from builder.brains import note_call
+        log = Path(run).parent / "codex.log"
+        log.write_text(log_text)
+        note_call(Brain("reviewer", ADAPTERS["codex"]), {"run": run, "job": "J1", "role": "reviewer"},
+                  usage.now(), None, log)
+
+    def test_a_marked_pair_around_a_codex_call_calibrates_chatgpt(self):
+        # P2-T10 (finding 57): Codex calls carry tokens from their event log, so the pair counts.
+        from test_brains import CODEX_EVENTS, CODEX_TOKENS
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder) / "run"
+            (run / "plan").mkdir(parents=True)
+            usage.record_reading("chatgpt", 10, 20, before=run)
+            self.codex_call(run, CODEX_EVENTS)
+            usage.record_reading("chatgpt", 13, 20.3, after=run)
+            call = [row for row in usage.entries() if row["kind"] == "call"][0]
+            self.assertEqual((call["account"], call["tokens"]), ("chatgpt", CODEX_TOKENS))
+            sample, = usage.calibrate(usage.entries())[("chatgpt", None)]
+            self.assertEqual(sample["tokens"], CODEX_TOKENS)
+            self.assertAlmostEqual(sample["session"], 3 / (CODEX_TOKENS / 1000))
+
+    def test_a_long_codex_event_log_is_read_from_its_end(self):
+        from test_brains import CODEX_EVENTS
+        filler = '{"type":"item.completed","item":{"id":"x","type":"command_execution","aggregated_output":"%s"}}\n'
+        with tempfile.TemporaryDirectory() as folder, mock.patch("builder.brains.REPLY_LIMIT", 4000):
+            run = Path(folder) / "run"
+            (run / "plan").mkdir(parents=True)
+            second = CODEX_EVENTS.rindex('{"type":"turn.started"}')
+            self.codex_call(run, CODEX_EVENTS[:second] + filler % ("y" * 9000) + CODEX_EVENTS[second:])
+            call, = usage.entries()
+            self.assertEqual(call["tokens"], 1500 + 60)  # the last turn, within the limit, not None
+
     def test_marked_readings_name_a_run_folder(self):
         from builder.contracts import BuilderError
         with tempfile.TemporaryDirectory() as folder:

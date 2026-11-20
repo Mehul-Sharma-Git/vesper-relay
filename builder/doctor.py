@@ -116,7 +116,7 @@ class Probe:
 
     def dry_call(self, brain, backend):
         """A tiny consultation through the real launch path; returns (exit status, output)."""
-        from .brains import launch
+        from .brains import launch, reply_path
         from .sandbox import backend as sandbox
         engine = sandbox(backend).check() if backend != "none" else None
         place = self.state()
@@ -128,7 +128,10 @@ class Probe:
             log, response = directory / "call.log", directory / "response.md"
             code = launch(brain, "consult", engine, engine is None, work=work, input_text=DRY_PROMPT, log=log,
                           timeout=DRY_TIMEOUT, response=response, max_turns=2)
-            reply = response if response.is_file() else log
+            reply = reply_path(brain, response, log, engine)  # never an event-stream log (P2-T10)
+            if reply is None:  # no reply; a failed call still shows why
+                return code, "" if code == 0 or not log.is_file() else brain.adapter.summary(
+                    log.read_text(encoding="utf-8", errors="replace"))
             return code, reply.read_text(encoding="utf-8", errors="replace") if reply.is_file() else ""
 
 

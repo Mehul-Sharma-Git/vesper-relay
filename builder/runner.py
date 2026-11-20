@@ -15,7 +15,8 @@ from .amendments import package as checks_package  # the approved checks plus an
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract, safe_path)
 from .process import run_process
-from .brains import command as brain_command, launch, parse_result, tools as brain_tools, usage
+from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
+    tools as brain_tools, usage
 from .providers import GATES_DIR, review_limits, worker_prompt
 from .review_gate import (needs_security, prompt as review_prompt, report_schema, touched_code, validate_report,
                           write_diff)
@@ -870,13 +871,19 @@ class Runner:
                               ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"})
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
-                output = response if response.is_file() else log
+                # An adapter whose log is an event stream has no reply without the file (P2-T10).
+                output = reply_path(brain, response, log, launcher)
+                require(output is not None, f"Reviewer brain {brain.name} wrote no reply file. "
+                        "Tested candidate remains pending.")
                 require(not output.is_symlink() and output.stat().st_size <= 256_000,
                         "Reviewer output was linked or exceeded the report limit")
                 reply = output.read_text(encoding="utf-8")
                 report = parse_result(brain, reply)
                 launched = {"provider": brain.name, "adapter": brain.adapter.name}
-                spent = usage(brain, reply)
+                # The reply carries the usage, or else the call's log does (an event stream, P2-T10).
+                spent = usage(brain, reply) or (usage(brain, read_tail(log, limit=REPLY_LIMIT))
+                                                if output != log and log.is_file() and not log.is_symlink()
+                                                else None)
                 if spent:
                     launched["usage"] = spent
         require(len(json.dumps(report)) <= 256_000, "Reviewer output exceeded the report limit")

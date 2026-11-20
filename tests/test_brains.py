@@ -20,22 +20,54 @@ CAPABILITIES = {"edit_files", "run_shell", "strict_output", "model_select", "eff
 BINARIES = {"claude-code": "claude", "codex": "codex", "gemini-cli": "gemini"}
 EVIDENCE = ("requirements", "correctness", "scope", "tests", "maintainability", "security")
 
+# A `codex exec --json` log as the runner keeps it (P2-T10): stdout's JSONL events with the
+# image's stderr lines mixed in (the log holds both). Field names are codex-cli 0.170.0's
+# exec events. Two turns: 1200 + 1500 input tokens (800 and 1100 of them cached) and
+# 90 + 60 output tokens (reasoning tokens are part of the output count).
+CODEX_WARNING = ("WARNING: proceeding, even though we could not create PATH aliases: "
+                 "Permission denied (os error 13)")
+CODEX_EVENTS = "\n".join([
+    CODEX_WARNING,
+    '{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}',
+    '{"type":"turn.started"}',
+    '{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**Reading the packet**"}}',
+    '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls",'
+    '"aggregated_output":"review.json\\n","exit_code":0,"status":"completed"}}',
+    "2026-11-21T09:14:03.120Z WARN codex_core::exec: shell snapshot unavailable",
+    '{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Read the diff and the gate."}}',
+    '{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":800,"output_tokens":90,'
+    '"reasoning_output_tokens":40}}',
+    '{"type":"turn.started"}',
+    '{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"All checks hold."}}',
+    '{"type":"turn.completed","usage":{"input_tokens":1500,"cached_input_tokens":1100,'
+    '"cache_write_input_tokens":0,"output_tokens":60,"reasoning_output_tokens":20}}',
+]) + "\n"
+CODEX_TOKENS = 1200 + 1500 + 90 + 60  # cached input is inside the input count
+
 # One stand-in for every agent CLI. As a worker it fixes the spinner; as a reviewer (its
 # working directory holds review.json) it approves in the adapter's own output format.
+# Codex prints its event stream when given --json. Marker files next to calls.jsonl make the
+# Codex worker fail (codex-worker-fails) or the Codex reviewer skip its reply file
+# (codex-no-reply-file), printing the report into its log instead.
 STAND_IN = """
 import json, sys
 from pathlib import Path
 NAME = Path(sys.argv[0]).name
+HERE = Path(sys.argv[0]).parent.parent
 argv = sys.argv[1:]
 prompt = sys.stdin.read()
-with open(Path(sys.argv[0]).parent.parent / 'calls.jsonl', 'a') as calls:
+with open(HERE / 'calls.jsonl', 'a') as calls:
     calls.write(json.dumps({'binary': NAME, 'argv': argv, 'review': Path('review.json').is_file()}) + '\\n')
+if NAME == 'codex' and '--json' in argv:
+    sys.stdout.write(%r)
 if not Path('review.json').is_file():
     assert 'Fix spinner' in prompt
     Path('app.js').write_text('export const loading = false;\\n')
     if NAME == 'claude' and '--output-format' in argv:
         print(json.dumps({'type': 'result', 'result': 'Fixed the spinner.', 'usage': {'input_tokens': 20,
                                                                                       'output_tokens': 5}}))
+    if NAME == 'codex' and (HERE / 'codex-worker-fails').exists():
+        raise SystemExit(1)
     raise SystemExit(0)
 packet = json.loads(Path('review.json').read_text())
 report = {key: packet[key] for key in ('attempt_id', 'base_digest', 'candidate_digest')}
@@ -45,12 +77,14 @@ text = json.dumps(report)
 if NAME == 'claude':
     print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': text,
                       'usage': {'input_tokens': 11, 'output_tokens': 7}, 'total_cost_usd': 0.5}))
+elif NAME == 'codex' and (HERE / 'codex-no-reply-file').exists():
+    print(text)
 elif NAME == 'codex':
     Path(argv[argv.index('--output-last-message') + 1]).write_text(text)
 else:
     print(json.dumps({'response': 'Review done.\\n```json\\n' + text + '\\n```',
                       'stats': {'models': {'gemini-2.5-pro': {'tokens': {'prompt': 9, 'candidates': 4}}}}}))
-""" % (EVIDENCE,)
+""" % (CODEX_EVENTS, EVIDENCE)
 
 
 class AdapterTests(unittest.TestCase):
@@ -162,6 +196,39 @@ class AdapterTests(unittest.TestCase):
                          {"gemini-2.5-pro": {"prompt": 5, "candidates": 1}})
         self.assertIsNone(usage(Brain("codex", ADAPTERS["codex"]), text))
 
+    def test_codex_streams_events_and_keeps_its_reply_file(self):
+        # P2-T10: --json puts the event stream (with token counts) on stdout; the reply still
+        # arrives through --output-last-message, so decoding is unchanged.
+        for operation in ("worker", "reviewer", "consult"):
+            with self.subTest(operation=operation):
+                argv = self.build("codex", operation, response=None if operation == "worker" else "/out/r.json")
+                self.assertIn("--json", argv)
+                self.assertEqual(argv[-1], "-")
+                if operation != "worker":
+                    self.assertEqual(argv[argv.index("--output-last-message") + 1], "/out/r.json")
+        self.assertTrue(ADAPTERS["codex"].capabilities.usage_report)
+
+    def test_codex_usage_sums_every_turn_of_its_event_log(self):
+        from builder.usage import total_tokens
+        codex = Brain("codex", ADAPTERS["codex"])
+        counts = usage(codex, CODEX_EVENTS)
+        self.assertEqual(counts, {"input_tokens": 2700, "output_tokens": 150})
+        self.assertEqual(total_tokens(counts), CODEX_TOKENS)  # cached input counted once
+        self.assertIsNone(usage(codex, "Plain text, no events.\n" + json.dumps({"verdict": "approve"})))
+        no_usage = "\n".join(line for line in CODEX_EVENTS.splitlines() if "turn.completed" not in line)
+        no_usage += '\n{"type":"turn.failed","error":{"message":"stream disconnected"}}\n'
+        self.assertIsNone(usage(codex, no_usage))
+
+    def test_codex_summary_keeps_messages_not_raw_events(self):
+        said = ADAPTERS["codex"].summary(CODEX_EVENTS + '{"type":"error","message":"Reconnecting... 1/5"}\n')
+        for text in ("Read the diff and the gate.", "All checks hold.", "Reconnecting... 1/5", CODEX_WARNING):
+            self.assertIn(text, said)
+        self.assertNotIn('"type"', said)
+        self.assertNotIn("Reading the packet", said)  # reasoning is not a message
+        # A tail read can start inside an event: the cut-off fragment is dropped too.
+        self.assertNotIn("usage", ADAPTERS["codex"].summary(CODEX_EVENTS[CODEX_EVENTS.index("turn.completed") - 3:]))
+        self.assertEqual(ADAPTERS["codex"].summary("Error: not logged in"), "Error: not logged in")
+
     def test_gemini_envelope_is_unwrapped_inside_a_noisy_log(self):
         # The reviewer log merges stdout and stderr, so lines may surround the envelope.
         report = {"verdict": "approve", "summary": "ok"}
@@ -260,12 +327,41 @@ class StandInRunTests(unittest.TestCase):
         self.assertEqual([(call["kind"], call["role"], call["adapter"], call["account"], call["tokens"])
                           for call in calls],
                          [("call", "frontend", "claude-code", "claude", 25), ("call", "reviewer", "codex",
-                                                                              "chatgpt", None)])
+                                                                              "chatgpt", CODEX_TOKENS)])
+        # P2-T10: Codex's tokens come from its event log; cached input is not added again.
+        self.assertEqual(calls[1]["token_detail"], {"input_tokens": 2700, "output_tokens": 150})
         for call in calls:
             self.assertEqual((call["run"], call["job"]), (str(project.resolve()), "J1"))
             self.assertLessEqual(call["start"], call["end"])
-        worker = self.calls_made()[0]
+        worker, reviewer = self.calls_made()
         self.assertEqual(worker["argv"][worker["argv"].index("--output-format") + 1], "json")
+        self.assertIn("--json", reviewer["argv"])
+
+    def test_a_failed_codex_workers_reason_shows_its_messages(self):
+        self.stand_ins()
+        (self.root / "codex-worker-fails").write_text("")
+        _, command = self.plan()
+        self.approve(command)
+        command("run", "--brain", "codex", "--trust-host", code=1)
+        attempt = command("status", code=1)["attempts"][-1]
+        self.assertEqual(attempt["outcome"], "worker_failed")
+        self.assertIn("exited 1", attempt["reason"])
+        self.assertIn("All checks hold.", attempt["reason"])
+        self.assertNotIn('"type"', attempt["reason"])
+        self.assertNotIn("turn.completed", attempt["reason"])
+
+    def test_a_codex_reviewer_without_a_reply_file_is_not_decoded_from_its_log(self):
+        # The log holds the event stream (and here even a valid report): it is never the reply.
+        self.stand_ins()
+        (self.root / "codex-no-reply-file").write_text("")
+        _, command = self.plan()
+        self.approve(command)
+        self.assertIn("wrote no reply", command("run", "--brain", "claude-code", "--reviewer-brain", "codex",
+                                                "--trust-host", code=2))
+        status = command("status")
+        self.assertEqual(status["status"], "awaiting_review")  # the tested candidate stays pending
+        self.assertNotIn("verdict", status["active"]["review"])
+        self.assertEqual(status["attempts"], [])
 
     def test_a_different_reviewer_brain_also_completes(self):
         self.stand_ins()
