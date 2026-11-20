@@ -100,7 +100,10 @@ class SchedulingTests(unittest.TestCase):
         (bin_dir / "claude").write_text(f"#!{sys.executable}\n" + WORKER)
         (bin_dir / "claude").chmod(0o700)
         config = self.root / "config.toml"
-        config.write_text('[sandbox]\nbackend = "none"\n[limits]\nreserve_percent = 25\n')
+        # The roles name the brain `run` uses, so the approval's estimate covers it (P2-T9).
+        config.write_text('[sandbox]\nbackend = "none"\n[limits]\nreserve_percent = 25\n'
+                          '[brains.strong]\nuse = "claude-code"\n'
+                          '[roles]\nbackend = "strong"\nfrontend = "strong"\n')
         environ = mock.patch.dict(os.environ, {
             "VESPER_STATE_DIR": str(self.root / "state"), "VESPER_CONFIG": str(config),
             "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]})
@@ -122,11 +125,12 @@ class SchedulingTests(unittest.TestCase):
                       "depends_on": [], "checks": ["G1"], "max_attempts": 2},
                      {"id": "J2", "role": "frontend", "goal": "write second", "paths": ["second.txt"],
                       "depends_on": ["J1"], "checks": ["G2"], "max_attempts": 2}]}))
-        self.runner = Runner(self.project)
-        self.runner.approve(self.runner.review()["digest"])
         # Calibration: 0.5% of the session per 1k tokens, give or take; history has 4-9k-token calls.
+        # It is logged before approval, so the approval keeps a calibrated estimate (P2-T9).
         for row in shifted(test_usage.synthetic(6, model=None), days=-10):
             usage.append(row)
+        self.runner = Runner(self.project)
+        self.runner.approve(self.runner.review()["digest"])
         self.clock = Clock()
         self.control(1000)
 

@@ -129,17 +129,35 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `~/.local/state/vesper-relay/usage.jsonl` (run, job, role, brain, model, start, end,
   and tokens when the AI reports them). Estimates are in % of your plan's session and
   weekly limits and wall time, never dollars. Vendors don't publish exact plan numbers,
-  so Vesper learns from your runs: before and after a run, log what your plan shows
-  with `vesper usage record --account claude --session 42 --week 13` (accounts:
-  `claude`, `chatgpt`, `gemini`). `vesper --project PATH estimate` (and the plan sheet
-  from `review`) then shows jobs, AI calls, tokens, wall time, session and weekly % per
-  account as a low–high band, sessions needed with your reserve
+  so Vesper learns from your runs. Log what your plan shows with
+  `vesper usage record --account claude --session 42 --week 13` (accounts:
+  `claude`, `chatgpt`, `gemini`), and mark the readings that bracket Vesper's own
+  work: `--before PATH` right before each `review-plan` or `run` on that run, and
+  `--after PATH` right after it, with your assistant otherwise idle, so the readings
+  count only Vesper's calls. A run that pauses (for your decision or for limits) gets
+  a pair around each part. Take a pair for every account the run uses:
+  - Claude: type `/usage` in Claude Code and read the current session and weekly %;
+  - ChatGPT (Codex workers or reviewer): type `/status` in Codex and read the 5-hour
+    and weekly % used, then `vesper usage record --account chatgpt ...`.
+
+  Only marked pairs calibrate; an unmarked reading, which may include the assistant's
+  own use of the same account, never does. `vesper --project PATH estimate` (and the
+  plan sheet from `review`) then shows jobs, AI calls, tokens, wall time, session and
+  weekly % per account as a low–high band, sessions needed with your reserve
   (`[limits] reserve_percent`), and a confidence level, low until 5 calibrated runs.
-  Before any readings it says "uncalibrated" and shows tokens and time only. Before
-  each job `run` checks the last reading, the usage since it and the job's estimate
-  against your reserve; if the job could cross it, `run` stops before that job (never
-  during one) with status `paused_for_limits` and exit code 3, says when the window
-  should reset, and continues from the accepted work when you run it again.
+  An account with no marked pair says "uncalibrated" and shows tokens and time only.
+  `approve` keeps the estimate the plan was approved on, and
+  `vesper --project PATH usage check` compares it, per account and limit, with the
+  run's observed rise after approval (the sum of its marked pairs since `approve`;
+  pairs around `review-plan` calibrate but are not compared): `inside`, `below` or
+  `above` the band, where a rise within one point of the band counts as inside
+  because plan readings are whole points. A run approved without a band, or with a
+  part of its work not bracketed by marked readings, is `unchecked`. `status` of a
+  complete run shows the check once its marked readings exist. Before each job `run`
+  checks the last reading, the usage since it and the job's estimate against your
+  reserve; if the job could cross it, `run` stops before that job (never during one)
+  with status `paused_for_limits` and exit code 3, says when the window should
+  reset, and continues from the accepted work when you run it again.
   `run --start-after HH:MM` waits for that local time first.
 - **Learn.** Verified Vesper runs record typed local signals automatically.
   Use `vesper learn` to see proposals and `vesper --project PATH incidents` to

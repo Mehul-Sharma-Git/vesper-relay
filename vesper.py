@@ -256,6 +256,13 @@ def main():
     reading.add_argument("--account", required=True, help="claude, chatgpt or gemini")
     reading.add_argument("--session", required=True, type=float, help="Current session usage %%")
     reading.add_argument("--week", required=True, type=float, help="Current weekly usage %%")
+    marked = reading.add_mutually_exclusive_group()
+    marked.add_argument("--before", type=Path, metavar="RUN",
+                        help="Taken right before a review-plan or run on RUN, the assistant otherwise idle")
+    marked.add_argument("--after", type=Path, metavar="RUN",
+                        help="Taken right after that review-plan or run on RUN")
+    usage_command.add_parser("check", help="Compare a run's usage after approval with its approved estimate "
+                                           "(needs --project)")
     commands.add_parser("root")
     commands.add_parser("runs").add_argument("--repo", type=Path)
     for name in sorted(CORE):
@@ -342,10 +349,18 @@ def main():
             if code:
                 print(json.dumps(result, indent=2))
                 return 1
+        elif args.command == "usage" and args.action == "check":
+            from builder.usage import check_run, entries
+            require(args.project, "Pass --project PATH before the command")
+            runner = Runner(args.project.resolve())
+            require((runner.root / "plan").is_dir(), f"{runner.root} is not a Vesper run folder")
+            state = runner.state() if runner.state_file.exists() else None
+            result = check_run(runner.root, state, entries())
         elif args.command == "usage":
             from builder.usage import record_reading
             number = lambda value: int(value) if float(value).is_integer() else value
-            result = record_reading(args.account, number(args.session), number(args.week))
+            result = record_reading(args.account, number(args.session), number(args.week),
+                                    before=args.before, after=args.after)
         elif args.command == "root":
             result = {"checkout": str(ROOT)}
         elif args.command == "runs":

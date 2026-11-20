@@ -7,9 +7,15 @@ calibrates from the owner's own runs:
 - every AI call adds a line to ``<state_home>/usage.jsonl`` (run, job, role, brain, adapter,
   model, effort, start, end, and tokens when the adapter reports them);
 - ``vesper usage record --account claude --session 42 --week 13`` adds an observed plan reading;
-- each pair of readings with calls between them gives one sample of "% per 1k tokens" for the
-  account (and for its model when the calls used one model). A session reset between two
-  readings (the % went down) is no sample for that limit.
+  ``--before RUN`` and ``--after RUN`` mark the reading as bracketing one stretch of Vesper's own
+  work on that run (a `review-plan` or `run` invocation), taken with the assistant otherwise idle;
+- each marked pair (a ``before`` reading followed directly by the same run's ``after`` reading)
+  with calls between them gives one sample of "% per 1k tokens" for the account (and for its model
+  when the calls used one model). Unmarked readings, which can include the host assistant's own
+  use of the same account, never calibrate (P2-T9). A session reset between two readings (the %
+  went down) is no sample for that limit;
+- ``vesper --project RUN usage check`` compares a run's observed rise after approval with the
+  estimate ``approve`` kept (P2-T9).
 """
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -97,30 +103,56 @@ def record_call(*, run, job, role, brain, start, end, counts):
                    "tokens": total_tokens(counts), "token_detail": counts or None})
 
 
-def record_reading(account, session, week):
+MARKS = ("before", "after")
+
+
+def record_reading(account, session, week, *, before=None, after=None):
+    """An observed plan reading; ``before``/``after`` name the run folder whose work it brackets."""
     known = sorted(set(ACCOUNTS.values()))
     account = account.strip().lower() if isinstance(account, str) else ""
     require(account in known, "Name the account: claude, chatgpt or gemini")
     for name, value in (("session", session), ("week", week)):
         require(isinstance(value, (int, float)) and 0 <= value <= 100,
                 f"The {name} reading must be a percentage between 0 and 100")
-    return append({"kind": "reading", "account": account, "session": session, "week": week,
-                   "at": now()})
+    require(before is None or after is None, "Mark a reading as before or after a run, not both")
+    entry = {"kind": "reading", "account": account, "session": session, "week": week, "at": now()}
+    run = before if before is not None else after
+    if run is not None:
+        from pathlib import Path
+        folder = Path(run).resolve()
+        require((folder / "plan").is_dir(), f"{folder} is not a Vesper run folder (it has no plan/)")
+        entry.update(mark="before" if before is not None else "after", run=str(folder))
+    return append(entry)
 
 
 # Calibration ---------------------------------------------------------------------------------
 
+def readings_of(rows, account):
+    return sorted((row for row in rows if row.get("kind") == "reading" and row["account"] == account),
+                  key=lambda row: parse_time(row["at"]))
+
+
+def marked_pairs(rows, account):
+    """(before, after) for each marked pair: a ``before`` reading followed directly, with no other
+    reading of the account between, by the same run's ``after`` reading."""
+    readings = readings_of(rows, account)
+    return [(before, after) for before, after in zip(readings, readings[1:])
+            if before.get("mark") == "before" and after.get("mark") == "after"
+            and before.get("run") and before.get("run") == after.get("run")]
+
+
+def inside_window(call, before, after):
+    return parse_time(before["at"]) <= parse_time(call["start"]) and parse_time(call["end"]) <= parse_time(after["at"])
+
+
 def calibrate(rows):
     """{(account, model or None): [{"session": rate or None, "week": rate or None, "tokens": n}]},
-    rates in % per 1k tokens, one sample per pair of consecutive readings with calls between."""
+    rates in % per 1k tokens, one sample per marked pair of readings with calls between (P2-T9)."""
     calls = [row for row in rows if row.get("kind") == "call"]
     samples = {}
     for account in sorted({row["account"] for row in rows if row.get("kind") == "reading"}):
-        readings = sorted((row for row in rows if row.get("kind") == "reading" and row["account"] == account),
-                          key=lambda row: row["at"])
-        for before, after in zip(readings, readings[1:]):
-            window = [call for call in calls if call.get("account") == account
-                      and before["at"] <= call["start"] and call["end"] <= after["at"]]
+        for before, after in marked_pairs(rows, account):
+            window = [call for call in calls if call.get("account") == account and inside_window(call, before, after)]
             if not window or any(not call.get("tokens") for call in window):
                 continue  # nothing ran, or some call's tokens are unknown
             tokens = sum(call["tokens"] for call in window)
@@ -250,7 +282,8 @@ def render(result):
             continue
         if not entry.get("calibrated"):
             lines.append(f"  {account}: {entry['calls'][0]}–{entry['calls'][1]} calls, {size}; uncalibrated "
-                         "(record plan readings with `vesper usage record` before and after runs)")
+                         "(record marked plan readings with `vesper usage record --before RUN` and "
+                         "`--after RUN` around runs)")
             continue
         parts = [f"{account}: {size}"]
         if "session" in entry:
@@ -415,3 +448,97 @@ def limit_check(contract, bundle, job, rows, *, brains, reserve, now):
                                    f"run again after {local:%Y-%m-%d %H:%M} (local time)" if local else
                                    "record a new plan reading once the window has reset, then run again")}, notes
     return None, notes
+
+
+# Checking estimates (P2-T9) ------------------------------------------------------------------
+
+STEP = 1  # plan readings are whole points, so a rise within one point of the band counts as inside
+
+
+def run_key(value):
+    """A run folder as one string, whichever spelling of its path a row used (symlinks resolved)."""
+    from pathlib import Path
+    return str(Path(value).resolve()) if value else None
+
+
+def check_run(run, state, rows):
+    """Compare, per account and limit, a run's observed rise after approval (the sum over its
+    marked pairs taken after `approve`) with the estimate `approve` kept: inside, below, above or
+    unchecked. Pairs around `review-plan` come before approval, so they calibrate but are left out."""
+    run = run_key(run)
+    report = {"run": run, "accounts": {}, "summary": []}
+    approved = (state or {}).get("approved_at")
+    estimate_kept = (state or {}).get("estimate")
+    if not approved:
+        report.update(result="unchecked", reason="the run is not approved yet")
+        report["summary"].append("unchecked: the run is not approved yet")
+        return report
+    if not isinstance(estimate_kept, dict) or "accounts" not in estimate_kept:
+        reason = "the approval kept no estimate" + (f" ({estimate_kept['error']})"
+                                                    if isinstance(estimate_kept, dict) and "error" in estimate_kept
+                                                    else " (approved before estimates were kept)")
+        report.update(result="unchecked", reason=reason)
+        report["summary"].append("unchecked: " + reason)
+        return report
+    since = parse_time(approved)
+    for account, entry in sorted(estimate_kept["accounts"].items()):
+        if account == "unassigned":
+            continue
+        ours = [reading for reading in readings_of(rows, account)
+                if run_key(reading.get("run")) == run and parse_time(reading["at"]) >= since]
+        pairs = [pair for pair in marked_pairs(rows, account)
+                 if run_key(pair[0].get("run")) == run and parse_time(pair[0]["at"]) >= since]
+        paired = {id(reading) for pair in pairs for reading in pair}
+        calls = [row for row in rows if row.get("kind") == "call" and row.get("account") == account
+                 and run_key(row.get("run")) == run and parse_time(row["start"]) >= since]
+        open_part = None
+        if not pairs:
+            open_part = "no marked readings around the run's work after approval"
+        elif any(id(reading) not in paired for reading in ours if reading.get("mark")):
+            open_part = "a marked reading without its partner (a part not bracketed by marked readings)"
+        elif any(not any(inside_window(call, *pair) for pair in pairs) for call in calls):
+            open_part = "a part of the run's work is not bracketed by marked readings"
+        results = report["accounts"][account] = {}
+        for limit in LIMITS:
+            band = entry.get(limit) if isinstance(entry, dict) else None
+            item = {"band": band, "parts": len(pairs)}
+            rises = [after[limit] - before[limit] for before, after in pairs]
+            if pairs and all(rise >= 0 for rise in rises):
+                item["observed"] = round(sum(rises), 2)
+            if not band:
+                item.update(result="unchecked", reason="the estimate approve kept has no band for this account "
+                                                       "(it was uncalibrated)")
+            elif open_part:
+                item.update(result="unchecked", reason=open_part)
+            elif "observed" not in item:
+                item.update(result="unchecked", reason="the window reset inside a bracketed part")
+            else:
+                low, high = band
+                observed = item["observed"]
+                item["result"] = ("below" if observed < low - STEP else "above" if observed > high + STEP
+                                  else "inside")
+            results[limit] = item
+            text = f"{account} {limit}: "
+            if "observed" in item:
+                points = item["observed"]
+                text += (f"rose {points:g} point{'' if points == 1 else 's'} over {len(pairs)} marked "
+                         f"part{'' if len(pairs) == 1 else 's'}")
+            else:
+                text += "no observed rise"
+            if band:
+                text += f"; approved band {band[0]:.1f}–{band[1]:.1f}%"
+            text += f" → {item['result']}" + (f" ({item['reason']})" if "reason" in item else "")
+            report["summary"].append(text)
+    found = [item["result"] for account in report["accounts"].values() for item in account.values()]
+    report["result"] = ("unchecked" if not found else
+                        "outside" if any(value in ("below", "above") for value in found) else
+                        "unchecked" if "unchecked" in found else "inside")
+    return report
+
+
+def has_marked_readings(run, state, rows):
+    """Whether a marked reading for this run was taken after its approval (`status` shows the check)."""
+    approved = (state or {}).get("approved_at")
+    return bool(approved) and any(row.get("kind") == "reading" and row.get("mark")
+                                  and run_key(row.get("run")) == run_key(run)
+                                  and parse_time(row["at"]) >= parse_time(approved) for row in rows)
