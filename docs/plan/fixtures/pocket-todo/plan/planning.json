@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "impact": {
     "new_system": true,
     "data": true,
@@ -35,5 +35,577 @@
       "frontend",
       "qa"
     ]
-  }
+  },
+  "problem": {
+    "why": "The owner wants personal todos on the laptop and on the phone over home Wi-Fi, without accounts or hosting",
+    "success": "The owner can switch lists, add, complete, filter and manage todos at 320px and laptop widths; data survives a restart; other websites cannot read or change it; two devices never lose a todo or list without notice; G_API, G_UI and G_BROWSER pass",
+    "non_goals": [
+      "Accounts or login",
+      "Hosting",
+      "Offline mode",
+      "Due dates, tags, reordering or sharing"
+    ]
+  },
+  "assumptions": [
+    {
+      "assumption": "Python 3.11 or later with SQLite is installed on the laptop",
+      "confirm": "G_API starts server.py with python3 in the sandbox",
+      "when": "First gate run of J_API"
+    },
+    {
+      "assumption": "The phone reaches the laptop over home Wi-Fi when the server runs with --host 0.0.0.0 and the OS firewall allows the port",
+      "confirm": "The owner opens http://<laptop IP>:8080 on the phone",
+      "when": "First use after export"
+    },
+    {
+      "assumption": "A real browser is available to the gates for the phone and laptop journeys",
+      "confirm": "G_BROWSER runs Playwright Chromium in the sandbox image",
+      "when": "First gate run of J_UI"
+    }
+  ],
+  "estimate": {
+    "jobs": 2,
+    "summary": "Estimate: 2 jobs, 5–9 AI calls; wall time: unknown (no earlier calls); unassigned: 5–9 calls whose role has no brain in the config yet, so no plan % is shown"
+  },
+  "risks": [
+    {
+      "risk": "A stale list delete from one device removes todos another device just added",
+      "check": "G_API"
+    },
+    {
+      "risk": "Another website open in the owner's browser changes todos (the CSRF hole that shipped on 9 Nov)",
+      "check": "G_API"
+    },
+    {
+      "risk": "The UI fits a 375px phone but scrolls sideways or hides controls at 320px",
+      "check": "G_BROWSER"
+    },
+    {
+      "risk": "A todo title containing markup runs script in the app",
+      "check": "G_BROWSER"
+    },
+    {
+      "risk": "The phone cannot reach the laptop because the OS firewall blocks the port",
+      "mitigation": "decisions.md records the dependency; product.md gives the exact start command and address"
+    }
+  ],
+  "stack": {
+    "choice": "Python 3.11 standard library HTTP server, SQLite and static HTML, CSS and JavaScript",
+    "reason": "Recorded exception to the Go and React default: one owner on a local network, no build step or third-party packages (architecture.md)"
+  },
+  "threat_model": {
+    "trusted": [
+      "The owner and the owner's own devices and browser",
+      "With --host 0.0.0.0, every device on the home Wi-Fi (A9)",
+      "Programs and accounts on the laptop that use the loopback port (A11)"
+    ],
+    "in_scope": [
+      "Other websites open in the owner's browser: cross-site writes, DNS rebinding, framing, reading",
+      "Wrong, malformed or oversized input from any client",
+      "The owner's own devices changing the same data at once",
+      "Other accounts on the laptop reading the database file (A10)"
+    ],
+    "out_of_scope": [
+      "Someone watching or flooding the home network (A12)",
+      "Other web content that used the same browser origin earlier (A13)",
+      "Hostile local programs using the port (A11)",
+      "Anyone with physical access to the laptop"
+    ]
+  },
+  "reachability": [
+    {
+      "id": "A1",
+      "item": "The owner's browser, laptop or phone, at localhost or the laptop's IP",
+      "gates": [
+        "G_API",
+        "G_BROWSER"
+      ]
+    },
+    {
+      "id": "A2",
+      "item": "Another website in the owner's browser sending a form or fetch to write todos and lists",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "id": "A3",
+      "item": "Another website that rebinds its own host name to the laptop",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "id": "A4",
+      "item": "Another website reading the JSON",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "id": "A5",
+      "item": "Another website framing the page to trick a click",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "id": "A6",
+      "item": "A todo title or list name containing markup or script",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "id": "A7",
+      "item": "A request for any other path (/server.py, ../, the database)",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "id": "A8",
+      "item": "An oversized or malformed body",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "id": "A9",
+      "item": "Other devices on the home Wi-Fi when started with --host 0.0.0.0, with full access",
+      "accept": "No login in v1 (D3); loopback is the default"
+    },
+    {
+      "id": "A10",
+      "item": "Other accounts on the laptop reading the database file",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "id": "A11",
+      "item": "Any program or account on the laptop using the loopback port, with full access",
+      "accept": "No login in v1: a local program can do what the owner can"
+    },
+    {
+      "id": "A12",
+      "item": "Someone on the home network watching or flooding traffic (with --host 0.0.0.0)",
+      "accept": "Outside the owner's threat model (decisions.md); no TLS in v1"
+    },
+    {
+      "id": "A13",
+      "item": "Another web app the owner ran earlier on the same address and port (its service worker or cached files)",
+      "accept": "Outside the owner's threat model; give Pocket Todo its own port"
+    }
+  ],
+  "concurrency": [
+    {
+      "id": "C1",
+      "item": "Device A confirms Delete list while device B adds, completes, deletes or renames one of its todos",
+      "gates": [
+        "G_API",
+        "G_BROWSER"
+      ]
+    },
+    {
+      "id": "C2",
+      "item": "Device A adds a todo to a list that device B deleted",
+      "gates": [
+        "G_API",
+        "G_BROWSER"
+      ]
+    },
+    {
+      "id": "C3",
+      "item": "Device A acts on a todo or list id that was deleted and might be reused",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "id": "C4",
+      "item": "Device A completes or deletes a todo that device B deleted",
+      "gates": [
+        "G_API",
+        "G_BROWSER"
+      ]
+    },
+    {
+      "id": "C5",
+      "item": "Two devices rename the same list, or set the same todo done and not done",
+      "accept": "Last write wins: one owner, and only a name or a tick is overwritten, never a todo or a list"
+    },
+    {
+      "id": "C6",
+      "item": "An Add whose response is lost after the server saved it, then retried by the owner",
+      "accept": "The UI never retries by itself; a duplicate is visible and deletable (one owner, reversible)"
+    },
+    {
+      "id": "C7",
+      "item": "An older read finishing after a newer one (switching lists while todos still load)",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "id": "C8",
+      "item": "Two server processes on one database file",
+      "accept": "Not supported: run one server per database file (documented in product.md)"
+    },
+    {
+      "id": "C9",
+      "item": "Device A acts on a list or todo device B already deleted, or takes a name B just took",
+      "gates": [
+        "G_API",
+        "G_BROWSER"
+      ]
+    },
+    {
+      "id": "C10",
+      "item": "Both devices write at the same moment",
+      "gates": [
+        "G_API"
+      ]
+    }
+  ],
+  "failure_paths": [
+    {
+      "items": [
+        "R1"
+      ],
+      "scenario": "Create Work, then work, École, then école and ÉCOLE",
+      "assertion": "201, 409, 201, 409, 409",
+      "catches": "NOCASE collation (ASCII only) or no uniqueness",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R1"
+      ],
+      "scenario": "Rename House to HOUSE",
+      "assertion": "200, name HOUSE",
+      "catches": "A uniqueness check that collides with the list's own row",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R1"
+      ],
+      "scenario": "Rename or delete Inbox",
+      "assertion": "400",
+      "catches": "Inbox unprotected",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R1",
+        "C1"
+      ],
+      "scenario": "Delete Work with no rev, a bad rev, an old rev, then the current rev",
+      "assertion": "400, 400, 409 (list and todos still there), 204",
+      "catches": "A delete with no guard, or a guard on name and count",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "C1"
+      ],
+      "scenario": "Note rev, delete one todo and add another (same count), delete with the old rev",
+      "assertion": "409",
+      "catches": "A guard on the todo count instead of a revision",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "C1"
+      ],
+      "scenario": "Complete, reopen and re-send the same done value; each time delete with the rev from before",
+      "assertion": "rev rises each time; 409 each time",
+      "catches": "A revision that ignores completion or a no-op PATCH",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R2"
+      ],
+      "scenario": "Add, complete, filter and delete todos; empty and long titles",
+      "assertion": "Statuses and lists as in the contract",
+      "catches": "Missing validation or filters",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R2"
+      ],
+      "scenario": "Wrong types: title 5, null or []; listId true, \"1\", null or missing; done 1 or null",
+      "assertion": "400 each, nothing created or changed",
+      "catches": "A server that coerces types (Python True is an int)",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R3"
+      ],
+      "scenario": "Delete a list with a todo, then restart the server",
+      "assertion": "Its todos are gone; the rest survives",
+      "catches": "No cascade, or data kept only in memory",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "C3"
+      ],
+      "scenario": "Delete the newest list and todo, then create new ones",
+      "assertion": "New ids are larger than the deleted ones",
+      "catches": "Ids reused after a delete",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R6",
+        "A7"
+      ],
+      "scenario": "GET /server.py, /%2e%2e/server.py, /todos.sqlite3, /missing.txt",
+      "assertion": "404 each",
+      "catches": "A static handler that serves the folder",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R6",
+        "A8"
+      ],
+      "scenario": "A 70 KB body on all four body routes",
+      "assertion": "413, nothing changed",
+      "catches": "No body size limit, or one on some routes",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R6",
+        "A3"
+      ],
+      "scenario": "Foreign, malformed, empty, missing or doubled Host headers on every route and method",
+      "assertion": "403 each",
+      "catches": "No Host check, a prefix or unanchored match, or one that reads only the first header",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R6",
+        "A2"
+      ],
+      "scenario": "Writes with a foreign, null or look-alike Origin on all six write routes",
+      "assertion": "403, nothing changed",
+      "catches": "No Origin check, or one that compares only the host name or a prefix",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R6",
+        "A2"
+      ],
+      "scenario": "text/plain or form-encoded bodies on all four body routes",
+      "assertion": "415, nothing changed",
+      "catches": "A server that parses any body as JSON, or checks only some routes",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R6",
+        "A4"
+      ],
+      "scenario": "A request with a foreign Origin",
+      "assertion": "No Access-Control-Allow-Origin in the reply",
+      "catches": "A server that sends CORS headers",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R6",
+        "A5"
+      ],
+      "scenario": "/, /api/lists, a 404, and refused 400, 403, 413 and 415 replies",
+      "assertion": "CSP with frame-ancestors 'none', X-Frame-Options DENY, nosniff",
+      "catches": "Headers set only on success paths",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "A10"
+      ],
+      "scenario": "Start the server on a new database",
+      "assertion": "The database and journal files have no group or other permissions",
+      "catches": "A database file created with the default umask",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R7",
+        "C10"
+      ],
+      "scenario": "20 adds to one list at the same moment",
+      "assertion": "All 201, total 20, rev up by exactly 20",
+      "catches": "No busy timeout, or lost revision updates",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R4"
+      ],
+      "scenario": "The served page",
+      "assertion": "Labelled controls, picker, filters, status region, local assets only",
+      "catches": "Missing labels or remote assets",
+      "gates": [
+        "G_UI"
+      ]
+    },
+    {
+      "items": [
+        "R5"
+      ],
+      "scenario": "Phone at 320x740: add, complete, filter, choose, rename and delete lists (cancel first), Escape",
+      "assertion": "Each visible effect, no horizontal scroll",
+      "catches": "A layout that only fits 375px, or a broken journey",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R5",
+        "A6"
+      ],
+      "scenario": "Add a todo titled with an img onerror payload and a list named <b>Bold</b>",
+      "assertion": "Both shown as text; window.__xss stays undefined",
+      "catches": "Rendering with innerHTML",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R7",
+        "C1"
+      ],
+      "scenario": "While the delete dialog is open, another device adds a todo; accept",
+      "assertion": "409; the status says another device; the list stays",
+      "catches": "A UI that sends no guard or ignores the 409",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R7",
+        "C2"
+      ],
+      "scenario": "Another device deletes the current list; type a title and press Add",
+      "assertion": "Inbox becomes current, the title stays in the field, nothing was posted",
+      "catches": "A UI that loses or misplaces the draft",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R7",
+        "C7"
+      ],
+      "scenario": "Hold Inbox's todo reply, switch to another list, then release it",
+      "assertion": "Only the current list's todos show",
+      "catches": "A UI that renders whichever reply arrives last",
+      "gates": [
+        "G_BROWSER"
+      ]
+    }
+  ],
+  "options": {
+    "approaches": [
+      {
+        "name": "Local server and SQLite on the laptop",
+        "tradeoffs": "Shared by phone and laptop on the home Wi-Fi with no hosting or login; works only while the laptop is on"
+      },
+      {
+        "name": "Hosted app with login",
+        "tradeoffs": "Reachable anywhere; needs hosting, accounts and TLS, which the owner excluded"
+      },
+      {
+        "name": "Browser-only storage on each device",
+        "tradeoffs": "No server at all; the phone and the laptop would never see each other's todos"
+      }
+    ],
+    "recommendation": "Local server and SQLite on the laptop",
+    "reason": "D3: data lives on the owner's laptop, no hosting, no login, and both devices share it"
+  },
+  "components": {
+    "cache": {
+      "decision": "no"
+    },
+    "queue": {
+      "decision": "no"
+    },
+    "cdn": {
+      "decision": "no"
+    },
+    "realtime": {
+      "decision": "later",
+      "trigger": "The owner wants a change on one device to show on the other without a reload"
+    },
+    "search": {
+      "decision": "no"
+    },
+    "storage": {
+      "decision": "now",
+      "reason": "One SQLite file on the laptop"
+    }
+  },
+  "phases": [
+    {
+      "name": "API",
+      "goal": "J_API: server.py with the schema, the lists and todos API, the revision guard and the browser-safety rules"
+    },
+    {
+      "name": "UI",
+      "goal": "J_UI: the browser UI against the approved API, direction B, phone and laptop"
+    }
+  ]
 }

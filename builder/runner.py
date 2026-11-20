@@ -366,7 +366,7 @@ class Runner:
     def estimate(self):
         """Jobs, AI calls, tokens, wall time and % of plan limits for this plan (P2-T3)."""
         from .usage import for_project
-        contract, bundle = review_bundle(self.root)
+        contract, bundle = review_bundle(self.root, estimating=True)
         return for_project(contract, bundle)
 
     def approve(self, digest):

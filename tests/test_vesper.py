@@ -207,6 +207,7 @@ class VesperTests(unittest.TestCase):
         result = self.cli("learn", "--promote", "reproduce-first")
         self.assertIn("reproduce-first", result["active"])
         result = self.cli("start", "--mode", "bug", "--idea", "Another bug")
+        self.assertEqual(result["planning_version"], 2)  # new runs write manifest version 2 (P2-T5)
         self.assertIn("reproduce-first", result["guidance"])
         result = self.cli("start", "--mode", "design", "--idea", "New colors")
         self.assertNotIn("reproduce-first", result["guidance"])

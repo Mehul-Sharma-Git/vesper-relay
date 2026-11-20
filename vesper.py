@@ -88,7 +88,7 @@ def start(args):
         (root / "plan" / "learning-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
         shutil.copytree(root / "seed" / "tests", root / "checks" / "baseline_tests")
         (root / "checks" / "vesper_regression.py").write_text(MAINTENANCE_GATE)
-    intake = {"mode": mode, "repository": meta, "guidance": suggestions, "planning_version": 1}
+    intake = {"mode": mode, "repository": meta, "guidance": suggestions, "planning_version": 2}
     intake["team_contract"] = 1
     (root / "plan" / "intake.json").write_text(json.dumps(intake, indent=2) + "\n")
     atomic_json(root / ".vesper.json", {"intake": intake, "seed_digest": fingerprint(inventory(root / "seed"))})

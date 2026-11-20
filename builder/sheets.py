@@ -3,6 +3,7 @@ own records for that action, so the sheet describes exactly what the confirmatio
 from pathlib import Path
 
 from .approvals import Sheet, changed_since, lines_text, short_digest, what_changed_text
+from .planning import proposed_risks
 
 RISK = "Accepted risk: owner must confirm"
 TOP_FINDINGS = 5
@@ -11,6 +12,11 @@ TOP_FINDINGS = 5
 def one_line(text, limit=120):
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def in_full(text):
+    """Whitespace collapsed, never shortened: the owner accepts exactly these words."""
+    return " ".join(str(text).split())
 
 
 def short_form(title, facts, changed, digest):
@@ -34,6 +40,8 @@ def plan_sheet(root, contract, bundle, digest, store):
     findings = (critique or {}).get("report", {}).get("findings", [])
     blockers = [item for item in findings if item.get("severity") == "blocking"]
     risks = [item for item in findings if str(item.get("recommendation", "")).startswith(RISK)]
+    manifest = planning.get("manifest") or {}
+    proposed = proposed_risks(manifest)  # P2-T5: each list item the plan proposes as a risk
     if planning.get("depth") == "skip":
         verdict = ("Critique: none (skip depth). Recorded reason: "
                    + one_line(planning.get("manifest", {}).get("rationale", "not given"), 200))
@@ -53,13 +61,18 @@ def plan_sheet(root, contract, bundle, digest, store):
         after = f", after {', '.join(job['depends_on'])}" if job.get("depends_on") else ""
         lines.append(f"  {job['id']} ({job['role']}{after}): {one_line(job['goal'])}")
         lines.append(f"    may change only: {', '.join(job['paths'])}")
-    lines += ["", verdict]
+    lines += [""]
+    if planning:
+        lines.append(f"Planning: {planning['depth']} depth, manifest version {manifest.get('version')}")
+    lines.append(verdict)
     advisories = [item for item in findings if item.get("severity") == "advisory" and item not in risks]
     for item in blockers + advisories[:TOP_FINDINGS]:
         lines.append(f"  {item['severity']}: {item.get('path', '')}: {one_line(item.get('recommendation', ''))}")
     lines += ["", "Risks you accept by approving:"]
-    if risks:
+    if risks or proposed:
         lines += [f"  - {one_line(item['recommendation'], 400)} ({item.get('path', '')})" for item in risks]
+        lines += [f"  - {item['id']}: {in_full(item['item'])}. Reason: {in_full(item['accept'])} "
+                  f"(plan/planning.json {item['section']})" for item in proposed]
         lines.append("  Confirming this approval is your acceptance of each risk above.")
     else:
         lines.append("  none listed")
@@ -69,7 +82,7 @@ def plan_sheet(root, contract, bundle, digest, store):
               + (f"; wireframes: {', '.join('plan/' + name for name in wireframes[:6])}" if wireframes else ""),
               f"Digest: {short_digest(digest)}"]
     facts = [f"Delivers: {contract['title']}", f"{len(contract['requirements'])} requirements, "
-             f"{len(contract['jobs'])} jobs", verdict, f"Risks you accept: {len(risks)}"]
+             f"{len(contract['jobs'])} jobs", verdict, f"Risks you accept: {len(risks) + len(proposed)}"]
     return Sheet("\n".join(lines) + "\n", short_form("Vesper Relay: approve this plan", facts, changed, digest),
                  files)
 

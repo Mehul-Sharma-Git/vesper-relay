@@ -208,6 +208,15 @@ class PocketTodoSheetTests(unittest.TestCase):
         self.assertIn("Critique: approve, 0 blockers", sheet)
         self.assertIn("Accepted risk: owner must confirm that devices on the home Wi-Fi can use the app", sheet)
         self.assertIn("What changed: first approval", sheet)
+        # P2-T5: every risk the plan itself proposes is on the sheet in full, with its reason.
+        from builder.planning import proposed_risks
+        flat = " ".join(sheet.split())
+        self.assertIn("Planning: full depth, manifest version 2", flat)
+        risks = proposed_risks(json.loads((FIXTURE / "plan" / "planning.json").read_text()))
+        self.assertEqual(sorted(item["id"] for item in risks), ["A11", "A12", "A13", "A9", "C5", "C6", "C8"])
+        for item in risks:
+            self.assertIn(f"{item['id']}: {' '.join(item['item'].split())}. Reason: "
+                          f"{' '.join(item['accept'].split())}", flat)
         digest = self.cli("--project", project, "review", "--json")["digest"]
         self.assertIn(digest[:12], sheet)
         self.assertEqual(LONG_HEX.findall(sheet), [], "only the short digest may appear")

@@ -245,6 +245,10 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         # Data loss is not bounded by the security threat model (two of the owner's devices are not a threat).
         self.assertIn("a reachable data-loss exposure in the deployment the owner chose", seen["prompt"])
         self.assertNotIn("can be broken by an implementation that passes every gate", seen["prompt"])
+        # P2-T5: the critic checks the plan's required sections for its depth.
+        self.assertIn("plan/planning.json (version 2) holds the sections a full-depth plan must have: problem, "
+                      "assumptions, estimate, risks, stack, threat_model, reachability, concurrency, "
+                      "failure_paths, options, components, phases", " ".join(seen["prompt"].split()))
 
         listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
         self.assertIn("plan/architecture.md", listed)
