@@ -124,6 +124,31 @@ class TouchedCodeTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in entry["definitions"]], ["render"])
         self.assertEqual(entry["definitions"][0]["end"], render.splitlines().index("}") + 1)
 
+    def test_callbacks_loops_and_closures_come_with_the_whole_function(self):
+        # Review round 1 of PR 49: the innermost "definition" hid the injection around it.
+        loop = ('async function deleteList(req, db) {\n  const id = req.params.id;\n'
+                '  await db.query("DELETE FROM lists WHERE id = " + id);\n  const rows = await db.all();\n'
+                '  for await (const row of rows) {\n    console.log(row);\n  }\n}\n')
+        callback = ('function handle(req, db) {\n  const id = req.params.id;\n'
+                    '  db.query("DELETE FROM lists WHERE id = " + id);\n'
+                    '  items.forEach(function (row) {\n    log(row);\n  });\n}\n')
+        closure = ('def outer(conn, list_id):\n    sql = f"DELETE FROM lists WHERE id = {list_id}"\n\n'
+                   '    def run():\n        return conn.execute(sql)\n    return run()\n')
+        self.write("loop.js", loop, loop.replace("console.log(row)", "console.info(row)"))
+        self.write("callback.js", callback, callback.replace("log(row)", "info(row)"))
+        self.write("closure.py", closure, closure.replace("return conn.execute(sql)", "return conn.execute(sql) or 0"))
+        entries = {item["path"]: item["definitions"] for item in touched_code(
+            self.base, self.candidate, ["loop.js", "callback.js", "closure.py"])}
+        self.assertEqual(entries["loop.js"], [{"name": "deleteList", "kind": "function", "start": 1, "end": 8}])
+        self.assertEqual(entries["callback.js"], [{"name": "handle", "kind": "function", "start": 1, "end": 7}])
+        self.assertEqual(entries["closure.py"], [{"name": "outer", "kind": "function", "start": 1, "end": 6}])
+
+    def test_an_anonymous_function_on_its_own_is_a_function(self):
+        source = 'const api = 1;\nexport default function (row) {\n  return row;\n}\n'
+        self.write("anon.js", source, source.replace("return row;", "return row.id;"))
+        [entry] = touched_code(self.base, self.candidate, ["anon.js"])
+        self.assertEqual(entry["definitions"], [{"name": "(anonymous)", "kind": "function", "start": 2, "end": 4}])
+
     def test_top_level_code_or_an_unparsed_language_means_the_whole_file(self):
         self.write("server.py", SERVER_BEFORE, SERVER_BEFORE.replace("import re\n", "import re\nimport json\n"))
         self.write("app.js", APP_BEFORE, APP_BEFORE.replace('"/api"', '"/api/v1"'))

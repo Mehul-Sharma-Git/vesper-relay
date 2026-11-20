@@ -228,7 +228,8 @@ def write_touched(output, name, lines, entry, budget):
 # Touched code (P2-T8) ----------------------------------------------------------------------------
 
 JS_SUFFIXES = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts")
-JS_KEYWORDS = {"if", "for", "while", "switch", "catch", "function", "return", "with", "else", "do", "try"}
+JS_KEYWORDS = {"if", "for", "while", "switch", "catch", "function", "return", "with", "else", "do", "try", "await",
+               "yield", "new", "typeof", "void", "delete", "in", "of", "case", "throw", "super", "import"}
 JS_DEFINITION = re.compile(r"""
       (?:\basync\s+)?\bfunction\b\s*\*?\s*(?P<function>[A-Za-z_$][\w$]*)?\s*\(
     | \bclass\s+(?P<class>[A-Za-z_$][\w$]*)
@@ -323,8 +324,8 @@ def brace_definitions(text, pattern):
     masked = mask_code(text)
     found = []
     for match in pattern.finditer(masked):
-        name = next(((group, value) for group, value in match.groupdict().items() if value), (None, None))
-        kind, label = name
+        kind, label = next(((group, value) for group, value in match.groupdict().items() if value),
+                           ("function", None))
         if kind == "method" and label in JS_KEYWORDS:
             continue
         position = match.end()
@@ -351,9 +352,11 @@ def brace_definitions(text, pattern):
 
 
 def touched_code(before, after, paths):
-    """For each changed file in the candidate: the innermost definitions around its changed lines,
-    or the whole file when a changed line is outside every definition or the language is not one
-    Vesper parses (Python, JavaScript or TypeScript, Go). Deleted and binary files are left out."""
+    """For each changed file in the candidate: the outermost function or method around each changed
+    line (a class only when the line is in no function), so callbacks, closures and blocks come
+    with the whole function around them; or the whole file when a changed line is outside every
+    definition or the language is not one Vesper parses (Python, JavaScript or TypeScript, Go).
+    Deleted and binary files are left out."""
     touched = []
     for name in paths:
         new = Path(after) / name
@@ -383,9 +386,11 @@ def touched_code(before, after, paths):
             if not around:
                 chosen = None
                 break
-            innermost = min(around, key=lambda item: item[3] - item[2])
-            if innermost not in chosen:
-                chosen.append(innermost)
+            functions = [item for item in around if item[1] != "class"]
+            pick = (max(functions, key=lambda item: item[3] - item[2]) if functions
+                    else min(around, key=lambda item: item[3] - item[2]))
+            if pick not in chosen:
+                chosen.append(pick)
         if not lines:
             continue
         if chosen is None or definitions is None:
