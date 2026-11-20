@@ -187,6 +187,46 @@ class JobDecisionTests(unittest.TestCase):
         self.assertEqual(last["review"]["verdict"], "request_changes")
         self.assertEqual((Path(result["snapshot"]) / "app.js").read_text(), "export const loading = false;\n")
 
+    def test_security_advisory_on_a_rejected_candidate_still_waits_for_the_owner(self):
+        # Review round 1 of PR 43: it was sent back as "returned" and the run reached complete.
+        project, command, preview = self.start(attempts=2)
+        self.review(command, preview, finding("blocking", "correctness"), finding("advisory", "security"), code=1)
+        status = command("status", code=1)
+        self.assertEqual((status["status"], status["awaiting_decision"]), ("awaiting_decision", ["F2"]))
+        self.assertEqual([item["status"] for item in status["backlog"]], ["returned", "awaiting_decision"])
+        self.assertIn("decide", command("prepare", code=2))
+        # The backlog is only a view: editing it changes neither the gate nor what the owner is shown.
+        path = project / ".builder" / "backlog.json"
+        data = json.loads(path.read_text())
+        data["items"][1].update(status="noted", evidence="Nothing to see here.")
+        path.write_text(json.dumps(data))
+        self.assertEqual(command("status", code=1)["status"], "awaiting_decision")
+        with tempfile.TemporaryDirectory() as folder:
+            self.env["VESPER_TEST_SHEETS"] = folder
+            result = command("decide", "F2", "--accept-risk", "--reason", "Single user")
+            [sheet] = sheets(folder)
+        self.assertIn("The security problem the reviewer saw in app.js.", sheet)
+        self.assertIn("goes on to its next attempt with this finding accepted as a risk", sheet)
+        self.assertEqual((result["status"], result["completed"]), ("ready", []))
+        attempt = command("prepare")
+        (Path(attempt["workspace"]) / "app.js").write_text("export const loading = false;\n")
+        self.review(command, command("submit", attempt["id"]))
+        self.assertEqual(command("status")["status"], "complete")
+
+    def test_fixing_an_advisory_on_a_rejected_candidate_tells_the_worker(self):
+        _, command, preview = self.start(attempts=2)
+        self.review(command, preview, finding("blocking", "correctness"), finding("advisory", "data"), code=1)
+        result = command("decide", "F2", "--fix")
+        self.assertEqual(result["status"], "ready")
+        brief = Path(command("prepare")["brief"]).read_text()
+        self.assertIn("Fix the data problem in app.js.", brief)
+        self.assertIn("Fix the correctness problem in app.js.", brief)
+
+    def test_a_candidate_waiting_for_the_owner_cannot_be_abandoned(self):
+        _, command, preview = self.start()
+        self.review(command, preview, finding("advisory", "security"), code=1)
+        self.assertIn("only the owner", command("abandon", preview["id"], code=2))
+
 
 class PlanDecisionTests(unittest.TestCase):
     """Plan-critique blockers and advisories, at the runner."""
@@ -278,6 +318,21 @@ class PlanDecisionTests(unittest.TestCase):
         path.write_text(json.dumps(data))
         with self.assertRaisesRegex(BuilderError, "F1 awaits your decision"):
             self.runner.approve(self.runner.review()["digest"])
+
+    def test_editing_a_blockers_severity_or_packet_in_the_backlog_does_not_lift_it(self):
+        # Review round 1 of PR 43: the gate trusted these fields of the backlog.
+        self.full()
+        self.critique(finding("blocking", "security", "plan/architecture.md"))
+        digest = self.runner.review()["digest"]
+        path = self.root / ".builder" / "backlog.json"
+        for change in ({"severity": "advisory"}, {"packet_digest": "0" * 64}):
+            with self.subTest(change=change):
+                data = json.loads(path.read_text())
+                data["items"][0].update(change)
+                path.write_text(json.dumps(data))
+                with self.assertRaisesRegex(BuilderError, "F1 awaits your decision"):
+                    self.runner.approve(digest)
+        self.assertFalse(self.runner.state_file.exists())
 
     def test_a_revised_plan_supersedes_earlier_critique_findings(self):
         self.full()

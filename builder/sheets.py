@@ -45,9 +45,8 @@ def plan_sheet(root, contract, bundle, digest, store):
         str(item.get("recommendation", "")).startswith(RISK) or item.get("category") in ("security", "data"))]
     decided = []
     if critique:
-        from .decisions import plan_items
-        decided = [item for item in plan_items(root, critique["packet_digest"])
-                   if item["severity"] == "blocking" and item["status"] == "accepted"]
+        from .decisions import accepted_plan_blockers
+        decided = accepted_plan_blockers(root, critique)
     manifest = planning.get("manifest") or {}
     proposed = proposed_risks(manifest)  # P2-T5: each list item the plan proposes as a risk
     if planning.get("depth") == "skip":

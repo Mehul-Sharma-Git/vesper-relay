@@ -486,25 +486,30 @@ class Runner:
         return self.status()
 
     def status(self):
-        from .decisions import load
+        from .decisions import load, open_decisions
         backlog = load(self.root)["items"]
-        waiting = [item["id"] for item in backlog if item["status"] == "awaiting_decision"]
-        decisions = {"backlog": backlog, "awaiting_decision": waiting}
         if not self.state_file.exists():
-            return {"status": "planning", "project": str(self.root), **decisions}
+            return {"status": "planning", "project": str(self.root), "backlog": backlog,
+                    "awaiting_decision": [item["id"] for item in backlog if item["status"] == "awaiting_decision"]}
         state = self.state()
         contract = self.frozen_contract(state)
         self.check_snapshot(state)
         job = self.ready(state, contract)
+        # P2-T7: what waits for the owner comes from the state's own record of each attempt.
+        waiting = [name for attempt in ([state["active"]] if state["active"] else []) + state["attempts"]
+                   for name in open_decisions(attempt)]
+        decisions = {"backlog": backlog, "awaiting_decision": waiting}
+        previous = self.attempts_for(state, job) if job else []
         if state["active"]:
-            phase = ("awaiting_decision" if state["active"].get("awaiting_decision")
+            phase = ("awaiting_decision" if open_decisions(state["active"])
                      else "awaiting_review" if "review" in state["active"] else "active")
         elif job is None:
-            # P2-T7: a run never completes with a finding that still waits for the owner.
+            # A run never completes with a finding that still waits for the owner.
             phase = "awaiting_decision" if waiting else "complete"
-        elif len(self.attempts_for(state, job)) >= self.budget_for(state, job):
-            phase = ("awaiting_decision" if any(item.get("job") == job["id"] and item["id"] in waiting
-                                                for item in backlog) else "blocked")
+        elif previous and open_decisions(previous[-1]):
+            phase = "awaiting_decision"
+        elif len(previous) >= self.budget_for(state, job):
+            phase = "blocked"
         else:
             phase = "ready"
         from .amendments import listed
@@ -518,15 +523,15 @@ class Runner:
         return self.control / "attempts" / attempt["id"]
 
     def begin(self, state, contract, provider, adapter=None, shell=False):
-        waiting = (state["active"] or {}).get("awaiting_decision")
-        require(not waiting, f"Job {(state['active'] or {}).get('job')} awaits the owner's decision on "
-                             f"{', '.join(waiting or [])}: run decide FINDING_ID --fix or --accept-risk --reason")
-        require(not state["active"], "An attempt is active. Submit or abandon it first.")
+        from .decisions import open_decisions
         job = self.ready(state, contract)
+        previous = self.attempts_for(state, job) if job else []
+        for attempt in filter(None, (state["active"], previous[-1] if previous else None)):
+            waiting = open_decisions(attempt)
+            require(not waiting, f"Job {attempt['job']} awaits the owner's decision on {', '.join(waiting)}: run "
+                                 'decide FINDING_ID --fix, or --accept-risk --reason "..."')
+        require(not state["active"], "An attempt is active. Submit or abandon it first.")
         require(job, "No jobs remain")
-        from .decisions import supersede_job
-        supersede_job(self.root, job["id"])
-        previous = self.attempts_for(state, job)
         require(len(previous) < self.budget_for(state, job), f"Retry budget exhausted for {job['id']}")
         base = self.check_snapshot(state)
         require(GATES_DIR not in base, f"{GATES_DIR} is reserved for the workers' copy of the gates; "
@@ -625,9 +630,12 @@ class Runner:
         return attempt
 
     def abandon(self, attempt_id):
+        from .decisions import open_decisions
         state = self.state()
         attempt = state["active"]
         require(attempt and attempt["id"] == attempt_id, "No matching attempt is active")
+        require(not open_decisions(attempt), "This candidate awaits the owner's decision; only the owner sends it "
+                                             "back, with decide FINDING_ID --fix")
         return self.finish(state, "interrupted", "Attempt abandoned by the operator")
 
     def submit(self, attempt_id, launcher=None):
@@ -717,7 +725,6 @@ class Runner:
         """Every finding the active candidate waited on is accepted by the owner (P2-T7)."""
         attempt = state["active"]
         candidate, manifest = self.reviewed_candidate(state, attempt)
-        attempt.pop("awaiting_decision")
         attempt["accepted_risks"] = accepted
         return self.accept_candidate(state, attempt["job"], candidate, manifest)
 
@@ -795,11 +802,12 @@ class Runner:
                          external_attested=False, review_timeout=180, review_max_turns=20):
         """Accept or reject the staged candidate on an attested report or a launched reviewer brain."""
         review_limits(review_timeout, review_max_turns)
+        from .decisions import open_decisions
         state = self.state()
         attempt = state["active"]
-        require(not (attempt or {}).get("awaiting_decision"),
-                f"This candidate was reviewed and awaits the owner's decision on "
-                f"{', '.join((attempt or {}).get('awaiting_decision') or [])}: run decide")
+        require(not (attempt and open_decisions(attempt)),
+                "This candidate was reviewed and awaits the owner's decision on "
+                + ", ".join(open_decisions(attempt) if attempt else []) + ": run decide")
         require(attempt and "review" in attempt, "No tested candidate awaits review")
         packet = attempt["review"]
         self.frozen_contract(state)
@@ -882,12 +890,18 @@ class Runner:
             result = self.finish(state, "rejected", "Review blockers: " + "; ".join(
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
             job = next(item for item in contract["jobs"] if item["id"] == attempt["job"])
-            # P2-T7: out of attempts, the open blockers wait for the owner instead of blocking.
-            record_review(self.root, result, report["findings"], rejected=True,
-                          exhausted=len(self.attempts_for(state, job)) >= self.budget_for(state, job))
+            # P2-T7: out of attempts, the open blockers wait for the owner instead of blocking; a
+            # security or data advisory waits for the owner even on a rejected candidate.
+            ids, waiting = record_review(self.root, result, report["findings"], rejected=True,
+                                         exhausted=len(self.attempts_for(state, job)) >= self.budget_for(state, job))
+            result["finding_ids"] = ids
+            if waiting:
+                result["awaiting_decision"] = waiting
+            self.save(state)
         else:
             # P2-T7: a security or data advisory waits for the owner's decision.
-            waiting = record_review(self.root, attempt, report["findings"], rejected=False, exhausted=False)
+            ids, waiting = record_review(self.root, attempt, report["findings"], rejected=False, exhausted=False)
+            attempt["finding_ids"] = ids
             if waiting:
                 attempt["awaiting_decision"] = waiting
                 self.save(state)
@@ -1012,7 +1026,8 @@ class Runner:
         def reviewer_for(job):
             return selection.reviewer(lambda: selection.worker(job["role"]))
 
-        if (state["active"] or {}).get("awaiting_decision"):
+        from .decisions import open_decisions
+        if state["active"] and open_decisions(state["active"]):
             return {**self.status(), **({"limit_notes": notes} if notes else {})}
         if state["active"]:
             if "review" in state["active"]:
