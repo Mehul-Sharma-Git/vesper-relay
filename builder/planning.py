@@ -170,8 +170,16 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
     require(isinstance(history, dict) and type(history.get(digest, 0)) is int, "Invalid critique attempt history")
     require(history.get(digest, 0) < 3, "Plan critique attempt limit reached; revise the plan or escalate to the owner")
     report_launched = report is None
+    attested = None
     if report is not None:
         require(external_attested, "Attest that a separate independent reviewer authored this report")
+        # Human-only (P2-T2): a person vouches for the report before it spends a critique attempt.
+        from .approvals import confirm, run_store
+        from .sheets import attest_sheet
+        validate_critique(report, bundle, digest)
+        sheet, report_digest = attest_sheet(run_store(runner.root), f"{runner.root}#plan-critique",
+                                            f"the plan critique of packet {digest[:12]}", report)
+        attested = confirm("attest-independence", f"{runner.root}#plan-critique", report_digest, sheet)
     else:
         require(brain, "Choose a separate reviewer brain or supply an independent report")
         brain_command(brain, "reviewer", launcher, trust_host, max_turns=review_max_turns)
@@ -258,4 +266,7 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
     if report_launched:
         result["adapter"] = brain.adapter.name
     atomic_json(runner.control / "plan-critique.json", result)
+    if attested:
+        from .approvals import keep, run_store
+        keep(run_store(runner.root), attested)
     return {**result, "status": "reviewed" if report["verdict"] == "approve" else "blocked"}

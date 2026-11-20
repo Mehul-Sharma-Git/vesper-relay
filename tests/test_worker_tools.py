@@ -22,6 +22,7 @@ from builder.team import PROFILES, catalog, profile, tools as role_tools
 
 import test_rc1
 from test_sandbox import FakeSandbox
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 WRITERS = [role for role, entry in PROFILES.items() if entry[0] == "write"]
 CONSULTANTS = [role for role, entry in PROFILES.items() if entry[0] == "consult"]

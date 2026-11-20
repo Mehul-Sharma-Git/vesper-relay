@@ -13,6 +13,7 @@ from builder.brains import ADAPTERS, Brain, Selection, command, parse_result, re
 from builder.contracts import BuilderError
 
 import test_rc1
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 CAPABILITIES = {"edit_files", "run_shell", "strict_output", "model_select", "effort_select",
                 "usage_report", "sandbox_login"}

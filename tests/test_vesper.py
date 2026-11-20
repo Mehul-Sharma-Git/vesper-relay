@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -57,7 +58,7 @@ class VesperTests(unittest.TestCase):
         (project / "checks" / "gate.py").write_text(
             "from pathlib import Path\nimport sys\n"
             "assert (Path(sys.argv[1]) / 'app.js').read_text() == 'export const loading = false;\\n'\n")
-        command("approve", "--digest", command("review")["digest"])
+        command("approve", "--digest", command("review", "--json")["digest"])
         attempt = command("prepare")
         command("submit", attempt["id"], code=1)
         attempt = command("prepare")
@@ -70,7 +71,18 @@ class VesperTests(unittest.TestCase):
                                 ("requirements", "correctness", "scope", "tests", "maintainability", "security")})
         report_path = project / "review-fixture.json"
         report_path.write_text(json.dumps(report))
+        # P2-T2: attesting independence needs a human confirmation on its own sheet.
+        self.env.update(VESPER_TEST_CONFIRM_ANSWER="no")
+        self.assertIn("not confirmed", command("review-candidate", "--report", report_path,
+                                               "--attest-independent", code=2))
+        self.assertEqual(command("status")["status"], "awaiting_review")
+        sheets = self.root / "sheets"
+        self.env.update(VESPER_TEST_CONFIRM_ANSWER="yes", VESPER_TEST_SHEETS=str(sheets))
         command("review-candidate", "--report", report_path, "--attest-independent")
+        sheet = sorted(sheets.glob("*-attest-independence.txt"))[-1].read_text()
+        for field in ("Review of: job J1", "Reviewer session it claims: not stated", "Verdict: approve, 0 blockers",
+                      "this report came from a separate reviewer session, not the author", "Report: "):
+            self.assertIn(field, sheet)
         return project, command
 
     def test_existing_repo_preserves_unrelated_work_and_requires_reviewed_patch(self):
@@ -86,7 +98,17 @@ class VesperTests(unittest.TestCase):
         self.assertEqual(result["files"], ["app.js"])
         self.assertEqual(self.cli("runs", "--repo", self.repo)["runs"][0]["project"], str(project))
         command("apply", "--digest", "invalid", code=2)
+        # P2-T2: applying needs a human confirmation on the patch sheet.
+        self.env.update(VESPER_TEST_CONFIRM_ANSWER="no")
+        self.assertIn("not confirmed", command("apply", "--digest", result["digest"], code=2))
+        self.assertEqual((self.repo / "app.js").read_text(), "export const loading = true;\n")
+        self.env.update(VESPER_TEST_CONFIRM_ANSWER="yes")
         command("apply", "--digest", result["digest"])
+        sheet = sorted((self.root / "sheets").glob("*-apply-patch.txt"))[-1].read_text()
+        for field in (f"Repository: {result['repository']}", "Branch: ", "app.js: +1 −1 lines",
+                      "J1: approve (operator)", "What changed: first confirmation",
+                      f"Patch digest: {result['digest'][:12]}"):
+            self.assertIn(field, sheet)
         self.assertEqual((self.repo / "app.js").read_text(), "export const loading = false;\n")
         self.assertEqual((self.repo / "notes.txt").read_text(), "work in progress\n")
         self.assertEqual(self.git("diff", "--cached", "--name-only"), b"")

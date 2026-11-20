@@ -8,6 +8,7 @@ import tempfile
 import time
 import unittest
 from unittest import mock
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = [sys.executable, str(ROOT / "build_local.py")]
@@ -65,7 +66,7 @@ class BuilderTests(unittest.TestCase):
         return json.loads(result.stdout) if result.stdout else result.stderr
 
     def approve(self):
-        review = self.command("review")
+        review = self.command("review", "--json")
         self.command("approve", "--digest", review["digest"])
 
     def candidate(self, job):
@@ -75,7 +76,7 @@ class BuilderTests(unittest.TestCase):
 
     def test_approval_requires_exact_review_and_blocks_jobs(self):
         self.command("prepare", code=2)
-        digest = self.command("review")["digest"]
+        digest = self.command("review", "--json")["digest"]
         (self.project / "plan" / "design.md").write_text("changed")
         self.command("approve", "--digest", digest, code=2)
         self.approve()

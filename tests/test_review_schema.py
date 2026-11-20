@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 from builder.contracts import BuilderError
 from builder.brains import ADAPTERS, Brain, LEGACY, command as brain_command
 from builder.review_gate import decode_provider_report, prompt, report_schema
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 REPLIES = ROOT / "docs/plan/fixtures/pocket-todo/reviewer-replies"
 STRICT_ENDING = "Return only the JSON object. No text before or after it."

@@ -211,6 +211,12 @@ def commit_repair(runner, source, approved_digest):
     manifest = file_entries(contents)
     require(set(summary["files"]) <= set(state["bundle"]["repair"]["paths"]),
             "Repair would commit files outside its approved scope")
+    # Human-only (P2-T2): the owner confirms on the repair sheet before anything is written to Git.
+    from .approvals import confirm, keep, repository_store
+    from .sheets import repair_sheet
+    sheet = repair_sheet(repository_store(), str(source), summary,
+                         runner.control / "snapshots" / state["approval_id"], snapshot, state)
+    confirmation = confirm("commit-repair", str(source), summary["digest"], sheet)
     zero = "0" * len(meta["commit"])
     branch = "vesper/repair/" + state["approval_id"]
     ref = "refs/heads/" + branch
@@ -244,4 +250,5 @@ def commit_repair(runner, source, approved_digest):
                      "user.email=vesper-relay@users.noreply.github.com", "-c", "commit.gpgsign=false",
                      "commit-tree", tree, "-p", meta["commit"], data=message.encode()).decode().strip()
         git(source, "-c", "core.hooksPath=/dev/null", "update-ref", "--no-deref", ref, commit, zero)
+    keep(repository_store(), confirmation)
     return {**summary, "branch": branch, "commit": commit}

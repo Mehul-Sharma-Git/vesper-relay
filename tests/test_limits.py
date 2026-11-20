@@ -18,6 +18,7 @@ from builder.runner import Runner
 import test_builder
 import test_rc1
 from test_rc1 import verdict
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 CLAUDE = Brain("claude-code", ADAPTERS["claude-code"])
 SLOW_GATE = ("import time\ntime.sleep(1.5)\n"
@@ -43,13 +44,13 @@ class CheckTimeoutTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.plan["checks"][0]["timeout"] = value
                 self.write_plan()
-                self.command("review")
+                self.command("review", "--json")
 
     def test_check_timeout_is_part_of_the_digest(self):
-        before = self.command("review")["digest"]
+        before = self.command("review", "--json")["digest"]
         self.plan["checks"][0]["timeout"] = 60
         self.write_plan()
-        self.assertNotEqual(self.command("review")["digest"], before)
+        self.assertNotEqual(self.command("review", "--json")["digest"], before)
 
     def submit_slow_gate(self, timeout):
         (self.project / "checks" / "first.py").write_text(SLOW_GATE)

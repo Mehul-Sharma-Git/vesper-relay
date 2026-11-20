@@ -352,9 +352,18 @@ class Runner:
         contract, bundle = review_bundle(self.root)
         return {"digest": fingerprint(bundle), "packet_digest": fingerprint({k: v for k, v in bundle.items() if k != "plan_critique"}), "contract": contract, "files": bundle}
 
+    def review_sheet(self):
+        """The plain-language plan sheet (P2-T2). Printing it never moves the "what changed" baseline."""
+        from .approvals import run_store
+        from .sheets import plan_sheet
+        contract, bundle = review_bundle(self.root)
+        return plan_sheet(self.root, contract, bundle, fingerprint(bundle), run_store(self.root)).full
+
     def approve(self, digest):
+        from .approvals import confirm, keep, run_store
+        from .sheets import plan_sheet
         require(not self.state_file.exists(), "A contract is already approved for this run")
-        _, bundle = review_bundle(self.root)
+        contract, bundle = review_bundle(self.root)
         require(fingerprint(bundle) == digest, "Approval digest changed. Review the current draft again.")
         if bundle.get("planning", {}).get("depth") in ("full", "focused"):
             require(bundle.get("plan_critique", {}).get("report", {}).get("verdict") == "approve",
@@ -363,6 +372,9 @@ class Runner:
         if "repair" in bundle:
             from .repair import reproduction_record
             proof = reproduction_record(self, digest, bundle)
+        # Human-only (P2-T2): the owner confirms on the plan sheet before anything is locked.
+        confirmation = confirm("approve-plan", str(self.root), digest,
+                               plan_sheet(self.root, contract, bundle, digest, run_store(self.root)))
         approval_id = uuid4().hex
         approved = self.control / "approvals" / approval_id
         initial = self.control / "snapshots" / approval_id
@@ -382,7 +394,9 @@ class Runner:
                  "completed": [], "active": None, "attempts": []}
         if proof:
             state["repair_reproduction"] = proof
+        state["confirmation"] = {key: confirmation[key] for key in ("digest", "confirmer", "at")}
         self.save(state)
+        keep(run_store(self.root), confirmation)
         return self.status()
 
     def save(self, state):
@@ -761,12 +775,26 @@ class Runner:
         require(fingerprint(manifest) == packet["candidate_digest"]
                 and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
                 "Tested candidate changed after verification")
+        attested = None
+        if launched["provider"] == "operator":
+            # Human-only (P2-T2): a person vouches that the supplied report is independent.
+            from .approvals import confirm, run_store
+            from .sheets import attest_sheet
+            sheet, report_digest = attest_sheet(
+                run_store(self.root), f"{self.root}#{attempt['job']}",
+                f"job {attempt['job']}, candidate {packet['candidate_digest'][:12]}", report)
+            attested = confirm("attest-independence", f"{self.root}#{attempt['job']}", report_digest, sheet)
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
                              **launched}
         if blockers:
-            return self.finish(state, "rejected", "Review blockers: " + "; ".join(
+            result = self.finish(state, "rejected", "Review blockers: " + "; ".join(
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
-        return self.accept_candidate(state, attempt["job"], candidate, manifest)
+        else:
+            result = self.accept_candidate(state, attempt["job"], candidate, manifest)
+        if attested:
+            from .approvals import keep, run_store
+            keep(run_store(self.root), attested)
+        return result
 
     def run_gates(self, state, contract, job, candidate, proposed, directory, launcher):
         """The job's gates (every gate on the final job). Build setup runs once, before the

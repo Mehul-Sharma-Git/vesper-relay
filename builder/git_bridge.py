@@ -130,6 +130,14 @@ def apply_change(runner, state, meta, approved_digest):
     config = ("-c", "core.autocrlf=false", "-c", "core.eol=lf",
               "-c", "core.safecrlf=false", "-c", "apply.ignoreWhitespace=no")
     git(repo, *config, "apply", "-p2", "--whitespace=nowarn", "--check", "-", data=patch)
+    # Human-only (P2-T2): the owner confirms on the patch sheet before the working tree changes.
+    from .approvals import confirm, keep, repository_store
+    from .sheets import patch_sheet
+    head = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", valid=(0, 1)).decode().strip()
+    sheet = patch_sheet(repository_store(), str(repo), head or f"detached at {meta['commit'][:12]}", summary,
+                        runner.control / "snapshots" / state["approval_id"], runner.snapshot(state), state)
+    confirmation = confirm("apply-patch", str(repo), summary["digest"], sheet)
     require(repository(repo) == meta, "Repository HEAD changed while preparing the patch")
     git(repo, *config, "apply", "-p2", "--whitespace=nowarn", "-", data=patch)
+    keep(repository_store(), confirmation)
     return {**summary, "applied": True}

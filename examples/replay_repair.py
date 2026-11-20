@@ -29,7 +29,8 @@ def run(*command, cwd, env):
 def check(temp):
     target = Path(temp) / 'target'
     target.mkdir()
-    env = dict(os.environ, VESPER_STATE_DIR=str(Path(temp) / 'state'))
+    env = dict(os.environ, VESPER_STATE_DIR=str(Path(temp) / 'state'),
+               VESPER_TEST_CONFIRMER=str(Path(__file__).resolve().parent / "stand_in_confirmer.py"))
     run('git', 'init', '-q', cwd=target, env=env)
     (target / 'app.txt').write_text('Committed product fixture\n')
     run('git', 'add', 'app.txt', cwd=target, env=env)
@@ -97,7 +98,7 @@ def replay(destination):
     destination.mkdir(parents=True, exist_ok=False)
     source = destination / 'faulty-source'
     state = destination / 'state'
-    env = dict(os.environ, VESPER_STATE_DIR=str(state))
+    env = dict(os.environ, VESPER_STATE_DIR=str(state), VESPER_TEST_CONFIRMER=str(Path(__file__).resolve().parent / "stand_in_confirmer.py"))
 
     def run(*args, cwd=destination, code=0):
         result = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True)

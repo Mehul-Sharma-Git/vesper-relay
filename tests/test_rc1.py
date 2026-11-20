@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 import test_vesper
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 
 def verdict(preview, decision="approve"):
@@ -51,7 +52,7 @@ class TeamTests(unittest.TestCase):
         return project, command
 
     def approve(self, command):
-        command("approve", "--digest", command("review")["digest"])
+        command("approve", "--digest", command("review", "--json")["digest"])
 
     def submit(self, command):
         attempt = command("prepare")
@@ -327,7 +328,7 @@ class RepairTests(unittest.TestCase):
         def cmd(*args, **kwargs):
             return self.cli("--project", project, *args, checkout=source, **kwargs)
         self.assertIn("specific defect", cmd("repair-reproduce", "--trust-host", code=2))
-        cmd("approve", "--digest", cmd("review")["digest"], code=2)
+        cmd("approve", "--digest", cmd("review", "--json")["digest"], code=2)
         self.assertEqual(subprocess.check_output(
             ["git", "-C", str(source), "for-each-ref", "refs/heads/vesper/repair"]), b"")
 
@@ -346,7 +347,7 @@ class RepairTests(unittest.TestCase):
         def cmd(*args, **kwargs):
             return self.cli("--project", project, *args, checkout=source, **kwargs)
 
-        digest = cmd("review")["digest"]
+        digest = cmd("review", "--json")["digest"]
         self.assertIn("reproduc", cmd("approve", "--digest", digest, code=2).lower())
         cmd("repair-reproduce", "--trust-host")
         cmd("approve", "--digest", digest)
@@ -368,7 +369,17 @@ class RepairTests(unittest.TestCase):
         cmd("review-candidate", "--report", report, "--attest-independent", code=2)
         cmd("review-candidate", "--brain", "codex", "--launcher", launcher)
         patch = cmd("review-change")
+        # P2-T2: committing a repair needs a human confirmation on the repair sheet.
+        self.env.update(VESPER_TEST_CONFIRM_ANSWER="no")
+        self.assertIn("not confirmed", cmd("repair-commit", "--digest", patch["digest"], code=2))
+        self.assertNotIn(b"vesper/repair/", subprocess.check_output(["git", "-C", str(source), "branch", "--list"]))
+        sheets = self.root / "sheets"
+        self.env.update(VESPER_TEST_CONFIRM_ANSWER="yes", VESPER_TEST_SHEETS=str(sheets))
         fixed = cmd("repair-commit", "--digest", patch["digest"])
+        sheet = sorted(sheets.glob("*-commit-repair.txt"))[-1].read_text()
+        for field in ("Failure: fixture-marker", "vesper.py: +2 −0 lines", "Tests added: none",
+                      "Independent review:", ": approve (codex)", f"Patch digest: {patch['digest'][:12]}"):
+            self.assertIn(field, sheet)
         self.assertTrue(fixed["branch"].startswith("vesper/repair/"))
         self.assertEqual(cmd("repair-commit", "--digest", patch["digest"])["commit"], fixed["commit"])
         self.assertNotIn("REPAIR_OK = True", (source / "vesper.py").read_text())
@@ -416,7 +427,7 @@ else:
     raise SystemExit(3)
 ''')
         launcher.chmod(0o700)
-        result = cmd("repair-run", "--digest", cmd("review")["digest"], "--brain", "codex",
+        result = cmd("repair-run", "--digest", cmd("review", "--json")["digest"], "--brain", "codex",
                      "--reviewer-brain", "claude-code", "--launcher", launcher, "--commit")
         self.assertTrue(result["branch"].startswith("vesper/repair/"))
         history = self.cli("learn", checkout=source)
