@@ -15,17 +15,20 @@ first time; and the exported app's three gates pass.
 **Rerun (owner, 20 Nov 2026):** the first P2-G run failed two criteria, the seeded security
 advisory and the estimate bands (appendix B, "Gate P2-G — 2026-11-20 18:56", findings 53 and
 54). After P2-T8 and P2-T9, rerun only those two; the other five passed on 20 Nov and stand.
-1. Seeded finding: the bug-fix run on the run-2b seed (a reachable SQL injection inside the
+1. Seeded advisory: the bug-fix run on the run-2b seed (a reachable SQL injection inside the
    `delete_list` the fix touches), with the job's `max_attempts` set to 1. The owner's threat
-   model for that plan is its decision D3 (other websites refused; local programs trusted),
-   so the injection, reachable only by a local program, is an advisory under P2-T8's rule.
-   Pass when the review reports a security finding on the injection and acceptance waits
-   for the owner's `decide`: as an advisory, or, if the reviewer files it as a blocker, at
-   the job's single attempt running out. Either way the owner decides.
-2. Estimates: first one calibration run with marked readings (any bug fix), then two
+   model for that plan is its decision D3: loopback by default, other websites refused,
+   local programs trusted (a device on the Wi-Fi reaches the app only with `--host 0.0.0.0`,
+   whose full access the owner accepted as A9). The injection is reachable only by such
+   trusted callers, so under P2-T8's rule it is an advisory. Pass when the review reports
+   the injection as a security advisory and acceptance waits for the owner's `decide`. If the
+   reviewer files it as a blocker, the owner still decides (the single attempt is used up),
+   but the criterion is recorded as not exercised.
+2. Estimates: first one calibration run with marked readings and the same brain config as
+   the checked runs (Claude workers, Codex reviewer, so both accounts calibrate), then two
    consecutive runs (Pocket Todo, then a bug fix) whose estimates come from marked readings
-   only. Pass when `vesper usage check` reports both inside for every account each run
-   uses (Claude and ChatGPT).
+   only. Pass when `vesper usage check` reports inside for every account and limit of both
+   runs.
 
 ---
 
@@ -294,7 +297,9 @@ advisory and the estimate bands (appendix B, "Gate P2-G — 2026-11-20 18:56", f
      account with no marked pair is "uncalibrated" and shows tokens and time only.
   2. `approve` keeps the estimate it showed (per account and limit) in the run's state.
   3. `vesper --project RUN usage check` compares, per account and limit, the run's observed
-     rise (the sum over its marked pairs) with that kept estimate: inside, below or above,
+     rise after approval (the sum over its marked pairs taken after `approve`; pairs around
+     `review-plan` still calibrate but are not compared, because the estimate `approve` keeps
+     no longer includes the critique) with that kept estimate: inside, below or above,
      where a rise within one reading step (1 point) of the band counts as inside because
      readings are whole points. A run whose kept estimate had no band, or with a part not
      bracketed by marked readings, is reported as unchecked. `status` of a complete run
@@ -305,7 +310,8 @@ advisory and the estimate bands (appendix B, "Gate P2-G — 2026-11-20 18:56", f
 - **Do not:** add dollar figures; change the reserve rule or the pause before a job (P2-T4).
 - **Acceptance:** tests with synthetic ledgers: a marked pair calibrates and unmarked pairs
   never do (an account with only unmarked readings is uncalibrated); a paused run's two
-  marked parts are summed; the approval keeps the estimate; `usage check` reports inside
-  for a rise one step below the band and outside for two steps below; a run with an
-  unbracketed part, or approved without a band, is reported as unchecked.
+  marked parts are summed; a marked pair around `review-plan` calibrates but is left out of
+  `usage check`; the approval keeps the estimate; `usage check` reports inside for a rise one
+  step below the band and below for two steps below; a run with an unbracketed part, or
+  approved without a band, is reported as unchecked.
 
