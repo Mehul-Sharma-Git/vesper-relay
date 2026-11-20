@@ -50,7 +50,15 @@ class ClaudeCode(Adapter):
                 "--allowedTools", tools, "--max-turns", str(max_turns), *output, *choice]
 
     def worker_command(self, *, model=None, effort=None, max_turns=20, program=None, tools=WORKER_TOOLS):
-        return self.command(tool_list(tools), [], model, effort, max_turns, program)
+        # JSON output carries a usage block for the ledger (P2-T3); summary() keeps the human text.
+        return self.command(tool_list(tools), ["--output-format", "json"], model, effort, max_turns, program)
+
+    def summary(self, text):
+        try:
+            data = json.loads(text)
+        except (ValueError, RecursionError):
+            return text
+        return data["result"] if isinstance(data, dict) and isinstance(data.get("result"), str) else text
 
     def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
                          program=None, tools=READ_TOOLS):

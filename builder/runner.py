@@ -356,8 +356,18 @@ class Runner:
         """The plain-language plan sheet (P2-T2). Printing it never moves the "what changed" baseline."""
         from .approvals import run_store
         from .sheets import plan_sheet
+        from .usage import for_project, render
         contract, bundle = review_bundle(self.root)
-        return plan_sheet(self.root, contract, bundle, fingerprint(bundle), run_store(self.root)).full
+        sheet = plan_sheet(self.root, contract, bundle, fingerprint(bundle), run_store(self.root)).full
+        estimate = for_project(contract, bundle)
+        return sheet + "\n" + (render(estimate) if "error" not in estimate
+                                else "Estimate: unavailable (" + estimate["error"] + ")") + "\n"
+
+    def estimate(self):
+        """Jobs, AI calls, tokens, wall time and % of plan limits for this plan (P2-T3)."""
+        from .usage import for_project
+        contract, bundle = review_bundle(self.root)
+        return for_project(contract, bundle)
 
     def approve(self, digest):
         from .approvals import confirm, keep, run_store
@@ -756,7 +766,8 @@ class Runner:
                 log = directory / ("reviewer-" + uuid4().hex + ".log")
                 code = launch(brain, "reviewer", launcher, trust_host, work=view,
                               input_text=review_prompt(profile, packet), log=log, timeout=review_timeout,
-                              response=response, schema=schema, max_turns=review_max_turns)
+                              response=response, schema=schema, max_turns=review_max_turns,
+                              ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"})
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
                 output = response if response.is_file() else log
@@ -929,11 +940,13 @@ class Runner:
                 self.save(state)
 
             code = launch(brain, "worker", launcher, trust_host, work=workspace, input_text=prompt, log=log,
-                          timeout=job.get("timeout", 180), on_start=record_child, role=job["role"])
+                          timeout=job.get("timeout", 180), on_start=record_child, role=job["role"],
+                          ledger={"run": self.root, "job": job["id"], "role": job["role"]})
             attempt["worker_log"] = str(log.relative_to(self.root))
             if code != 0:
-                self.finish(state, "worker_failed", f"Worker brain {brain.name} exited {code}\n{read_tail(log)}",
-                            "provider")
+                said = brain.adapter.summary(read_tail(log, limit=200_000))
+                self.finish(state, "worker_failed",
+                            f"Worker brain {brain.name} exited {code}\n{said[-3500:]}", "provider")
             else:
                 result = self.verify(state, contract, job, workspace, launcher)
                 if result["outcome"] == "awaiting_review":

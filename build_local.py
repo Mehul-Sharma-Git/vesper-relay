@@ -100,6 +100,7 @@ def main():
     commands.add_parser("abandon").add_argument("attempt")
     commands.add_parser("retry").add_argument("--reason", required=True)
     commands.add_parser("status")
+    commands.add_parser("estimate").add_argument("--json", action="store_true", help="Print the estimate as JSON")
     commands.add_parser("export").add_argument("destination", type=Path)
     run = commands.add_parser("run")
     brain_options(run, reviewer=True)
@@ -115,6 +116,12 @@ def main():
             guide = Path(__file__).resolve().parent / "docs" / "PLANNER.md"
             print(f"Project: {root}\nIdea: {root / 'plan' / 'idea.md'}\n\n" + guide.read_text())
             return 0
+        elif args.command == "estimate":
+            from builder.usage import render
+            result = engine.estimate()
+            if not args.json:
+                print(render(result) if "error" not in result else "Estimate unavailable: " + result["error"])
+                return 0
         elif args.command == "review" and not args.json:
             print(engine.review_sheet(), end="")
             return 0

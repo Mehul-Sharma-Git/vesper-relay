@@ -103,6 +103,17 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   a deliberate human act; neither is authentication against software that controls
   your machine. `VESPER_TEST_CONFIRMER` names a test-only stand-in for automated
   tests; `vesper doctor` warns whenever it is set.
+- **Plan usage.** Every AI call Vesper starts is logged in
+  `~/.local/state/vesper-relay/usage.jsonl` (run, job, role, brain, model, start, end,
+  and tokens when the AI reports them). Estimates are in % of your plan's session and
+  weekly limits and wall time, never dollars. Vendors don't publish exact plan numbers,
+  so Vesper learns from your runs: before and after a run, log what your plan shows
+  with `vesper usage record --account claude --session 42 --week 13` (accounts:
+  `claude`, `chatgpt`, `gemini`). `vesper --project PATH estimate` (and the plan sheet
+  from `review`) then shows jobs, AI calls, tokens, wall time, session and weekly % per
+  account as a low–high band, sessions needed with your reserve
+  (`[limits] reserve_percent`), and a confidence level, low until 5 calibrated runs.
+  Before any readings it says "uncalibrated" and shows tokens and time only.
 - **Learn.** Verified Vesper runs record typed local signals automatically.
   Use `vesper learn` to see proposals and `vesper --project PATH incidents` to
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and

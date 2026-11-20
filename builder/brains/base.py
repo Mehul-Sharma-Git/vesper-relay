@@ -79,6 +79,10 @@ class Adapter:
         from ..review_gate import decode_provider_report
         return decode_provider_report(text)
 
+    def summary(self, text):
+        """The human-readable part of a worker's output (for failure reasons and the log)."""
+        return text
+
     def usage(self, text):
         """Token counts from a reviewer reply, or None. Called only when ``usage_report``."""
         return None

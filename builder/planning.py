@@ -237,7 +237,8 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
             before = inventory(view)
             response, log = session / "response.json", session / "review.log"
             code = launch(brain, "reviewer", launcher, trust_host, work=view, input_text=prompt, log=log,
-                          timeout=review_timeout, response=response, schema=schema, max_turns=review_max_turns)
+                          timeout=review_timeout, response=response, schema=schema, max_turns=review_max_turns,
+                          ledger={"run": runner.root, "job": None, "role": "critic"})
             require(code == 0, "Plan reviewer failed (" + (f"timed out after {review_timeout} s; raise "
                     "--review-timeout" if code == 124 else f"exit {code}") + "); no approval recorded")
             require(inventory(view) == before, "Plan reviewer modified its input copy")
