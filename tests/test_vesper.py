@@ -103,6 +103,18 @@ class VesperTests(unittest.TestCase):
         self.assertIn("not confirmed", command("apply", "--digest", result["digest"], code=2))
         self.assertEqual((self.repo / "app.js").read_text(), "export const loading = true;\n")
         self.env.update(VESPER_TEST_CONFIRM_ANSWER="yes")
+        # Every overlap check runs after the human confirms: an edit made while the dialog
+        # was open is still refused, never merged (P2-T2 review).
+        editor, stand_in_path = self.root / "editing-confirmer.py", self.env["VESPER_TEST_CONFIRMER"]
+        editor.write_text(f"#!{sys.executable}\nimport sys\nsys.stdin.read()\n"
+                          f"open({str(self.repo / 'app.js')!r}, 'a').write('// edited while confirming\\n')\n")
+        editor.chmod(0o700)
+        self.env["VESPER_TEST_CONFIRMER"] = str(editor)
+        self.assertIn("Local edit overlaps the patch: app.js", command("apply", "--digest", result["digest"], code=2))
+        self.assertEqual((self.repo / "app.js").read_text(),
+                         "export const loading = true;\n// edited while confirming\n")
+        (self.repo / "app.js").write_text("export const loading = true;\n")
+        self.env["VESPER_TEST_CONFIRMER"] = stand_in_path
         command("apply", "--digest", result["digest"])
         sheet = sorted((self.root / "sheets").glob("*-apply-patch.txt"))[-1].read_text()
         for field in (f"Repository: {result['repository']}", "Branch: ", "app.js: +1 −1 lines",

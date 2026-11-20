@@ -34,7 +34,9 @@ implementation details within the approved plan.
    `"team": 1` and give each job one `frontend` or `backend` writer with its
    compatible skills, paths, dependencies, and check IDs. Use applicable
    approved local guidance from `plan/intake.json` within the user's authority.
-4. Obtain independent `review-plan` critique for full and focused routes.
+4. Obtain independent `review-plan` critique for full and focused routes. A
+   critique supplied as `review-plan --report FILE --attest-independent` needs
+   the user to confirm that it came from a separate reviewer session.
    Resolve blockers, then run `vesper --project PATH review` and show the user
    the plan sheet it prints. When the user authorizes it, run
    `approve --digest DIGEST` and tell the user to confirm it: in their own
@@ -60,7 +62,8 @@ implementation details within the approved plan.
    trusted minimal reproducer, scope the `repair` plan to Vesper files, and
    show the digest. An authorized `repair-run` with a confined launcher can
    reproduce, fix, verify, independently review, and commit to a local Vesper
-   repair branch. Use `vesper root` to locate the installed checkout and read
+   repair branch; the user confirms the repair plan, and with `--commit` the
+   commit as well. `repair-commit` asks the user to confirm the commit. Use `vesper root` to locate the installed checkout and read
    its `docs/RC1.md` for the source repair flow.
 
 Core subcommands use `vesper --project PATH SUBCOMMAND`. Use the current

@@ -97,6 +97,15 @@ def apply_change(runner, state, meta, approved_digest):
     require(approved_digest == summary["digest"], "Patch digest changed. Review the patch again.")
     repo = Path(meta["path"])
     require(repository(repo) == meta, "Repository HEAD changed. Start a new run from the current baseline.")
+    # Human-only (P2-T2): the owner confirms on the patch sheet first, and every check below runs
+    # after that, so an edit made while the confirmation was open is refused, never merged.
+    from .approvals import confirm, keep, repository_store
+    from .sheets import patch_sheet
+    head = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", valid=(0, 1)).decode().strip()
+    sheet = patch_sheet(repository_store(), str(repo), head or f"detached at {meta['commit'][:12]}", summary,
+                        runner.control / "snapshots" / state["approval_id"], runner.snapshot(state), state)
+    confirmation = confirm("apply-patch", str(repo), summary["digest"], sheet)
+    require(repository(repo) == meta, "Repository HEAD changed while the patch was being confirmed")
     old = file_entries(state["bundle"]["seed"])
     require(not any(Path(name).name == ".gitattributes" for name in summary["files"]),
             "Apply a Git attributes change manually after reviewing the patch")
@@ -130,13 +139,6 @@ def apply_change(runner, state, meta, approved_digest):
     config = ("-c", "core.autocrlf=false", "-c", "core.eol=lf",
               "-c", "core.safecrlf=false", "-c", "apply.ignoreWhitespace=no")
     git(repo, *config, "apply", "-p2", "--whitespace=nowarn", "--check", "-", data=patch)
-    # Human-only (P2-T2): the owner confirms on the patch sheet before the working tree changes.
-    from .approvals import confirm, keep, repository_store
-    from .sheets import patch_sheet
-    head = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", valid=(0, 1)).decode().strip()
-    sheet = patch_sheet(repository_store(), str(repo), head or f"detached at {meta['commit'][:12]}", summary,
-                        runner.control / "snapshots" / state["approval_id"], runner.snapshot(state), state)
-    confirmation = confirm("apply-patch", str(repo), summary["digest"], sheet)
     require(repository(repo) == meta, "Repository HEAD changed while preparing the patch")
     git(repo, *config, "apply", "-p2", "--whitespace=nowarn", "-", data=patch)
     keep(repository_store(), confirmation)

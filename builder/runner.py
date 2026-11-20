@@ -770,20 +770,23 @@ class Runner:
                     launched["usage"] = spent
         require(len(json.dumps(report)) <= 256_000, "Reviewer output exceeded the report limit")
         blockers = validate_report(report, packet)
-        self.frozen_contract(state)
-        manifest = inventory(candidate)
-        require(fingerprint(manifest) == packet["candidate_digest"]
-                and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
-                "Tested candidate changed after verification")
         attested = None
         if launched["provider"] == "operator":
-            # Human-only (P2-T2): a person vouches that the supplied report is independent.
+            # Human-only (P2-T2): a person vouches that the supplied report is independent. The
+            # candidate and contract checks below run after the confirmation.
             from .approvals import confirm, run_store
             from .sheets import attest_sheet
             sheet, report_digest = attest_sheet(
                 run_store(self.root), f"{self.root}#{attempt['job']}",
                 f"job {attempt['job']}, candidate {packet['candidate_digest'][:12]}", report)
             attested = confirm("attest-independence", f"{self.root}#{attempt['job']}", report_digest, sheet)
+            require(fingerprint(inventory(workspace)) == attempt["review_view_digest"],
+                    "Staged review evidence changed")
+        self.frozen_contract(state)
+        manifest = inventory(candidate)
+        require(fingerprint(manifest) == packet["candidate_digest"]
+                and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
+                "Tested candidate changed after verification")
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
                              **launched}
         if blockers:
