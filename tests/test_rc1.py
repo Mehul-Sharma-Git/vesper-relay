@@ -13,7 +13,7 @@ import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2
 
 def verdict(preview, decision="approve"):
     findings = [] if decision == "approve" else [
-        {"severity": "blocking", "path": "app.js", "evidence": "The fallback skips a required branch.",
+        {"severity": "blocking", "category": "correctness", "path": "app.js", "evidence": "The fallback skips a required branch.",
          "recommendation": "Handle the failed-save branch explicitly."}
     ]
     return {"attempt_id": preview["id"], "base_digest": preview["review"]["base_digest"],

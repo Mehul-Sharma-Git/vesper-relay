@@ -54,7 +54,10 @@ implementation details within the approved plan.
    jobs. `run` can start the writer and reviewer automatically when configured.
    To add a gate mid-build, run `add-check --id G_X --script FILE --jobs J_X
    --reason "..."` (unfinished jobs only) and tell the user to confirm it on its
-   sheet; approved checks are never edited or removed.
+   sheet; approved checks are never edited or removed. When `status` shows
+   `awaiting_decision`, show the user each listed finding: they choose
+   `decide F_ID --fix` or `decide F_ID --accept-risk --reason "..."`, and they
+   confirm an acceptance themselves. Never choose for them.
 6. For Git work, run `review-change` and inspect `patch`. Show the findings
    and the exact patch digest. Apply only if authorized; the user confirms the
    apply on its sheet. For a new website use

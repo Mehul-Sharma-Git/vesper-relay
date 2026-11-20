@@ -46,8 +46,16 @@ def schema_errors(schema, data, where="$"):
     return errors
 
 
-def approved_report():
+def real_report():
     return json.loads((REPLIES / "approved-report.json").read_text(encoding="utf-8"))
+
+
+def approved_report():
+    """The real P1-era report with the category every finding now needs (P2-T7)."""
+    report = real_report()
+    for finding in report["findings"]:
+        finding["category"] = "maintainability"
+    return report
 
 
 def packet_for(report, **extra):
@@ -59,6 +67,10 @@ class ReportSchemaTests(unittest.TestCase):
         report = approved_report()
         self.assertIn("design", report["evidence"])
         self.assertEqual(schema_errors(report_schema(packet_for(report, design_review=True)), report), [])
+        # The real reply predates categories (P2-T7): the only errors are the missing categories.
+        raw = real_report()
+        self.assertEqual(schema_errors(report_schema(packet_for(raw, design_review=True)), raw),
+                         [f"$.findings[{index}].category: missing" for index in range(len(raw["findings"]))])
 
     def test_rejects_a_missing_evidence_area(self):
         report = approved_report()
@@ -93,7 +105,7 @@ class PlanReportSchemaTests(unittest.TestCase):
                 "verdict": "request_changes", "summary": "Checked retry semantics.",
                 "evidence": {"requirements": "product.md", "architecture": "architecture.md",
                              "checks": "gate.py"},
-                "findings": [{"severity": "blocking", "path": "plan/architecture.md:1",
+                "findings": [{"severity": "blocking", "category": "correctness", "path": "plan/architecture.md:1",
                               "scenario": "Retry after lost response", "consequence": "Duplicate write",
                               "evidence": "No retry identity", "recommendation": "Add a request id."}],
                 **change}

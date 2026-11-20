@@ -1,7 +1,7 @@
 """Human-only approvals (P2-T2): confirmers, confirmation records and "what changed".
 
 A protected action (approving a plan, applying a patch, committing a repair, attesting that a
-report came from an independent reviewer, adding a check after approval, P2-T6) runs only after
+report came from an independent reviewer, adding a check after approval, accepting a risk) runs only after
 a human confirms it on a plain-language sheet. The confirmer is chosen in the personal config:
 
     [approvals]
@@ -38,6 +38,7 @@ ACTIONS = {
     "commit-repair": "Committing this repair",
     "attest-independence": "Attesting this review",
     "add-check": "Adding this check",
+    "accept-risk": "Accepting this risk",
 }
 CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DIALOG = """on run argv
@@ -141,7 +142,7 @@ def confirm(action, subject, digest, sheet, *, environ=None, confirmer=None, std
 # Records --------------------------------------------------------------------------------
 
 def run_store(root):
-    """Confirmations about one run: plan approval, attesting its reviews, adding checks."""
+    """Confirmations about one run: plan approval, attesting its reviews, adding checks, accepting risks."""
     return Path(root) / ".builder" / "confirmations.json"
 
 

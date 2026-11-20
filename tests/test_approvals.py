@@ -183,7 +183,8 @@ class PocketTodoSheetTests(unittest.TestCase):
                   "evidence": {"requirements": "Every requirement has a gate.",
                                "architecture": "Reachability and concurrency lists are complete.",
                                "checks": "api.py, ui.py and browser.py assert the matrix."},
-                  "findings": [{"severity": "advisory", "path": "plan/architecture.md", "scenario": "Wi-Fi peer",
+                  "findings": [{"severity": "advisory", "category": "security", "path": "plan/architecture.md",
+                                "scenario": "Wi-Fi peer",
                                 "consequence": "Anyone on the Wi-Fi can edit todos",
                                 "evidence": "D3 accepts no login", "recommendation":
                                 "Accepted risk: owner must confirm that devices on the home Wi-Fi can use the app"}]}

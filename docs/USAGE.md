@@ -98,9 +98,22 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   diff and digest. Use `apply --digest DIGEST` only after approval. For a new
   site, use `export NEW_DIRECTORY`. Report evidence that passed and any
   behaviors still needing verification.
+- **Findings and decisions.** Every finding of a plan critique or a job review has a
+  category (correctness, security, data, performance, maintainability, design, other)
+  and is kept in `.builder/backlog.json` with an ID (`F1`, `F2`, …); `status` lists the
+  backlog and `awaiting_decision`. Reviewers find and explain; you decide. A plan-critique
+  blocker, a security or data advisory on a job, and the review blockers of a job whose
+  attempts are used up all wait for you (status `awaiting_decision`): run
+  `vesper --project PATH decide F3 --fix` to send the plan back, return the job for
+  correction (it counts as a retry) or grant one more attempt, or
+  `decide F3 --accept-risk --reason "..."` to accept it as a risk, which you confirm on a
+  risk sheet (see Approvals). Once every plan blocker is accepted, `approve` can proceed and
+  the plan sheet lists each acceptance; security and data advisories from the critique are
+  listed under the risks you accept by approving. A run never reaches `complete` while a
+  finding still waits for you.
 - **Approvals.** Approving a plan, applying a patch, committing a repair,
-  attesting that a report came from an independent reviewer and adding a check after
-  approval are human-only. Each
+  attesting that a report came from an independent reviewer, adding a check after
+  approval and accepting a risk are human-only. Each
   shows a plain-language sheet (what is delivered or changed, each promise and its
   gate, what each job may change, the critique or review verdict, what changed since
   the last confirmation, and the short digest) and runs only after a person confirms.

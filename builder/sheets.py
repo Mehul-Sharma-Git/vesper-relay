@@ -39,7 +39,14 @@ def plan_sheet(root, contract, bundle, digest, store):
     critique = bundle.get("plan_critique")
     findings = (critique or {}).get("report", {}).get("findings", [])
     blockers = [item for item in findings if item.get("severity") == "blocking"]
-    risks = [item for item in findings if str(item.get("recommendation", "")).startswith(RISK)]
+    # Approving accepts every listed risk: those the critic marks for the owner and, P2-T7, every
+    # security or data advisory. Blockers the owner accepted with `decide` are listed with their reason.
+    risks = [item for item in findings if item.get("severity") == "advisory" and (
+        str(item.get("recommendation", "")).startswith(RISK) or item.get("category") in ("security", "data"))]
+    decided = []
+    if critique:
+        from .decisions import accepted_plan_blockers
+        decided = accepted_plan_blockers(root, critique)
     manifest = planning.get("manifest") or {}
     proposed = proposed_risks(manifest)  # P2-T5: each list item the plan proposes as a risk
     if planning.get("depth") == "skip":
@@ -47,8 +54,9 @@ def plan_sheet(root, contract, bundle, digest, store):
                    + one_line(planning.get("manifest", {}).get("rationale", "not given"), 200))
     elif critique:
         report = critique["report"]
-        verdict = (f"Critique: {report['verdict']}, {len(blockers)} blocker{'' if len(blockers) == 1 else 's'} "
-                   f"(reviewer {report.get('reviewer', 'not stated')}, {critique.get('provider', 'operator')})")
+        verdict = (f"Critique: {report['verdict']}, {len(blockers)} blocker{'' if len(blockers) == 1 else 's'}"
+                   + (f", {len(decided)} accepted by you" if decided else "")
+                   + f" (reviewer {report.get('reviewer', 'not stated')}, {critique.get('provider', 'operator')})")
     else:
         verdict = f"Critique: not run yet (required before approval at {planning.get('depth', 'this')} depth)"
     lines = ["Vesper Relay: approve this plan", "",
@@ -69,7 +77,9 @@ def plan_sheet(root, contract, bundle, digest, store):
     for item in blockers + advisories[:TOP_FINDINGS]:
         lines.append(f"  {item['severity']}: {item.get('path', '')}: {one_line(item.get('recommendation', ''))}")
     lines += ["", "Risks you accept by approving:"]
-    if risks or proposed:
+    if risks or proposed or decided:
+        lines += [f"  - {item['id']} (blocker you accepted): {in_full(item['recommendation'])} "
+                  f"({item.get('path', '')}). Your reason: {in_full(item['decision']['reason'])}" for item in decided]
         lines += [f"  - {one_line(item['recommendation'], 400)} ({item.get('path', '')})" for item in risks]
         lines += [f"  - {item['id']}: {in_full(item['item'])}. Reason: {in_full(item['accept'])} "
                   f"(plan/planning.json {item['section']})" for item in proposed]
@@ -82,7 +92,7 @@ def plan_sheet(root, contract, bundle, digest, store):
               + (f"; wireframes: {', '.join('plan/' + name for name in wireframes[:6])}" if wireframes else ""),
               f"Digest: {short_digest(digest)}"]
     facts = [f"Delivers: {contract['title']}", f"{len(contract['requirements'])} requirements, "
-             f"{len(contract['jobs'])} jobs", verdict, f"Risks you accept: {len(risks) + len(proposed)}"]
+             f"{len(contract['jobs'])} jobs", verdict, f"Risks you accept: {len(risks) + len(proposed) + len(decided)}"]
     return Sheet("\n".join(lines) + "\n", short_form("Vesper Relay: approve this plan", facts, changed, digest),
                  files)
 
@@ -123,7 +133,9 @@ def verdicts(state):
         if item.get("outcome") == "accepted":
             review = item.get("review") or {}
             rows.append(f"  {item['job']}: " + (f"{review['verdict']} ({review.get('provider', 'operator')})"
-                                                 if review.get("verdict") else "no independent review"))
+                                                 if review.get("verdict") else "no independent review")
+                        + (f"; you accepted {', '.join(item['accepted_risks'])} as risks"
+                           if item.get("accepted_risks") else ""))
     return rows or ["  none recorded"]
 
 
@@ -210,4 +222,29 @@ def add_check_sheet(contract, record, digest, folder, changed, earlier, files, s
              f"Approved plan: {short_digest(record['approval'])}", f"Digest: {short_digest(digest)}"]
     facts = [f"New check: {check['id']}", one_line(how), f"Must pass on: {jobs}",
              f"Reason: {one_line(record['reason'])}"]
+    return Sheet("\n".join(lines) + "\n", short_form(lines[0], facts, changed, digest), files)
+
+
+# Accepting a risk (P2-T7) -------------------------------------------------------------------------
+
+def risk_sheet(store, subject, item, accepts, reason, digest):
+    """The finding in plain words, its severity and source, and exactly what is being accepted."""
+    from .decisions import describe
+    files = [{"path": f"findings/{item['id']}", "sha256": digest, "size": 0, "lines": None}]
+    changed = what_changed_text(changed_since(store, "accept-risk", subject, files)[0])
+    kind = f"{item['category']} {'blocker' if item['severity'] == 'blocking' else 'advisory'}"
+    lines = ["Vesper Relay: accept a risk", "", f"Finding {item['id']}: {kind}, from {describe(item)}",
+             f"  Where: {item.get('path') or 'not stated'}"]
+    if item.get("scenario"):
+        lines.append(f"  When: {in_full(item['scenario'])}")
+    if item.get("consequence"):
+        lines.append(f"  Then: {in_full(item['consequence'])}")
+    lines += [f"  What the reviewer found: {in_full(item.get('evidence', 'not stated'))}",
+              f"  What the reviewer recommends: {in_full(item['recommendation'])}", "",
+              f"What you accept: {accepts}", f"Your reason: {in_full(reason)}", "",
+              "The finding stays on record; only your confirmation accepts it.", "", changed, "",
+              f"Digest: {short_digest(digest)}"]
+    facts = [f"Finding {item['id']}: {kind}, from {describe(item)}",
+             f"Found: {one_line(item.get('evidence', ''))}", f"You accept: {one_line(accepts, 200)}",
+             f"Your reason: {one_line(reason)}"]
     return Sheet("\n".join(lines) + "\n", short_form(lines[0], facts, changed, digest), files)

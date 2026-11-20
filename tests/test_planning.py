@@ -121,7 +121,7 @@ class PlanningTests(unittest.TestCase):
                 "evidence": {"requirements": "product.md requires stale-write rejection.",
                              "architecture": "architecture.md keeps SQLite as state owner.",
                              "checks": "gate.py covers the approved invariant."},
-                "findings": [] if verdict == "approve" else [{"severity": "blocking",
+                "findings": [] if verdict == "approve" else [{"severity": "blocking", "category": "correctness",
                     "path": "plan/architecture.md:1", "scenario": "Retry after lost response",
                     "consequence": "Duplicate write", "evidence": "No retry identity specified",
                     "recommendation": "Specify the stable request identity."}]}

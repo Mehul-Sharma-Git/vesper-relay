@@ -376,9 +376,15 @@ class Runner:
         require(not self.state_file.exists(), "A contract is already approved for this run")
         contract, bundle = review_bundle(self.root)
         require(fingerprint(bundle) == digest, "Approval digest changed. Review the current draft again.")
+        critique = bundle.get("plan_critique")
         if bundle.get("planning", {}).get("depth") in ("full", "focused"):
-            require(bundle.get("plan_critique", {}).get("report", {}).get("verdict") == "approve",
-                    "Independent plan critique must approve this exact packet before implementation")
+            # P2-T7: a blocker no longer only refuses; the owner accepts it (decide --accept-risk) or
+            # sends the plan back (decide --fix).
+            from .decisions import undecided_plan_blockers
+            require(critique, "Independent plan critique must approve this exact packet before implementation")
+            waiting = undecided_plan_blockers(self.root, critique)
+            require(not waiting, "Independent plan critique must approve this exact packet before implementation, "
+                                 "or the owner must decide each blocker: " + "; ".join(waiting))
         proof = None
         if "repair" in bundle:
             from .repair import reproduction_record
@@ -406,6 +412,9 @@ class Runner:
         if proof:
             state["repair_reproduction"] = proof
         state["confirmation"] = {key: confirmation[key] for key in ("digest", "confirmer", "at")}
+        if critique:
+            from .decisions import accepted_by_approval
+            state["accepted_risks"] = accepted_by_approval(self.root, critique, digest)
         self.save(state)
         keep(run_store(self.root), confirmation)
         return self.status()
@@ -432,6 +441,11 @@ class Runner:
         from .amendments import apply
         # Checks added after approval (P2-T6), each verified against its confirmed digest.
         return apply(self, state, reviewed_contract(approval / "plan", bundle["plan"], bundle["checks"]))
+
+    def decide(self, finding_id, *, fix=False, accept=False, reason=None):
+        """The owner's decision on a finding (P2-T7); accepting a risk is a protected action."""
+        from .decisions import decide
+        return decide(self, finding_id, fix=fix, accept=accept, reason=reason)
 
     def add_check(self, check_id, *, script=None, command=None, jobs=None, reason=None):
         """Add a check after approval (P2-T6): a protected action the owner confirms."""
@@ -472,17 +486,29 @@ class Runner:
         return self.status()
 
     def status(self):
+        from .decisions import load, open_decisions
+        backlog = load(self.root)["items"]
         if not self.state_file.exists():
-            return {"status": "planning", "project": str(self.root)}
+            return {"status": "planning", "project": str(self.root), "backlog": backlog,
+                    "awaiting_decision": [item["id"] for item in backlog if item["status"] == "awaiting_decision"]}
         state = self.state()
         contract = self.frozen_contract(state)
         self.check_snapshot(state)
         job = self.ready(state, contract)
+        # P2-T7: what waits for the owner comes from the state's own record of each attempt.
+        waiting = [name for attempt in ([state["active"]] if state["active"] else []) + state["attempts"]
+                   for name in open_decisions(attempt)]
+        decisions = {"backlog": backlog, "awaiting_decision": waiting}
+        previous = self.attempts_for(state, job) if job else []
         if state["active"]:
-            phase = "awaiting_review" if "review" in state["active"] else "active"
+            phase = ("awaiting_decision" if open_decisions(state["active"])
+                     else "awaiting_review" if "review" in state["active"] else "active")
         elif job is None:
-            phase = "complete"
-        elif len(self.attempts_for(state, job)) >= self.budget_for(state, job):
+            # A run never completes with a finding that still waits for the owner.
+            phase = "awaiting_decision" if waiting else "complete"
+        elif previous and open_decisions(previous[-1]):
+            phase = "awaiting_decision"
+        elif len(previous) >= self.budget_for(state, job):
             phase = "blocked"
         else:
             phase = "ready"
@@ -491,16 +517,21 @@ class Runner:
                 "digest": state["digest"], "snapshot": str(self.snapshot(state)),
                 "completed": state["completed"], "next_job": job and job["id"],
                 "active": state["active"], "attempts": state["attempts"],
-                "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state)}
+                "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state), **decisions}
 
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
 
     def begin(self, state, contract, provider, adapter=None, shell=False):
-        require(not state["active"], "An attempt is active. Submit or abandon it first.")
+        from .decisions import open_decisions
         job = self.ready(state, contract)
+        previous = self.attempts_for(state, job) if job else []
+        for attempt in filter(None, (state["active"], previous[-1] if previous else None)):
+            waiting = open_decisions(attempt)
+            require(not waiting, f"Job {attempt['job']} awaits the owner's decision on {', '.join(waiting)}: run "
+                                 'decide FINDING_ID --fix, or --accept-risk --reason "..."')
+        require(not state["active"], "An attempt is active. Submit or abandon it first.")
         require(job, "No jobs remain")
-        previous = self.attempts_for(state, job)
         require(len(previous) < self.budget_for(state, job), f"Retry budget exhausted for {job['id']}")
         base = self.check_snapshot(state)
         require(GATES_DIR not in base, f"{GATES_DIR} is reserved for the workers' copy of the gates; "
@@ -599,9 +630,12 @@ class Runner:
         return attempt
 
     def abandon(self, attempt_id):
+        from .decisions import open_decisions
         state = self.state()
         attempt = state["active"]
         require(attempt and attempt["id"] == attempt_id, "No matching attempt is active")
+        require(not open_decisions(attempt), "This candidate awaits the owner's decision; only the owner sends it "
+                                             "back, with decide FINDING_ID --fix")
         return self.finish(state, "interrupted", "Attempt abandoned by the operator")
 
     def submit(self, attempt_id, launcher=None):
@@ -657,7 +691,7 @@ class Runner:
         except OSError as exc:
             return self.finish(state, "rejected", str(exc), "environment")
 
-    def accept_candidate(self, state, job_id, candidate, manifest):
+    def promote(self, state, job_id, candidate, manifest):
         # Leave the staged candidate intact until the new snapshot and state are durable.
         next_id = uuid4().hex
         target = self.control / "snapshots" / next_id
@@ -667,8 +701,43 @@ class Runner:
         state["snapshot_id"] = next_id
         state["snapshot_digest"] = fingerprint(manifest)
         state["completed"].append(job_id)
-        state["active"]["snapshot_id"] = next_id
+        return next_id
+
+    def accept_candidate(self, state, job_id, candidate, manifest):
+        state["active"]["snapshot_id"] = self.promote(state, job_id, candidate, manifest)
         return self.finish(state, "accepted")
+
+    def reviewed_candidate(self, state, attempt):
+        """The tested candidate a review judged, checked unchanged against an unchanged baseline."""
+        packet = attempt["review"]
+        self.frozen_contract(state)
+        require(state["snapshot_id"] == attempt["base"] and state["snapshot_digest"] == packet["base_digest"],
+                "Accepted baseline changed before the decision")
+        self.check_snapshot(state)
+        candidate = self.attempt_dir(attempt) / packet["directory"] / "candidate"
+        manifest = inventory(candidate)
+        require(fingerprint(manifest) == packet["candidate_digest"]
+                and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
+                "Tested candidate changed after verification")
+        return candidate, manifest
+
+    def accept_decided(self, state, accepted):
+        """Every finding the active candidate waited on is accepted by the owner (P2-T7)."""
+        attempt = state["active"]
+        candidate, manifest = self.reviewed_candidate(state, attempt)
+        attempt["accepted_risks"] = accepted
+        return self.accept_candidate(state, attempt["job"], candidate, manifest)
+
+    def accept_rejected(self, state, job, attempt, accepted):
+        """The owner accepted the open blockers of a job out of attempts: its last reviewed
+        candidate is accepted with them recorded (P2-T7)."""
+        candidate, manifest = self.reviewed_candidate(state, attempt)
+        attempt["snapshot_id"] = self.promote(state, job["id"], candidate, manifest)
+        attempt["outcome"] = "accepted"
+        attempt["accepted_risks"] = accepted
+        attempt["accepted_at"] = stamp()
+        self.save(state)
+        return attempt
 
     def stage_review(self, state, job, candidate, directory, proposed):
         attempt = state["active"]
@@ -733,8 +802,12 @@ class Runner:
                          external_attested=False, review_timeout=180, review_max_turns=20):
         """Accept or reject the staged candidate on an attested report or a launched reviewer brain."""
         review_limits(review_timeout, review_max_turns)
+        from .decisions import open_decisions
         state = self.state()
         attempt = state["active"]
+        require(not (attempt and open_decisions(attempt)),
+                "This candidate was reviewed and awaits the owner's decision on "
+                + ", ".join(open_decisions(attempt) if attempt else []) + ": run decide")
         require(attempt and "review" in attempt, "No tested candidate awaits review")
         packet = attempt["review"]
         self.frozen_contract(state)
@@ -805,18 +878,36 @@ class Runner:
             attested = confirm("attest-independence", f"{self.root}#{attempt['job']}", report_digest, sheet)
             require(fingerprint(inventory(workspace)) == attempt["review_view_digest"],
                     "Staged review evidence changed")
-        self.frozen_contract(state)
+        contract = self.frozen_contract(state)
         manifest = inventory(candidate)
         require(fingerprint(manifest) == packet["candidate_digest"]
                 and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
                 "Tested candidate changed after verification")
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
                              **launched}
+        from .decisions import record_review
         if blockers:
             result = self.finish(state, "rejected", "Review blockers: " + "; ".join(
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
+            job = next(item for item in contract["jobs"] if item["id"] == attempt["job"])
+            # P2-T7: out of attempts, the open blockers wait for the owner instead of blocking; a
+            # security or data advisory waits for the owner even on a rejected candidate.
+            ids, waiting = record_review(self.root, result, report["findings"], rejected=True,
+                                         exhausted=len(self.attempts_for(state, job)) >= self.budget_for(state, job))
+            result["finding_ids"] = ids
+            if waiting:
+                result["awaiting_decision"] = waiting
+            self.save(state)
         else:
-            result = self.accept_candidate(state, attempt["job"], candidate, manifest)
+            # P2-T7: a security or data advisory waits for the owner's decision.
+            ids, waiting = record_review(self.root, attempt, report["findings"], rejected=False, exhausted=False)
+            attempt["finding_ids"] = ids
+            if waiting:
+                attempt["awaiting_decision"] = waiting
+                self.save(state)
+                result = {**attempt, "outcome": "awaiting_decision"}
+            else:
+                result = self.accept_candidate(state, attempt["job"], candidate, manifest)
         if attested:
             from .approvals import keep, run_store
             keep(run_store(self.root), attested)
@@ -935,6 +1026,9 @@ class Runner:
         def reviewer_for(job):
             return selection.reviewer(lambda: selection.worker(job["role"]))
 
+        from .decisions import open_decisions
+        if state["active"] and open_decisions(state["active"]):
+            return {**self.status(), **({"limit_notes": notes} if notes else {})}
         if state["active"]:
             if "review" in state["active"]:
                 self.review_candidate(brain=reviewer_for(jobs[state["active"]["job"]]), launcher=launcher,
@@ -946,7 +1040,7 @@ class Runner:
                         "Submit or abandon the active manual attempt first")
                 self.finish(state, "interrupted", "Recovered after an interrupted runner", "interrupted")
         while self.ready(state, contract):
-            if self.status()["status"] == "blocked":
+            if self.status()["status"] in ("blocked", "awaiting_decision"):
                 break
             # Choose and check every brain the job needs before it starts.
             ready = self.ready(state, contract)
