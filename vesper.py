@@ -12,7 +12,7 @@ import tempfile
 
 from build_local import (boundary_options, brain_options, chosen, initialize, resolve_boundary,
                          review_limit_options)
-from builder.brains import Selection, launch
+from builder.brains import Selection, launch, reply_path
 from builder.contracts import BuilderError, fingerprint, inventory, read_json, require
 from builder.git_bridge import apply_change, change, repository, seed_repository
 from builder.learning import RULES, guidance, memory, promote, record, record_repair, state_home, summary
@@ -141,7 +141,8 @@ def consult(project, args):
                       ledger={"run": project, "job": None, "role": "consult"})
         require(code == 0, f"Consultation failed with exit {code}")
         require(inventory(workspace) == before, "Consultation changed its read-only baseline copy")
-        report = response if response.is_file() else log
+        report = reply_path(brain, response, log, launcher)  # never an event-stream log (P2-T10)
+        require(report is not None, f"Consultation brain {brain.name} wrote no reply file")
         require(report.stat().st_size <= 256_000, "Consultation exceeds the output limit")
         return {"role": args.role, "revision": role["revision"], "brain": brain.name,
                 "report": report.read_text(encoding="utf-8")}
