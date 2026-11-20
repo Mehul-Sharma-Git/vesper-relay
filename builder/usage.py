@@ -319,6 +319,25 @@ def next_reset(rows, account, limit, now):
     return reset
 
 
+def certain_reset(rows, account, limit, reading, now):
+    """When the window holding `reading` certainly reset by `now`, the time it reset by; else None.
+
+    Windows start at first use, so a reset is only certain inside the window that began at the
+    last recorded drop (between P, the reading before the drop, and R, the reading that showed
+    it): that window ends by R + window. The last reading must fall in it (before P + window)."""
+    readings = sorted((row for row in rows if row.get("kind") == "reading" and row["account"] == account),
+                      key=lambda row: row["at"])
+    drops = [(earlier, later) for earlier, later in zip(readings, readings[1:]) if later[limit] < earlier[limit]]
+    if not drops:
+        return None
+    before, after = drops[-1]
+    window = WINDOWS[limit]
+    ends = parse_time(after["at"]) + window
+    if parse_time(reading["at"]) < parse_time(before["at"]) + window and ends <= now:
+        return ends
+    return None
+
+
 def wait_until(hhmm, *, clock=None, sleep=None):
     """`run --start-after HH:MM`: wait for the next local HH:MM (today, else tomorrow)."""
     import re
@@ -367,9 +386,9 @@ def limit_check(contract, bundle, job, rows, *, brains, reserve, now):
         for limit in LIMITS:
             if limit not in entry:
                 continue
-            # A window that reset after the reading starts again from 0 at the reset.
-            reset_since = next_reset(rows, account, limit, parse_time(reading["at"]))
-            if reset_since and reset_since <= now:
+            # A window that certainly reset after the reading starts again from 0 at the reset.
+            reset_since = certain_reset(rows, account, limit, reading, now)
+            if reset_since:
                 base, start = 0.0, reset_since.astimezone(timezone.utc).isoformat(timespec="seconds")
             else:
                 base, start = reading[limit], reading["at"]

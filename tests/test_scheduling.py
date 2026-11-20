@@ -189,6 +189,17 @@ class SchedulingTests(unittest.TestCase):
         self.assertEqual(result["status"], "complete")
         self.assertGreater(self.clock(), reset)
 
+    def test_an_old_reset_never_hides_a_fresh_high_reading(self):
+        # Review round 2: windows start at first use, so a reset recorded long ago, rolled forward
+        # in 5-hour steps, says nothing about a reading taken after an idle gap.
+        self.reading(session=90, ago=timedelta(hours=16))
+        self.reading(session=5, ago=timedelta(hours=15, minutes=10))
+        self.reading(session=70, ago=timedelta(minutes=30))
+        result = self.run_jobs()
+        self.assertEqual((result["status"], result["pause"]["job"]), ("paused_for_limits", "J1"))
+        self.assertEqual(result["pause"]["last_reading"], 70)
+        self.assertEqual(self.calls(), [])
+
     def test_never_interrupts_a_running_job(self):
         # J1's first attempt fails and pushes usage over the line; its retry still runs, and the
         # pause comes only before J2.
