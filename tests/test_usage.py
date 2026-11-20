@@ -203,5 +203,15 @@ class CommandTests(unittest.TestCase):
         return project
 
 
+class TestIsolationTests(unittest.TestCase):
+    def test_tests_never_write_the_owners_state(self):
+        # P2-G: test runs had filled the owner's real usage ledger with stand-in calls.
+        from builder.learning import state_home
+        from builder.usage import ledger_path
+        real = (Path.home() / ".local" / "state" / "vesper-relay").resolve()
+        self.assertNotEqual(state_home(), real)
+        self.assertNotIn(real, ledger_path().parents)
+
+
 if __name__ == "__main__":
     unittest.main()
