@@ -895,10 +895,25 @@ class Runner:
                 self.save(state)
                 raise
 
-    def run(self, selection, launcher=None, *, trust_host=False, review_timeout=180, review_max_turns=20):
+    def run(self, selection, launcher=None, *, trust_host=False, review_timeout=180, review_max_turns=20,
+            start_after=None, clock=None, sleep=None, reserve=None):
         """Run every ready job unattended. ``selection`` (brains.Selection) picks each job's
-        worker brain by role and the reviewer brain (by default the job's worker brain)."""
+        worker brain by role and the reviewer brain (by default the job's worker brain).
+
+        Before a job's first attempt the plan limits are checked (P2-T4): a job that would cross
+        the reserve is not started and the run returns ``paused_for_limits``; a started job is
+        never stopped. ``start_after`` ("HH:MM") waits for that local time first."""
+        from . import usage as plan_usage
         review_limits(review_timeout, review_max_turns)
+        if start_after:
+            plan_usage.wait_until(start_after, clock=clock, sleep=sleep)
+        if reserve is None:
+            from .brains import load_settings
+            try:
+                reserve = load_settings().get("limits.reserve_percent", 25)
+            except BuilderError:
+                reserve = 25
+        notes = []
         limits = {"review_timeout": review_timeout, "review_max_turns": review_max_turns}
         state = self.state()
         contract = self.frozen_contract(state)
@@ -924,6 +939,16 @@ class Runner:
                 break
             # Choose and check every brain the job needs before it starts.
             ready = self.ready(state, contract)
+            if not self.attempts_for(state, ready):
+                current = ready
+                pause, found = plan_usage.limit_check(
+                    contract, state["bundle"], ready, plan_usage.entries(), reserve=reserve,
+                    brains=lambda role: reviewer_for(current) if role == "reviewer" else selection.worker(role),
+                    now=clock() if clock else datetime.now(timezone.utc))
+                notes += found
+                if pause:
+                    return {**self.status(), "status": "paused_for_limits", "pause": pause,
+                            **({"limit_notes": notes} if notes else {})}
             brain = selection.worker(ready["role"])
             brain_command(brain, "worker", launcher, trust_host, role=ready["role"])
             reviewer = reviewer_for(ready) if "team" in state["bundle"] else None
@@ -952,7 +977,7 @@ class Runner:
                 if result["outcome"] == "awaiting_review":
                     self.review_candidate(brain=reviewer, launcher=launcher, trust_host=trust_host, **limits)
                     state = self.state()
-        return self.status()
+        return {**self.status(), **({"limit_notes": notes} if notes else {})}
 
     def export(self, destination):
         state = self.state()
