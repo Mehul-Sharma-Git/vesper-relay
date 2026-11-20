@@ -65,10 +65,20 @@ def replay(destination):
         "jobs": [{"id": "J_API", "role": "backend", "goal": "Restore status filtering",
                   "paths": ["server.py"], "depends_on": [], "checks": ["G_API"], "skills": ["sqlite"]}],
     }))
-    (plan / "planning.json").write_text(json.dumps({"version": 1,
+    manifest = {"version": 2,
         "impact": dict.fromkeys(("new_system", "data", "security", "integrations", "deployment", "cross_layer"), False),
         "authors": ["fixture-planner"], "existing_design": "architecture.md",
-        "rationale": "Restore the existing parameterized filter; no new state or interface."}))
+        "rationale": "Restore the existing parameterized filter; no new state or interface.",
+        "problem": {"why": "Bought items still appear under Needed.", "success": "G_API: Needed excludes bought items.",
+                    "non_goals": ["No change to the browser UI"]},
+        "assumptions": [{"assumption": "Only the status condition regressed", "confirm": "G_API fails on the seed",
+                         "when": "First rejected attempt"}]}
+    (plan / "planning.json").write_text(json.dumps(manifest))
+    # Planning manifest version 2 (P2-T5): record the estimate, then review.
+    estimate = run("estimate", "--json")
+    manifest["estimate"] = {"jobs": estimate["jobs"], "summary": f"{estimate['jobs']} job, "
+                            f"{estimate['calls'][0]}–{estimate['calls'][1]} AI calls"}
+    (plan / "planning.json").write_text(json.dumps(manifest))
     run("approve", "--digest", run("review", "--json")["digest"])
     initial = run("prepare")
     rejected = run("submit", initial["id"], "--sandbox", "none", code=1)

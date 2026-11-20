@@ -242,7 +242,9 @@ def validate(data, checks_inventory):
     return data
 
 
-def review_bundle(root, *, include_critique=True):
+def review_bundle(root, *, include_critique=True, estimating=False):
+    """The plan packet `review` checks. ``estimating`` lets `vesper estimate` run on a draft whose
+    planning manifest lacks only the estimate it is about to record (P2-T5)."""
     plans = inventory(root / "plan")
     checks = inventory(root / "checks")
     seed = inventory(root / "seed")
@@ -294,8 +296,8 @@ def review_bundle(root, *, include_critique=True):
     if "intake" in bundle:
         from .planning import validate_planning, attach_critique
         version = bundle["intake"].get("planning_version", 1)
-        require(type(version) is int and version == 1, "Unsupported managed planning version")
-        bundle["planning"] = validate_planning(root, contract, bundle)
+        require(type(version) is int and version in (1, 2), "Unsupported managed planning version")
+        bundle["planning"] = validate_planning(root, contract, bundle, estimating=estimating)
         if include_critique and bundle["planning"]["depth"] != "skip":
             attach_critique(root, bundle)
     return contract, bundle

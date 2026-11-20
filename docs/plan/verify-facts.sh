@@ -91,6 +91,8 @@ check "repair uses typed VESPER_REPRO evidence with a failure id" "P5-T3" \
     grep -q 'RESULT_PREFIX = "VESPER_REPRO "' builder/repair.py
 check "plan routing and critique live in builder/planning.py" "P2-T5, P4-T6, P4-T7" \
     grep -q "^IMPACTS = " builder/planning.py
+check "planning manifest v2: sections by depth in SECTIONS; new runs write planning_version 2 (P2-T5)" "P2-G, P4-T6, P4-T7" \
+    sh -c 'grep -q "^SECTIONS = {" builder/planning.py && grep -q "\"planning_version\": 2}" vesper.py'
 check "approve requires an approving plan critique at full/focused depth" "P2-T2, P2-T5" \
     grep -q "Independent plan critique must approve" builder/runner.py
 check "review_plan decodes through the brain adapter (tolerant decoder; P1-T1, P1-T8)" "P3-T4" \

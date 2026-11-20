@@ -16,12 +16,181 @@ PLAN_REVIEW_TIMEOUT = 600  # a full sweep of plan, checks and seed takes minutes
 CITABLE_LIMIT = 200  # list at most this many files in the prompt; seed/ is summarised beyond it
 
 
-def validate_planning(root, contract, bundle):
+MANIFEST_VERSIONS = (1, 2)
+# Planning manifest version 2 (P2-T5): the sections each depth must record, in addition to the routing.
+SECTIONS = {
+    "skip": ("problem", "assumptions", "estimate"),
+    "focused": ("risks", "stack", "threat_model", "reachability", "concurrency", "failure_paths"),
+    "full": ("options", "components", "phases"),
+}
+COMPONENTS = ("cache", "queue", "cdn", "realtime", "search", "storage")
+EXISTING_STACK = "existing repo"
+
+
+def required_sections(depth):
+    order = ("skip", "focused", "full")
+    return tuple(name for level in order[:order.index(depth) + 1] for name in SECTIONS[level])
+
+
+def texts(value, *, empty=False):
+    return isinstance(value, list) and (empty or bool(value)) and all(nonempty(item) for item in value)
+
+
+def records(value, *keys):
+    """A nonempty list of objects, each with a nonempty text under every key."""
+    return isinstance(value, list) and bool(value) and all(
+        isinstance(item, dict) and all(nonempty(item.get(key)) for key in keys) for item in value)
+
+
+def check(section, condition, message):
+    require(condition, f"planning.json {section}: {message}")
+
+
+def mitigated(section, label, item, gates):
+    """A list item is mitigated by the gates that prove it, or proposed as a risk the owner accepts."""
+    check(section, ("gates" in item) != ("accept" in item),
+          f"{label} needs either a gate or a risk to accept: give gates or accept, not both")
+    if "accept" in item:
+        check(section, nonempty(item["accept"]), f"{label} is a proposed risk, so give its reason")
+        return
+    check(section, texts(item["gates"]), f"{label} gates must list gate ids")
+    unknown = [gate for gate in item["gates"] if gate not in gates]
+    check(section, not unknown, f"{label} cites an unknown gate: {', '.join(unknown)}")
+
+
+def problem_section(value, plan):
+    check("problem", isinstance(value, dict) and nonempty(value.get("why")) and nonempty(value.get("success"))
+          and texts(value.get("non_goals")), "give why, success (how you will know) and at least one non_goals entry")
+
+
+def assumptions_section(value, plan):
+    check("assumptions", records(value, "assumption", "confirm", "when"),
+          "list each assumption with how (confirm) and when it gets confirmed")
+
+
+def estimate_section(value, plan):
+    check("estimate", isinstance(value, dict) and type(value.get("jobs")) is int and nonempty(value.get("summary")),
+          "record the jobs count and the summary that `vesper estimate` printed")
+    jobs = len(plan["contract"]["jobs"])
+    check("estimate", value["jobs"] == jobs, f"covers {value['jobs']} jobs, but the contract has {jobs} "
+          f"job{'' if jobs == 1 else 's'}; run `vesper estimate` again")
+
+
+def risks_section(value, plan):
+    check("risks", records(value, "risk"), "list the pre-mortem, each item a risk")
+    for number, item in enumerate(value, 1):
+        check("risks", ("check" in item) != ("mitigation" in item),
+              f"risk {number} needs a check or a mitigation, not both")
+        if "check" in item:
+            check("risks", isinstance(item["check"], str) and item["check"] in plan["gates"],
+                  f"risk {number} names an unknown gate: {item['check']!r}")
+        else:
+            check("risks", nonempty(item["mitigation"]), f"risk {number} has an empty mitigation")
+
+
+def stack_section(value, plan):
+    check("stack", value == EXISTING_STACK or isinstance(value, dict) and nonempty(value.get("choice"))
+          and nonempty(value.get("reason")), f'give {{"choice", "reason"}} or "{EXISTING_STACK}"')
+
+
+def threat_model_section(value, plan):
+    check("threat_model", isinstance(value, dict) and texts(value.get("trusted")) and texts(value.get("in_scope"))
+          and texts(value.get("out_of_scope", []), empty=True),
+          "name who and what is trusted and which threats are in scope (out_of_scope is optional)")
+
+
+def listed_section(section):
+    def validate(value, plan):
+        check(section, records(value, "id", "item"), "list each item with an id and what it is")
+        ids = [item["id"] for item in value]
+        require(len(ids) == len(set(ids)) and not plan["listed"] & set(ids),
+                "planning.json reachability and concurrency need distinct ids")
+        plan["listed"].update(ids)
+        for item in value:
+            mitigated(section, item["id"], item, plan["gates"])
+    return validate
+
+
+def failure_paths_section(value, plan):
+    check("failure_paths", records(value, "scenario"), "give the matrix as a list of rows, each with a scenario")
+    known = {item["id"] for item in plan["contract"]["requirements"]} | plan["listed"]
+    for number, row in enumerate(value, 1):
+        label = f"row {number}"
+        check("failure_paths", texts(row.get("items")), f"{label} needs items (requirement or list item ids)")
+        unknown = [item for item in row["items"] if item not in known]
+        check("failure_paths", not unknown,
+              f"{label}: {', '.join(unknown)} is not a requirement or a listed item (reachability, concurrency)")
+        mitigated("failure_paths", label, row, plan["gates"])
+        if "gates" in row:
+            check("failure_paths", nonempty(row.get("assertion")) and nonempty(row.get("catches")),
+                  f"{label} needs the assertion and the wrong implementation it catches")
+
+
+def options_section(value, plan):
+    approaches = value.get("approaches") if isinstance(value, dict) else None
+    check("options", records(approaches, "name", "tradeoffs") and 2 <= len(approaches) <= 3
+          and len({item["name"] for item in approaches}) == len(approaches),
+          "give 2–3 distinct approaches, each with a name and its tradeoffs")
+    check("options", value.get("recommendation") in [item["name"] for item in approaches]
+          and nonempty(value.get("reason")), "the recommendation must name one approach and give a reason")
+
+
+def components_section(value, plan):
+    check("components", isinstance(value, dict) and set(value) == set(COMPONENTS) and all(
+        isinstance(item, dict) and item.get("decision") in ("now", "later", "no") for item in value.values()),
+        f"decide each of {', '.join(COMPONENTS)}: now, later or no")
+    for name, item in value.items():
+        check("components", item["decision"] != "later" or nonempty(item.get("trigger")),
+              f"{name} is later, so give the trigger that brings it in")
+
+
+def phases_section(value, plan):
+    check("phases", records(value, "name", "goal"), "list at least one phase with a name and a goal")
+
+
+# In validation order: failure_paths may cite the reachability and concurrency ids.
+SECTION_RULES = {"problem": problem_section, "assumptions": assumptions_section, "estimate": estimate_section,
+                 "risks": risks_section, "stack": stack_section, "threat_model": threat_model_section,
+                 "reachability": listed_section("reachability"), "concurrency": listed_section("concurrency"),
+                 "failure_paths": failure_paths_section, "options": options_section,
+                 "components": components_section, "phases": phases_section}
+
+
+def validate_sections(data, contract, depth, *, estimating=False):
+    """Version-2 sections: present for the depth, and each in its documented shape (docs/PLANNER.md).
+    A section a deeper plan needs is still checked when a shallower plan records it."""
+    missing = [name for name in required_sections(depth) if name not in data
+               and not (estimating and name == "estimate")]
+    require(not missing, f"planning.json version 2 at {depth} depth needs: {', '.join(missing)} "
+            "(docs/PLANNER.md, \"Required sections\")")
+    plan = {"contract": contract, "gates": {item["id"] for item in contract["checks"]}, "listed": set()}
+    for name, rule in SECTION_RULES.items():
+        if name in data:
+            rule(data[name], plan)
+
+
+def proposed_risks(manifest):
+    """Every list item the plan proposes as a risk for the owner to accept, in manifest order."""
+    risks = []
+    for section in ("reachability", "concurrency", "failure_paths"):
+        for number, item in enumerate(manifest.get(section) or [], 1):
+            if isinstance(item, dict) and "accept" in item:
+                what = item.get("item") or item.get("scenario", "")
+                risks.append({"section": section, "id": item.get("id") or f"row {number}",
+                              "item": what, "accept": item["accept"]})
+    return risks
+
+
+def validate_planning(root, contract, bundle, *, estimating=False):
     plans = bundle["plan"]
     require("planning.json" in plans, "New runs require plan/planning.json with impact and routing rationale")
     data = json.loads(reviewed_text(root / "plan", "planning.json", plans))
-    require(isinstance(data, dict) and type(data.get("version")) is int and data["version"] == 1,
+    require(isinstance(data, dict) and type(data.get("version")) is int and data["version"] in MANIFEST_VERSIONS,
             "Unsupported planning manifest")
+    run_version = bundle.get("intake", {}).get("planning_version", 1)
+    require(data["version"] >= run_version,
+            f"This run needs planning manifest version {run_version}: set \"version\": {run_version} and add "
+            "the sections its depth requires (docs/PLANNER.md, \"Required sections\")")
     impact = data.get("impact")
     require(isinstance(impact, dict) and set(impact) == set(IMPACTS)
             and all(type(value) is bool for value in impact.values()), "Declare every planning impact as a boolean")
@@ -61,6 +230,8 @@ def validate_planning(root, contract, bundle):
         seam = data.get("handoff")
         require(isinstance(seam, dict) and covers(seam.get("acknowledged_by"), consumers), "Engineers and QA must acknowledge the canonical contract")
         artifact(seam.get("canonical_contract"))
+    if data["version"] >= 2:
+        validate_sections(data, contract, depth, estimating=estimating)
     result = {"depth": depth, "manifest": data}
     if depth != "skip":
         result.update(architect=architect, reviewer=profile("reviewer", ["security-diff"] if impact["security"] else []))
@@ -138,6 +309,27 @@ def plan_report_schema(digest, identity):
                     "path": {**text_schema(), "pattern": CITATION}}}},
         },
     }
+
+
+def sections_note(bundle):
+    """What the critic checks in the version-2 sections (P2-T5); the runner checks only presence and shape."""
+    planning = bundle["planning"]
+    if planning["manifest"]["version"] < 2:
+        return ""
+    depth = planning["depth"]
+    return (f"plan/planning.json (version 2) holds the sections a {depth}-depth plan must have: "
+            + ", ".join(required_sections(depth)) + ". The runner has checked that each is present and well "
+            "formed; you judge whether each is true and complete against the plan, checks and seed: the problem's "
+            "success measure matches the requirements; every assumption has a real way and time to be confirmed; "
+            "the estimate covers every job; each pre-mortem risk has a check or mitigation that addresses it; the "
+            "stack fits the recorded decisions; the threat_model matches the owner's decisions; the reachability "
+            "and concurrency lists leave out no item of their kind; each item's gates really assert it; the "
+            "failure_paths matrix names, for each row, an assertion a plausible wrong implementation fails"
+            + ("; options compare real alternatives with the recommendation's reason; components decide cache, "
+               "queue, cdn, realtime, search and storage, with a trigger for each later; phases order the jobs"
+               if depth == "full" else "")
+            + ". An item marked accept is a risk the plan proposes to the owner: report it as an accepted-risk "
+            "advisory as above. ")
 
 
 def citable_files(bundle):
@@ -224,7 +416,8 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
                 "finding that spans files on the file that most needs the change. "
                 "plan/planning.json is Vesper's routing manifest: its architecture.revision is the "
                 "technical-lead role revision, not a digest of architecture.md, and the runner checks it "
-                "and the authors; this approval binds every supplied file by digest. Files you may cite: " +
+                "and the authors; this approval binds every supplied file by digest. " + sections_note(bundle) +
+                "Files you may cite: " +
                 citable_files(bundle) + "\nReturn JSON only: " +
                 json.dumps({"phase": "plan", "packet_digest": digest, "reviewer": identity,
                     "verdict": "approve or request_changes", "summary": "actual observations",

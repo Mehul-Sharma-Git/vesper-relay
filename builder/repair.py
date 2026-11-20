@@ -97,13 +97,28 @@ def draft(root, idea, paths, reproducer, failure_id, source=None):
                   "depends_on": [], "checks": ["VESPER_REPRO", "VESPER_REGRESSION"], "review": "security"}],
     }
     (plan / "contract.json").write_text(json.dumps(contract, indent=2), encoding="utf-8")
-    (plan / "planning.json").write_text(json.dumps({
-        "version": 1, "impact": dict.fromkeys(
+    manifest = {
+        "version": 2, "impact": dict.fromkeys(
             ("new_system", "data", "security", "integrations", "deployment", "cross_layer"), False),
         "authors": ["repair-planner"], "existing_design": "architecture.md",
         "rationale": "Proposed narrow restoration of the reproduced behavior within existing boundaries. "
-                     "Owner must reclassify any data, security, integration or deployment change before approval."
-    }, indent=2), encoding="utf-8")
+                     "Owner must reclassify any data, security, integration or deployment change before approval.",
+        "problem": {"why": f"Vesper Relay has a reproduced defect ({failure_id}): {idea}",
+                    "success": "VESPER_REPRO reports the defect fixed and the frozen baseline tests still pass",
+                    "non_goals": ["Changes outside the approved repair files",
+                                  "Editing or removing existing tests"]},
+        "assumptions": [{"assumption": "The reproducer exercises the reported failure",
+                         "confirm": "`vesper repair-reproduce` must report it reproduced on the pinned baseline",
+                         "when": "Before approval"}],
+    }
+    (plan / "planning.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    # The estimate covers this exact draft, so it is made once the rest of the plan exists (P2-T5).
+    from .runner import Runner
+    from .usage import render
+    estimate = Runner(root).estimate()
+    manifest["estimate"] = {"jobs": len(contract["jobs"]), "summary": render(estimate) if "error" not in estimate
+                            else f"Estimate unavailable at drafting ({estimate['error']}); run `vesper estimate`"}
+    (plan / "planning.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def validate_repair(contract, packet):
