@@ -339,10 +339,12 @@ stand. (A rerun started 21 Nov 2026 stopped before its first run: Codex logged n
      consultant's reply file, so `parse_result` and the tolerant decoder are unchanged.
   2. `Codex.usage(text)` reads the log line by line, skips every line that is not a JSON
      object, and sums the token counts of each turn's `usage` block. It returns `None` only
-     when no line carries a turn's usage. Count each token once: Codex's
-     `cached_input_tokens` is part of its `input_tokens`, so it is kept as detail, not added
-     again (check the fields of a real 0.170.0 event and say in the code which ones are
-     summed). The adapter declares `usage_report=True`. `note_call` already falls back to
+     when no line carries a turn's usage. Count each token once: `record_call` stores the
+     returned dict as `token_detail` and `total_tokens` sums every integer in it, so the
+     dict holds only fields that do not overlap. Codex's `cached_input_tokens` is part of
+     its `input_tokens`, so leave it out of the returned dict (check the fields of a real
+     0.170.0 event and say in the code which ones are returned). The adapter declares
+     `usage_report=True`. `note_call` already falls back to
      the log when the reply file has no usage; check that it does for Codex, and that a long
      event log stays within `REPLY_LIMIT` or is read from its end.
   3. Four places read the log when no reply file arrived (`response if response.is_file()
@@ -351,14 +353,22 @@ stand. (A rerun started 21 Nov 2026 stopped before its first run: Codex logged n
      A Codex event stream must not be decoded as the reply there: treat a missing reply
      file from Codex as no reply (preferred: a long event log would also hit the 256 kB
      report limit), or take the last agent message from the events.
+  4. A failed worker's reason, also carried into the retry brief, is
+     `brain.adapter.summary(read_tail(log))` (`builder/runner.py`). Codex inherits the base
+     `summary`, which returns its input unchanged, so with `--json` the reason would be raw
+     events. Give Codex a `summary` that returns the agent's messages, as the Claude Code
+     adapter did when its worker switched to JSON.
 - **Do not:** add dollar figures; change how a reviewer's reply is decoded; change other
   adapters; count a reading or calibrate from anything but marked pairs (P2-T9).
 - **Acceptance:** tests that each Codex command carries `--json` and still writes the reply
   to `--output-last-message`; that `usage` sums the turns of a recorded `codex exec --json`
   log (fixture text: two turns, with a non-JSON stderr line such as the `WARNING` above
   before the first event and another between events), counting cached input once, and
-  returns `None` for plain text and for a stream without usage; that a launched Codex reviewer's ledger row has tokens (stand-in program);
-  that a marked pair around a Codex call now calibrates `chatgpt`; that a Codex reviewer
-  with no reply file is not decoded from its event log; and that `vesper doctor`
-  checks `--json` against the image's `codex exec --help`. P2-G's rerun is the real check.
+  returns `None` for plain text and for a stream without usage; that a launched Codex
+  reviewer's ledger row has `tokens` equal to the fixture's input plus output tokens, cached
+  input not added again (stand-in program); that a failed Codex worker's reason shows its
+  messages, not raw events; that a marked pair around a Codex call now calibrates
+  `chatgpt`; that a Codex reviewer with no reply file is not decoded from its event log;
+  and that `vesper doctor` checks `--json` against the image's `codex exec --help`. P2-G's
+  rerun is the real check.
 
