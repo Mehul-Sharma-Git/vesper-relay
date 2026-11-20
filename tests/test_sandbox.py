@@ -25,6 +25,7 @@ from builder.sandbox import (Docker, Job, Podman, Sandbox, agent_job, backend, c
 
 import test_rc1
 from test_rc1 import verdict
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 
 ID = "f" * 64  # an engine's full image ID (Docker adds "sha256:", Podman does not)
@@ -153,6 +154,16 @@ class ArgumentTests(unittest.TestCase):
                       value_after(self.build(docker, gate), "--mount"))
         self.assertEqual(dict(gate.env)["PNPM_STORE_DIR"], "/cache/pnpm-store")
         self.assertEqual(value_after(self.build(docker, setup, "bridge"), "--network"), ["bridge"])
+
+    def test_gates_get_a_writable_artifacts_folder(self):
+        # P2-T1: anything a gate saves in $VESPER_ARTIFACTS reaches the reviewer.
+        docker, artifacts = Docker(), self.root / "artifacts"
+        for job in (check_job(self.work, "gate.py", artifacts=artifacts),
+                    command_job("check-command", ["pnpm", "test"], self.work, artifacts=artifacts)):
+            self.assertIn(f"type=bind,source={artifacts},target=/artifacts",
+                          value_after(self.build(docker, job), "--mount"))
+            self.assertEqual(dict(job.env)["VESPER_ARTIFACTS"], "/artifacts")
+        self.assertNotIn("VESPER_ARTIFACTS", dict(check_job(self.work, "gate.py").env))
 
     def test_paths_that_break_mount_syntax_are_refused(self):
         odd = self.root / "a,b"

@@ -13,84 +13,106 @@ No third-party imports in the runner; never weaken plan digests, scope checks, r
 ## Task P2-T1: Gate logs, scripts and artifacts in the review copy
 Depends on: P1-G · Size: S · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T1
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P2-T1 and every file under its "Read first"
-- [ ] Create branch `plan/p2-t1`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P2-T1 and every file under its "Read first"
+- [x] Create branch `plan/p2-t1`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P2-T2: Human-only approvals and a plain-language approval sheet, in every door
 Depends on: P1-G · Size: L · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T2
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P2-T2 and every file under its "Read first"
-- [ ] Create branch `plan/p2-t2`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P2-T2 and every file under its "Read first"
+- [x] Create branch `plan/p2-t2`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P2-T3: Usage ledger and plan-limit estimates
 Depends on: P1-G · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T3
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P2-T3 and every file under its "Read first"
-- [ ] Create branch `plan/p2-t3`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P2-T3 and every file under its "Read first"
+- [x] Create branch `plan/p2-t3`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P2-T4: Limit-aware scheduling (pause and resume)
 Depends on: P2-T3 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T4
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P2-T4 and every file under its "Read first"
-- [ ] Create branch `plan/p2-t4`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P2-T4 and every file under its "Read first"
+- [x] Create branch `plan/p2-t4`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P2-T5: Required plan sections by depth (extend `planning.json`)
 Depends on: P1-G · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T5
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P2-T5 and every file under its "Read first"
-- [ ] Create branch `plan/p2-t5`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P2-T5 and every file under its "Read first"
+- [x] Create branch `plan/p2-t5`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P2-T6: Additive checks after approval
 Depends on: P1-G, P2-T2 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T6
 
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P2-T6 and every file under its "Read first"
+- [x] Create branch `plan/p2-t6`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+
+## Task P2-T7: Advisory backlog and decision gate
+Depends on: P1-G, P2-T2 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T7
+
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P2-T7 and every file under its "Read first"
+- [x] Create branch `plan/p2-t7`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+
+## Task P2-T8: Review the code a change touches
+Depends on: P2-T7 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T8
+
 - [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P2-T6 and every file under its "Read first"
-- [ ] Create branch `plan/p2-t6`
+- [ ] Read `docs/plan/00-context.md`, then task P2-T8 and every file under its "Read first"
+- [ ] Create branch `plan/p2-t8`
 - [ ] Write the failing tests listed under "Acceptance" and watch them fail
 - [ ] Implement "Change"; respect "Do not"
 - [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
 - [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
-## Task P2-T7: Advisory backlog and decision gate
-Depends on: P1-G, P2-T2 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T7
+## Task P2-T9: Estimates you can check
+Depends on: P2-T3 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T9
 
 - [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P2-T7 and every file under its "Read first"
-- [ ] Create branch `plan/p2-t7`
+- [ ] Read `docs/plan/00-context.md`, then task P2-T9 and every file under its "Read first"
+- [ ] Create branch `plan/p2-t9`
 - [ ] Write the failing tests listed under "Acceptance" and watch them fail
 - [ ] Implement "Change"; respect "Do not"
 - [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
 - [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P2-G: Phase 2 gate
-Depends on: P2-T1..T7 · Size: S · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-G
+Depends on: P2-T1..T9 · Size: S · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-G (and its "Rerun" note)
 
 - [ ] Confirm every task this gate depends on is `done` on the board
-- [ ] Run the gate exactly as written in `docs/plan/phase-2-evidence-and-control.md`
+- [ ] Rerun the two failed criteria as the "Rerun" note in `docs/plan/phase-2-evidence-and-control.md` says
 - [ ] Record results, elapsed time and plan usage in `docs/plan/appendix-b-test-run-evidence.md`
 - [ ] Set the gate's board status (`done`, or `blocked` with the failing criterion)

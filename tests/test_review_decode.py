@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 from builder.contracts import BuilderError
 from builder.brains import ADAPTERS, Brain
 from builder.review_gate import decode_provider_report
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 REPLIES = ROOT / "docs/plan/fixtures/pocket-todo/reviewer-replies"
 REPORT = {"attempt_id": "a1", "base_digest": "b2", "candidate_digest": "c3", "verdict": "approve",

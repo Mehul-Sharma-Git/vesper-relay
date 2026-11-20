@@ -15,7 +15,9 @@ def replay(destination):
     destination.mkdir(parents=True, exist_ok=False)
     repo = destination / "stockroom-site"
     shutil.copytree(ROOT / "examples" / "stockroom-app", repo)
-    env = dict(os.environ, VESPER_STATE_DIR=str(destination / "vesper-state"))
+    # A replay has no person at hand: protected actions go to the test-only stand-in (P2-T2).
+    env = dict(os.environ, VESPER_STATE_DIR=str(destination / "vesper-state"),
+               VESPER_TEST_CONFIRMER=str(Path(__file__).resolve().parent / "stand_in_confirmer.py"))
     server = repo / "server.py"
     correct = server.read_text()
     original = "if key in filters:"
@@ -63,11 +65,21 @@ def replay(destination):
         "jobs": [{"id": "J_API", "role": "backend", "goal": "Restore status filtering",
                   "paths": ["server.py"], "depends_on": [], "checks": ["G_API"], "skills": ["sqlite"]}],
     }))
-    (plan / "planning.json").write_text(json.dumps({"version": 1,
+    manifest = {"version": 2,
         "impact": dict.fromkeys(("new_system", "data", "security", "integrations", "deployment", "cross_layer"), False),
         "authors": ["fixture-planner"], "existing_design": "architecture.md",
-        "rationale": "Restore the existing parameterized filter; no new state or interface."}))
-    run("approve", "--digest", run("review")["digest"])
+        "rationale": "Restore the existing parameterized filter; no new state or interface.",
+        "problem": {"why": "Bought items still appear under Needed.", "success": "G_API: Needed excludes bought items.",
+                    "non_goals": ["No change to the browser UI"]},
+        "assumptions": [{"assumption": "Only the status condition regressed", "confirm": "G_API fails on the seed",
+                         "when": "First rejected attempt"}]}
+    (plan / "planning.json").write_text(json.dumps(manifest))
+    # Planning manifest version 2 (P2-T5): record the estimate, then review.
+    estimate = run("estimate", "--json")
+    manifest["estimate"] = {"jobs": estimate["jobs"], "summary": f"{estimate['jobs']} job, "
+                            f"{estimate['calls'][0]}–{estimate['calls'][1]} AI calls"}
+    (plan / "planning.json").write_text(json.dumps(manifest))
+    run("approve", "--digest", run("review", "--json")["digest"])
     initial = run("prepare")
     rejected = run("submit", initial["id"], "--sandbox", "none", code=1)
     assert rejected["checks"][0]["exit_code"] != 0

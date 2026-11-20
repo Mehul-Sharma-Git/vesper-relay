@@ -97,13 +97,28 @@ def draft(root, idea, paths, reproducer, failure_id, source=None):
                   "depends_on": [], "checks": ["VESPER_REPRO", "VESPER_REGRESSION"], "review": "security"}],
     }
     (plan / "contract.json").write_text(json.dumps(contract, indent=2), encoding="utf-8")
-    (plan / "planning.json").write_text(json.dumps({
-        "version": 1, "impact": dict.fromkeys(
+    manifest = {
+        "version": 2, "impact": dict.fromkeys(
             ("new_system", "data", "security", "integrations", "deployment", "cross_layer"), False),
         "authors": ["repair-planner"], "existing_design": "architecture.md",
         "rationale": "Proposed narrow restoration of the reproduced behavior within existing boundaries. "
-                     "Owner must reclassify any data, security, integration or deployment change before approval."
-    }, indent=2), encoding="utf-8")
+                     "Owner must reclassify any data, security, integration or deployment change before approval.",
+        "problem": {"why": f"Vesper Relay has a reproduced defect ({failure_id}): {idea}",
+                    "success": "VESPER_REPRO reports the defect fixed and the frozen baseline tests still pass",
+                    "non_goals": ["Changes outside the approved repair files",
+                                  "Editing or removing existing tests"]},
+        "assumptions": [{"assumption": "The reproducer exercises the reported failure",
+                         "confirm": "`vesper repair-reproduce` must report it reproduced on the pinned baseline",
+                         "when": "Before approval"}],
+    }
+    (plan / "planning.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    # The estimate covers this exact draft, so it is made once the rest of the plan exists (P2-T5).
+    from .runner import Runner
+    from .usage import render
+    estimate = Runner(root).estimate()
+    manifest["estimate"] = {"jobs": len(contract["jobs"]), "summary": render(estimate) if "error" not in estimate
+                            else f"Estimate unavailable at drafting ({estimate['error']}); run `vesper estimate`"}
+    (plan / "planning.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def validate_repair(contract, packet):
@@ -211,6 +226,12 @@ def commit_repair(runner, source, approved_digest):
     manifest = file_entries(contents)
     require(set(summary["files"]) <= set(state["bundle"]["repair"]["paths"]),
             "Repair would commit files outside its approved scope")
+    # Human-only (P2-T2): the owner confirms on the repair sheet before anything is written to Git.
+    from .approvals import confirm, keep, repository_store
+    from .sheets import repair_sheet
+    sheet = repair_sheet(repository_store(), str(source), summary,
+                         runner.control / "snapshots" / state["approval_id"], snapshot, state)
+    confirmation = confirm("commit-repair", str(source), summary["digest"], sheet)
     zero = "0" * len(meta["commit"])
     branch = "vesper/repair/" + state["approval_id"]
     ref = "refs/heads/" + branch
@@ -244,4 +265,5 @@ def commit_repair(runner, source, approved_digest):
                      "user.email=vesper-relay@users.noreply.github.com", "-c", "commit.gpgsign=false",
                      "commit-tree", tree, "-p", meta["commit"], data=message.encode()).decode().strip()
         git(source, "-c", "core.hooksPath=/dev/null", "update-ref", "--no-deref", ref, commit, zero)
+    keep(repository_store(), confirmation)
     return {**summary, "branch": branch, "commit": commit}

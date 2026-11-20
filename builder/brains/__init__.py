@@ -24,7 +24,7 @@ import sys
 from typing import NamedTuple
 from uuid import uuid4
 
-from ..contracts import require
+from ..contracts import BuilderError, require
 from ..team import CONSULT_TOOLS, PROFILES, REVIEWER_TOOLS, TOOLS, WRITER_TOOLS, tools as role_tools
 from .base import Adapter, Capabilities
 from .claude_code import ClaudeCode
@@ -206,9 +206,45 @@ def command(brain, operation, launcher, trust_host, *, response=None, schema=Non
 
 
 def launch(brain, operation, launcher, trust_host, *, work, input_text, log, timeout, response=None, schema=None,
-           max_turns=20, on_start=None, role=None):
+           max_turns=20, on_start=None, role=None, ledger=None):
     """Run one brain process in ``work`` and return its exit status. A reply the brain writes to a
-    file arrives at ``response``."""
+    file arrives at ``response``. ``ledger`` ({run, job, role}) adds the call to the usage ledger
+    (P2-T3) with its start, end and, when the adapter reports them, its tokens."""
+    from ..usage import now
+    start = now()
+    code = run_brain(brain, operation, launcher, trust_host, work=work, input_text=input_text, log=log,
+                     timeout=timeout, response=response, schema=schema, max_turns=max_turns,
+                     on_start=on_start, role=role)
+    # Only a process that ran and returned is a call: a launch refused before it started (no
+    # login, no sandbox) raises above and leaves no row to skew later estimates.
+    if ledger is not None:
+        note_call(brain, ledger, start, response, log)
+    return code
+
+
+REPLY_LIMIT = 4_000_000  # read no more than this to find a usage block
+
+
+def note_call(brain, ledger, start, response, log):
+    """Add one AI call to the usage ledger; a ledger problem never fails the call."""
+    from ..usage import now, record_call
+    end = now()
+    counts = None
+    try:
+        for path in (response, log):
+            if path is not None and Path(path).is_file() and not Path(path).is_symlink() \
+                    and Path(path).stat().st_size <= REPLY_LIMIT:
+                counts = usage(brain, Path(path).read_text(encoding="utf-8", errors="replace"))
+                if counts:
+                    break
+        record_call(run=ledger.get("run"), job=ledger.get("job"), role=ledger.get("role"), brain=brain,
+                    start=start, end=end, counts=counts)
+    except (OSError, ValueError, BuilderError) as exc:
+        print(f"vesper: the usage ledger could not record this call: {exc}", file=sys.stderr)
+
+
+def run_brain(brain, operation, launcher, trust_host, *, work, input_text, log, timeout, response=None,
+              schema=None, max_turns=20, on_start=None, role=None):
     from ..process import run_process
     from ..sandbox import Sandbox
     if not isinstance(launcher, Sandbox):

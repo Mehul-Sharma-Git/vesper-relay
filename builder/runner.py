@@ -11,8 +11,9 @@ import sys
 import tempfile
 from uuid import uuid4
 
+from .amendments import package as checks_package  # the approved checks plus any added after (P2-T6)
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
-                        require, review_bundle, reviewed_contract)
+                        require, review_bundle, reviewed_contract, safe_path)
 from .process import run_process
 from .brains import command as brain_command, launch, parse_result, tools as brain_tools, usage
 from .providers import GATES_DIR, review_limits, worker_prompt
@@ -21,6 +22,9 @@ from .sandbox import Sandbox, check_job, command_job
 
 # VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
 REGRESSION_TIMEOUT = 900
+# The reviewer's copy of each gate's log and of what gates saved (P2-T1).
+REVIEW_LOG_LIMIT = 256_000
+REVIEW_ARTIFACTS_LIMIT = 20_000_000
 # A retry's review lists the blockers earlier reviews of its job raised (newest kept).
 EARLIER_BLOCKERS_LIMIT = 20
 EARLIER_EVIDENCE_LIMIT = 600
@@ -60,6 +64,48 @@ def drop_python_caches(root, ignore=()):
                 cache.unlink()
             else:
                 shutil.rmtree(cache)
+
+
+def copy_log_tail(source, destination, limit=REVIEW_LOG_LIMIT):
+    """A gate log for the reviewer: whole, or its last part from a line start, under a first
+    line that says how much was left out (failures are reported at the end)."""
+    size = source.stat().st_size
+    with source.open("rb") as file:
+        if size <= limit:
+            data = file.read()
+        else:
+            keep = limit - 120
+            file.seek(size - keep)
+            data = file.read()
+            start = data.find(b"\n")
+            data = data[start + 1:] if 0 <= start < 4096 else data
+            data = (f"[earlier output omitted: showing the last {len(data)} of {size} bytes]\n").encode() + data
+    destination.write_bytes(data)
+
+
+def copy_artifacts(source, destination, limit=REVIEW_ARTIFACTS_LIMIT):
+    """Copy the regular files gates saved, under safe names, until the size limit. Links are
+    never followed. Returns the paths left out."""
+    omitted, used = [], 0
+    for folder, folders, files in os.walk(source):
+        folders.sort()
+        for name in sorted(files):
+            path = Path(folder) / name
+            relative = path.relative_to(source).as_posix()
+            info = path.lstat()
+            try:
+                safe_path(relative)
+            except BuilderError:
+                omitted.append(relative)
+                continue
+            if not stat.S_ISREG(info.st_mode) or used + info.st_size > limit:
+                omitted.append(relative)
+                continue
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            copy_file(path, target)
+            used += info.st_size
+    return omitted
 
 
 def attempt_history(previous, limit=HISTORY_LIMIT):
@@ -105,7 +151,11 @@ def atomic_json(path, value):
 def sync_tree(path):
     for directory, _, files in os.walk(path, topdown=False):
         for file in files:
-            with (Path(directory) / file).open("rb") as stream:
+            entry = Path(directory) / file
+            # Only regular files: opening a link follows it, and opening a pipe blocks (P2-T1).
+            if not stat.S_ISREG(entry.lstat().st_mode):
+                continue
+            with entry.open("rb") as stream:
                 os.fsync(stream.fileno())
         sync_dir(Path(directory))
     sync_dir(path.parent)
@@ -160,11 +210,12 @@ def gate_environment(temp, gate_env, path=os.defpath, dependencies=None):
 
 
 def launch_command(operation, command, work, temp, log, launcher, timeout, gate_env, dependencies=None,
-                   extra_env=None):
+                   extra_env=None, artifacts=None):
     """Run a bare-program argv in work: in the sandbox backend, through the launcher as
     `<operation> <work> -- argv`, or on the host with the program resolved on the runner's own PATH."""
     if isinstance(launcher, Sandbox):
-        job = command_job(operation, command, work, dependencies=dependencies, gate_env=gate_env, extra=extra_env)
+        job = command_job(operation, command, work, dependencies=dependencies, gate_env=gate_env, extra=extra_env,
+                          artifacts=artifacts)
         return launcher.run(job, input_text="", log=log, timeout=timeout)
     if launcher:
         argv, path = [launcher, operation, str(work), "--", *command], os.defpath
@@ -178,6 +229,8 @@ def launch_command(operation, command, work, temp, log, launcher, timeout, gate_
         path = os.pathsep.join((os.path.dirname(program), os.defpath))
     env = gate_environment(temp, gate_env, path, dependencies)
     env.update(extra_env or {})
+    if artifacts is not None:
+        env["VESPER_ARTIFACTS"] = str(artifacts)
     return run_process(argv, cwd=work, input_text="", env=env, log=log, timeout=timeout)
 
 
@@ -194,7 +247,7 @@ def copy_build_dirs(source, target, ignore):
 
 
 def execute_check(script_name, package_source, checks_manifest, candidate, candidate_manifest, log, launcher,
-                  timeout=45, gate_env=()):
+                  timeout=45, gate_env=(), artifacts=None):
     """Give every gate the same isolated input layout, including baseline reproducers."""
     with tempfile.TemporaryDirectory(dir=log.parent, prefix="gate-") as temp:
         home = Path(temp)
@@ -206,12 +259,15 @@ def execute_check(script_name, package_source, checks_manifest, candidate, candi
         script = package / script_name
         mode = stat.S_IMODE(isolated.stat().st_mode)
         if isinstance(launcher, Sandbox):
-            code = launcher.run(check_job(home, script_name, gate_env), input_text="", log=log, timeout=timeout)
+            code = launcher.run(check_job(home, script_name, gate_env, artifacts), input_text="", log=log,
+                                timeout=timeout)
         else:
             command = ([launcher, "check", str(script), str(isolated)] if launcher
                        else [sys.executable, "-I", "-B", str(script), str(isolated)])
-            code = run_process(command, cwd=home, input_text="", env=gate_environment(temp, gate_env),
-                               log=log, timeout=timeout)
+            env = gate_environment(temp, gate_env)
+            if artifacts is not None:
+                env["VESPER_ARTIFACTS"] = str(artifacts)
+            code = run_process(command, cwd=home, input_text="", env=env, log=log, timeout=timeout)
         intact = (inventory(package) == checks_manifest and inventory(isolated) == candidate_manifest
                   and stat.S_IMODE(isolated.stat().st_mode) == mode)
         return code, intact
@@ -239,7 +295,8 @@ def merge_overlay(source, target):
 
 
 def execute_command_check(command, overlay, package_source, checks_manifest, candidate, candidate_manifest, log,
-                          launcher, timeout=45, gate_env=(), prepared=None, ignore=(), dependencies=None):
+                          launcher, timeout=45, gate_env=(), prepared=None, ignore=(), dependencies=None,
+                          artifacts=None):
     """Run an approved argv in a throwaway copy of the candidate, with QA's overlay copied in first.
 
     Tools may write caches and reports in that copy. The gate never gets checks/ or the verified
@@ -269,7 +326,8 @@ def execute_command_check(command, overlay, package_source, checks_manifest, can
             if problem:
                 log.write_text(problem + "\n", encoding="utf-8")
                 return 1, unchanged()
-        code = launch_command("check-command", command, work, temp, log, launcher, timeout, gate_env, dependencies)
+        code = launch_command("check-command", command, work, temp, log, launcher, timeout, gate_env, dependencies,
+                              artifacts=artifacts)
         return code, unchanged()
 
 
@@ -295,17 +353,45 @@ class Runner:
         contract, bundle = review_bundle(self.root)
         return {"digest": fingerprint(bundle), "packet_digest": fingerprint({k: v for k, v in bundle.items() if k != "plan_critique"}), "contract": contract, "files": bundle}
 
+    def review_sheet(self):
+        """The plain-language plan sheet (P2-T2). Printing it never moves the "what changed" baseline."""
+        from .approvals import run_store
+        from .sheets import plan_sheet
+        from .usage import for_project, render
+        contract, bundle = review_bundle(self.root)
+        sheet = plan_sheet(self.root, contract, bundle, fingerprint(bundle), run_store(self.root)).full
+        estimate = for_project(contract, bundle)
+        return sheet + "\n" + (render(estimate) if "error" not in estimate
+                                else "Estimate: unavailable (" + estimate["error"] + ")") + "\n"
+
+    def estimate(self):
+        """Jobs, AI calls, tokens, wall time and % of plan limits for this plan (P2-T3)."""
+        from .usage import for_project
+        contract, bundle = review_bundle(self.root, estimating=True)
+        return for_project(contract, bundle)
+
     def approve(self, digest):
+        from .approvals import confirm, keep, run_store
+        from .sheets import plan_sheet
         require(not self.state_file.exists(), "A contract is already approved for this run")
-        _, bundle = review_bundle(self.root)
+        contract, bundle = review_bundle(self.root)
         require(fingerprint(bundle) == digest, "Approval digest changed. Review the current draft again.")
+        critique = bundle.get("plan_critique")
         if bundle.get("planning", {}).get("depth") in ("full", "focused"):
-            require(bundle.get("plan_critique", {}).get("report", {}).get("verdict") == "approve",
-                    "Independent plan critique must approve this exact packet before implementation")
+            # P2-T7: a blocker no longer only refuses; the owner accepts it (decide --accept-risk) or
+            # sends the plan back (decide --fix).
+            from .decisions import undecided_plan_blockers
+            require(critique, "Independent plan critique must approve this exact packet before implementation")
+            waiting = undecided_plan_blockers(self.root, critique)
+            require(not waiting, "Independent plan critique must approve this exact packet before implementation, "
+                                 "or the owner must decide each blocker: " + "; ".join(waiting))
         proof = None
         if "repair" in bundle:
             from .repair import reproduction_record
             proof = reproduction_record(self, digest, bundle)
+        # Human-only (P2-T2): the owner confirms on the plan sheet before anything is locked.
+        confirmation = confirm("approve-plan", str(self.root), digest,
+                               plan_sheet(self.root, contract, bundle, digest, run_store(self.root)))
         approval_id = uuid4().hex
         approved = self.control / "approvals" / approval_id
         initial = self.control / "snapshots" / approval_id
@@ -325,7 +411,12 @@ class Runner:
                  "completed": [], "active": None, "attempts": []}
         if proof:
             state["repair_reproduction"] = proof
+        state["confirmation"] = {key: confirmation[key] for key in ("digest", "confirmer", "at")}
+        if critique:
+            from .decisions import accepted_by_approval
+            state["accepted_risks"] = accepted_by_approval(self.root, critique, digest)
         self.save(state)
+        keep(run_store(self.root), confirmation)
         return self.status()
 
     def save(self, state):
@@ -347,7 +438,20 @@ class Runner:
                 and inventory(approval / "plan") == bundle["plan"]
                 and inventory(approval / "checks") == bundle["checks"],
                 "Frozen approval files have changed")
-        return reviewed_contract(approval / "plan", bundle["plan"], bundle["checks"])
+        from .amendments import apply
+        # Checks added after approval (P2-T6), each verified against its confirmed digest.
+        return apply(self, state, reviewed_contract(approval / "plan", bundle["plan"], bundle["checks"]))
+
+    def decide(self, finding_id, *, fix=False, accept=False, reason=None):
+        """The owner's decision on a finding (P2-T7); accepting a risk is a protected action."""
+        from .decisions import decide
+        return decide(self, finding_id, fix=fix, accept=accept, reason=reason)
+
+    def add_check(self, check_id, *, script=None, command=None, jobs=None, reason=None):
+        """Add a check after approval (P2-T6): a protected action the owner confirms."""
+        from .amendments import add
+        amendment = add(self, check_id, script=script, command=command, jobs=jobs, reason=reason)
+        return {**self.status(), "amendment": amendment}
 
     def snapshot(self, state):
         return self.control / "snapshots" / state["snapshot_id"]
@@ -382,34 +486,52 @@ class Runner:
         return self.status()
 
     def status(self):
+        from .decisions import load, open_decisions
+        backlog = load(self.root)["items"]
         if not self.state_file.exists():
-            return {"status": "planning", "project": str(self.root)}
+            return {"status": "planning", "project": str(self.root), "backlog": backlog,
+                    "awaiting_decision": [item["id"] for item in backlog if item["status"] == "awaiting_decision"]}
         state = self.state()
         contract = self.frozen_contract(state)
         self.check_snapshot(state)
         job = self.ready(state, contract)
+        # P2-T7: what waits for the owner comes from the state's own record of each attempt.
+        waiting = [name for attempt in ([state["active"]] if state["active"] else []) + state["attempts"]
+                   for name in open_decisions(attempt)]
+        decisions = {"backlog": backlog, "awaiting_decision": waiting}
+        previous = self.attempts_for(state, job) if job else []
         if state["active"]:
-            phase = "awaiting_review" if "review" in state["active"] else "active"
+            phase = ("awaiting_decision" if open_decisions(state["active"])
+                     else "awaiting_review" if "review" in state["active"] else "active")
         elif job is None:
-            phase = "complete"
-        elif len(self.attempts_for(state, job)) >= self.budget_for(state, job):
+            # A run never completes with a finding that still waits for the owner.
+            phase = "awaiting_decision" if waiting else "complete"
+        elif previous and open_decisions(previous[-1]):
+            phase = "awaiting_decision"
+        elif len(previous) >= self.budget_for(state, job):
             phase = "blocked"
         else:
             phase = "ready"
+        from .amendments import listed
         return {"status": phase, "title": contract["title"], "delivery": contract["delivery"],
                 "digest": state["digest"], "snapshot": str(self.snapshot(state)),
                 "completed": state["completed"], "next_job": job and job["id"],
                 "active": state["active"], "attempts": state["attempts"],
-                "retry_grants": state.get("retry_grants", [])}
+                "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state), **decisions}
 
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
 
     def begin(self, state, contract, provider, adapter=None, shell=False):
-        require(not state["active"], "An attempt is active. Submit or abandon it first.")
+        from .decisions import open_decisions
         job = self.ready(state, contract)
+        previous = self.attempts_for(state, job) if job else []
+        for attempt in filter(None, (state["active"], previous[-1] if previous else None)):
+            waiting = open_decisions(attempt)
+            require(not waiting, f"Job {attempt['job']} awaits the owner's decision on {', '.join(waiting)}: run "
+                                 'decide FINDING_ID --fix, or --accept-risk --reason "..."')
+        require(not state["active"], "An attempt is active. Submit or abandon it first.")
         require(job, "No jobs remain")
-        previous = self.attempts_for(state, job)
         require(len(previous) < self.budget_for(state, job), f"Retry budget exhausted for {job['id']}")
         base = self.check_snapshot(state)
         require(GATES_DIR not in base, f"{GATES_DIR} is reserved for the workers' copy of the gates; "
@@ -432,10 +554,11 @@ class Runner:
         # Workers read and run the gates (owner decision 2026-11-19). The copy is ignored by
         # verify, so it is never checked for scope or promoted; Vesper runs the approved gates.
         gates_copy = workspace / GATES_DIR
-        copy_tree(self.approval(state) / "checks", gates_copy)
+        package, manifest = checks_package(self, state)
+        copy_tree(package, gates_copy)
         copied = inventory(gates_copy)
         require({path: record[0] for path, record in copied.items()}
-                == {path: record[0] for path, record in state["bundle"]["checks"].items()},
+                == {path: record[0] for path, record in manifest.items()},
                 "Approved checks changed while copying")
         for path, (digest, mode) in copied.items():
             if digest is not None:
@@ -507,9 +630,12 @@ class Runner:
         return attempt
 
     def abandon(self, attempt_id):
+        from .decisions import open_decisions
         state = self.state()
         attempt = state["active"]
         require(attempt and attempt["id"] == attempt_id, "No matching attempt is active")
+        require(not open_decisions(attempt), "This candidate awaits the owner's decision; only the owner sends it "
+                                             "back, with decide FINDING_ID --fix")
         return self.finish(state, "interrupted", "Attempt abandoned by the operator")
 
     def submit(self, attempt_id, launcher=None):
@@ -565,7 +691,7 @@ class Runner:
         except OSError as exc:
             return self.finish(state, "rejected", str(exc), "environment")
 
-    def accept_candidate(self, state, job_id, candidate, manifest):
+    def promote(self, state, job_id, candidate, manifest):
         # Leave the staged candidate intact until the new snapshot and state are durable.
         next_id = uuid4().hex
         target = self.control / "snapshots" / next_id
@@ -575,8 +701,43 @@ class Runner:
         state["snapshot_id"] = next_id
         state["snapshot_digest"] = fingerprint(manifest)
         state["completed"].append(job_id)
-        state["active"]["snapshot_id"] = next_id
+        return next_id
+
+    def accept_candidate(self, state, job_id, candidate, manifest):
+        state["active"]["snapshot_id"] = self.promote(state, job_id, candidate, manifest)
         return self.finish(state, "accepted")
+
+    def reviewed_candidate(self, state, attempt):
+        """The tested candidate a review judged, checked unchanged against an unchanged baseline."""
+        packet = attempt["review"]
+        self.frozen_contract(state)
+        require(state["snapshot_id"] == attempt["base"] and state["snapshot_digest"] == packet["base_digest"],
+                "Accepted baseline changed before the decision")
+        self.check_snapshot(state)
+        candidate = self.attempt_dir(attempt) / packet["directory"] / "candidate"
+        manifest = inventory(candidate)
+        require(fingerprint(manifest) == packet["candidate_digest"]
+                and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
+                "Tested candidate changed after verification")
+        return candidate, manifest
+
+    def accept_decided(self, state, accepted):
+        """Every finding the active candidate waited on is accepted by the owner (P2-T7)."""
+        attempt = state["active"]
+        candidate, manifest = self.reviewed_candidate(state, attempt)
+        attempt["accepted_risks"] = accepted
+        return self.accept_candidate(state, attempt["job"], candidate, manifest)
+
+    def accept_rejected(self, state, job, attempt, accepted):
+        """The owner accepted the open blockers of a job out of attempts: its last reviewed
+        candidate is accepted with them recorded (P2-T7)."""
+        candidate, manifest = self.reviewed_candidate(state, attempt)
+        attempt["snapshot_id"] = self.promote(state, job["id"], candidate, manifest)
+        attempt["outcome"] = "accepted"
+        attempt["accepted_risks"] = accepted
+        attempt["accepted_at"] = stamp()
+        self.save(state)
+        return attempt
 
     def stage_review(self, state, job, candidate, directory, proposed):
         attempt = state["active"]
@@ -608,6 +769,22 @@ class Runner:
                 and fingerprint(inventory(workspace / "candidate")) == packet["candidate_digest"]
                 and inventory(workspace / "plan") == state["bundle"]["plan"],
                 "Review copy changed during preparation")
+        # Gate evidence (P2-T1): the approved scripts, each gate's log and what it saved. All of it
+        # is inside the review view digest, so a changed copy is refused.
+        package, manifest = checks_package(self, state)
+        copy_tree(package, workspace / "checks")
+        require(inventory(workspace / "checks") == manifest, "Review copy changed during preparation")
+        (workspace / "logs").mkdir()
+        for check in attempt["checks"]:
+            copy_log_tail(self.root / check["log"], workspace / "logs" / (check["id"] + ".log"))
+        (workspace / "artifacts").mkdir()
+        if (directory / "artifacts").is_dir():
+            omitted = copy_artifacts(directory / "artifacts", workspace / "artifacts")
+            if omitted:
+                packet["artifacts_omitted"] = omitted[:50]
+            # The gates' raw folder may hold links or pipes; only the checked copy stays. A folder a
+            # gate left unremovable must not reject the candidate (sync_tree skips non-files anyway).
+            shutil.rmtree(directory / "artifacts", ignore_errors=True)
         write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"])
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
         (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
@@ -625,8 +802,12 @@ class Runner:
                          external_attested=False, review_timeout=180, review_max_turns=20):
         """Accept or reject the staged candidate on an attested report or a launched reviewer brain."""
         review_limits(review_timeout, review_max_turns)
+        from .decisions import open_decisions
         state = self.state()
         attempt = state["active"]
+        require(not (attempt and open_decisions(attempt)),
+                "This candidate was reviewed and awaits the owner's decision on "
+                + ", ".join(open_decisions(attempt) if attempt else []) + ": run decide")
         require(attempt and "review" in attempt, "No tested candidate awaits review")
         packet = attempt["review"]
         self.frozen_contract(state)
@@ -670,7 +851,8 @@ class Runner:
                 log = directory / ("reviewer-" + uuid4().hex + ".log")
                 code = launch(brain, "reviewer", launcher, trust_host, work=view,
                               input_text=review_prompt(profile, packet), log=log, timeout=review_timeout,
-                              response=response, schema=schema, max_turns=review_max_turns)
+                              response=response, schema=schema, max_turns=review_max_turns,
+                              ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"})
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
                 output = response if response.is_file() else log
@@ -684,17 +866,52 @@ class Runner:
                     launched["usage"] = spent
         require(len(json.dumps(report)) <= 256_000, "Reviewer output exceeded the report limit")
         blockers = validate_report(report, packet)
-        self.frozen_contract(state)
+        attested = None
+        if launched["provider"] == "operator":
+            # Human-only (P2-T2): a person vouches that the supplied report is independent. The
+            # candidate and contract checks below run after the confirmation.
+            from .approvals import confirm, run_store
+            from .sheets import attest_sheet
+            sheet, report_digest = attest_sheet(
+                run_store(self.root), f"{self.root}#{attempt['job']}",
+                f"job {attempt['job']}, candidate {packet['candidate_digest'][:12]}", report)
+            attested = confirm("attest-independence", f"{self.root}#{attempt['job']}", report_digest, sheet)
+            require(fingerprint(inventory(workspace)) == attempt["review_view_digest"],
+                    "Staged review evidence changed")
+        contract = self.frozen_contract(state)
         manifest = inventory(candidate)
         require(fingerprint(manifest) == packet["candidate_digest"]
                 and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
                 "Tested candidate changed after verification")
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
                              **launched}
+        from .decisions import record_review
         if blockers:
-            return self.finish(state, "rejected", "Review blockers: " + "; ".join(
+            result = self.finish(state, "rejected", "Review blockers: " + "; ".join(
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
-        return self.accept_candidate(state, attempt["job"], candidate, manifest)
+            job = next(item for item in contract["jobs"] if item["id"] == attempt["job"])
+            # P2-T7: out of attempts, the open blockers wait for the owner instead of blocking; a
+            # security or data advisory waits for the owner even on a rejected candidate.
+            ids, waiting = record_review(self.root, result, report["findings"], rejected=True,
+                                         exhausted=len(self.attempts_for(state, job)) >= self.budget_for(state, job))
+            result["finding_ids"] = ids
+            if waiting:
+                result["awaiting_decision"] = waiting
+            self.save(state)
+        else:
+            # P2-T7: a security or data advisory waits for the owner's decision.
+            ids, waiting = record_review(self.root, attempt, report["findings"], rejected=False, exhausted=False)
+            attempt["finding_ids"] = ids
+            if waiting:
+                attempt["awaiting_decision"] = waiting
+                self.save(state)
+                result = {**attempt, "outcome": "awaiting_decision"}
+            else:
+                result = self.accept_candidate(state, attempt["job"], candidate, manifest)
+        if attested:
+            from .approvals import keep, run_store
+            keep(run_store(self.root), attested)
+        return result
 
     def run_gates(self, state, contract, job, candidate, proposed, directory, launcher):
         """The job's gates (every gate on the final job). Build setup runs once, before the
@@ -752,17 +969,19 @@ class Runner:
         logs = directory / "logs"
         logs.mkdir(exist_ok=True)
         log = logs / (check["id"] + ".log")
+        # Whatever the gate saves here (screenshots, traces) reaches the reviewer (P2-T1).
+        artifacts = directory / "artifacts" / check["id"]
+        artifacts.mkdir(parents=True, exist_ok=True)
         limit = check.get("timeout", REGRESSION_TIMEOUT if check["id"] == "VESPER_REGRESSION" else 45)
+        package, manifest = checks_package(self, state)
         if "command" in check:
-            code, intact = execute_command_check(check["command"], check.get("overlay"),
-                                                 self.approval(state) / "checks", state["bundle"]["checks"],
+            code, intact = execute_command_check(check["command"], check.get("overlay"), package, manifest,
                                                  candidate, inventory(candidate), log, launcher,
                                                  timeout=limit, gate_env=gate_env, prepared=prepared,
-                                                 ignore=ignore, dependencies=dependencies)
+                                                 ignore=ignore, dependencies=dependencies, artifacts=artifacts)
         else:
-            code, intact = execute_check(check["script"], self.approval(state) / "checks",
-                                         state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,
-                                         timeout=limit, gate_env=gate_env)
+            code, intact = execute_check(check["script"], package, manifest, candidate, inventory(candidate), log,
+                                         launcher, timeout=limit, gate_env=gate_env, artifacts=artifacts)
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
         state["active"]["checks"].append(result)
         self.save(state)
@@ -778,10 +997,25 @@ class Runner:
                 self.save(state)
                 raise
 
-    def run(self, selection, launcher=None, *, trust_host=False, review_timeout=180, review_max_turns=20):
+    def run(self, selection, launcher=None, *, trust_host=False, review_timeout=180, review_max_turns=20,
+            start_after=None, clock=None, sleep=None, reserve=None):
         """Run every ready job unattended. ``selection`` (brains.Selection) picks each job's
-        worker brain by role and the reviewer brain (by default the job's worker brain)."""
+        worker brain by role and the reviewer brain (by default the job's worker brain).
+
+        Before a job's first attempt the plan limits are checked (P2-T4): a job that would cross
+        the reserve is not started and the run returns ``paused_for_limits``; a started job is
+        never stopped. ``start_after`` ("HH:MM") waits for that local time first."""
+        from . import usage as plan_usage
         review_limits(review_timeout, review_max_turns)
+        if start_after:
+            plan_usage.wait_until(start_after, clock=clock, sleep=sleep)
+        if reserve is None:
+            from .brains import load_settings
+            try:
+                reserve = load_settings().get("limits.reserve_percent", 25)
+            except BuilderError:
+                reserve = 25
+        notes = []
         limits = {"review_timeout": review_timeout, "review_max_turns": review_max_turns}
         state = self.state()
         contract = self.frozen_contract(state)
@@ -792,6 +1026,9 @@ class Runner:
         def reviewer_for(job):
             return selection.reviewer(lambda: selection.worker(job["role"]))
 
+        from .decisions import open_decisions
+        if state["active"] and open_decisions(state["active"]):
+            return {**self.status(), **({"limit_notes": notes} if notes else {})}
         if state["active"]:
             if "review" in state["active"]:
                 self.review_candidate(brain=reviewer_for(jobs[state["active"]["job"]]), launcher=launcher,
@@ -803,10 +1040,20 @@ class Runner:
                         "Submit or abandon the active manual attempt first")
                 self.finish(state, "interrupted", "Recovered after an interrupted runner", "interrupted")
         while self.ready(state, contract):
-            if self.status()["status"] == "blocked":
+            if self.status()["status"] in ("blocked", "awaiting_decision"):
                 break
             # Choose and check every brain the job needs before it starts.
             ready = self.ready(state, contract)
+            if not self.attempts_for(state, ready):
+                current = ready
+                pause, found = plan_usage.limit_check(
+                    contract, state["bundle"], ready, plan_usage.entries(), reserve=reserve,
+                    brains=lambda role: reviewer_for(current) if role == "reviewer" else selection.worker(role),
+                    now=clock() if clock else datetime.now(timezone.utc))
+                notes += found
+                if pause:
+                    return {**self.status(), "status": "paused_for_limits", "pause": pause,
+                            **({"limit_notes": notes} if notes else {})}
             brain = selection.worker(ready["role"])
             brain_command(brain, "worker", launcher, trust_host, role=ready["role"])
             reviewer = reviewer_for(ready) if "team" in state["bundle"] else None
@@ -823,17 +1070,19 @@ class Runner:
                 self.save(state)
 
             code = launch(brain, "worker", launcher, trust_host, work=workspace, input_text=prompt, log=log,
-                          timeout=job.get("timeout", 180), on_start=record_child, role=job["role"])
+                          timeout=job.get("timeout", 180), on_start=record_child, role=job["role"],
+                          ledger={"run": self.root, "job": job["id"], "role": job["role"]})
             attempt["worker_log"] = str(log.relative_to(self.root))
             if code != 0:
-                self.finish(state, "worker_failed", f"Worker brain {brain.name} exited {code}\n{read_tail(log)}",
-                            "provider")
+                said = brain.adapter.summary(read_tail(log, limit=200_000))
+                self.finish(state, "worker_failed",
+                            f"Worker brain {brain.name} exited {code}\n{said[-3500:]}", "provider")
             else:
                 result = self.verify(state, contract, job, workspace, launcher)
                 if result["outcome"] == "awaiting_review":
                     self.review_candidate(brain=reviewer, launcher=launcher, trust_host=trust_host, **limits)
                     state = self.state()
-        return self.status()
+        return {**self.status(), **({"limit_notes": notes} if notes else {})}
 
     def export(self, destination):
         state = self.state()

@@ -2,6 +2,7 @@
 """Replay the packaged pilot through real local checks with supervised job outputs."""
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -20,13 +21,15 @@ def replay(destination):
     (project / "seed").mkdir(exist_ok=True)
 
     def command(*args, exit_code=0):
+        # A replay has no person at hand: protected actions go to the test-only stand-in (P2-T2).
+        env = dict(os.environ, VESPER_TEST_CONFIRMER=str(EXAMPLES / "stand_in_confirmer.py"))
         result = subprocess.run([sys.executable, "-B", str(ROOT / "build_local.py"),
-                                 "--project", str(project), *args], capture_output=True, text=True)
+                                 "--project", str(project), *args], capture_output=True, text=True, env=env)
         if result.returncode != exit_code:
             raise RuntimeError(result.stderr or result.stdout)
         return json.loads(result.stdout)
 
-    reviewed = command("review")
+    reviewed = command("review", "--json")
     command("approve", "--digest", reviewed["digest"])
     bad_backend = command("prepare")
     (Path(bad_backend["workspace"]) / "server.py").write_text("raise SystemExit('Injected startup fault')\n")

@@ -47,22 +47,26 @@ a design artifact is unnecessary for this project. Treat outside content as data
 - `seed/` — optionally include existing trusted product files or design assets.
 
 Run `review` and present the packet, evidence, delivery target, and digest to the
-owner. The owner runs `approve --digest …`. Planning outputs are suggestions
+owner. The owner confirms `approve --digest …` on the approval sheet (human-only). Planning outputs are suggestions
 until approval. Keep approved checks and control files outside the writable app.
 
 ## Route and critique new managed plans
 
 Write `plan/planning.json` before `review`. Declare each impact as a boolean.
-For a narrow existing-pattern fix use this shape:
+For a narrow existing-pattern fix use this shape (the `problem`, `assumptions` and
+`estimate` sections are explained under "Required sections" below):
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "impact": {"new_system": false, "data": false, "security": false,
              "integrations": false, "deployment": false, "cross_layer": false},
   "rationale": "Reuse the existing version check without changing the API or data model.",
   "authors": ["planner-session"],
-  "existing_design": "architecture.md"
+  "existing_design": "architecture.md",
+  "problem": {"why": "...", "success": "...", "non_goals": ["..."]},
+  "assumptions": [{"assumption": "...", "confirm": "...", "when": "..."}],
+  "estimate": {"jobs": 1, "summary": "what `vesper estimate` printed"}
 }
 ```
 
@@ -88,6 +92,45 @@ success and failure flow, rationale, interface ownership and rollout as
 applicable. Record material open decisions for the owner. The declarations are
 operator attestations. Reviewers still judge whether the routing and handoff
 accurately describe the work.
+
+### Required sections
+
+New runs use planning manifest version 2 (`vesper start` records `planning_version: 2`
+in the intake). Runs started before it keep version 1 and its rules. `review` refuses a
+version-2 manifest that is missing a section its depth requires, and names the section.
+
+| Depth | Sections |
+| --- | --- |
+| every depth | `problem`, `assumptions`, `estimate` |
+| `focused` and `full` | also `risks`, `stack`, `threat_model`, `reachability`, `concurrency`, `failure_paths` |
+| `full` | also `options`, `components`, `phases` |
+
+- `problem`: `why`, `success` (the success measure) and `non_goals` (at least one).
+- `assumptions`: a list of `{"assumption", "confirm", "when"}`: how and when each is confirmed.
+- `estimate`: `{"jobs", "summary"}`. Run `vesper --project RUN estimate` once the rest of
+  the plan is written (it works on a draft that lacks only the estimate), then record its
+  job count and what it printed. `jobs` must match the contract.
+- `risks`: the pre-mortem, a list of `{"risk", "check"}` (a gate id) or `{"risk", "mitigation"}`.
+- `stack`: `{"choice", "reason"}`, or `"existing repo"`.
+- `threat_model`: the owner's, as `{"trusted": [...], "in_scope": [...], "out_of_scope": [...]}`
+  (`out_of_scope` optional).
+- `reachability` and `concurrency` (the tech lead's lists): each item
+  `{"id", "item", "gates": [...]}` when gates prove its handling, or
+  `{"id", "item", "accept": "reason"}` to propose it as a risk. Ids are distinct across
+  both lists.
+- `failure_paths` (QA's matrix): rows `{"items", "scenario", "assertion", "catches", "gates"}`,
+  where `items` lists requirement ids or list item ids and `catches` is the wrong
+  implementation the assertion catches; or `{"items", "scenario", "accept": "reason"}`.
+- `options`: `{"approaches": [{"name", "tradeoffs"}, ...] (2–3), "recommendation": a name, "reason"}`.
+- `components`: `cache`, `queue`, `cdn`, `realtime`, `search` and `storage`, each
+  `{"decision": "now" | "later" | "no"}`; `later` needs a `trigger`.
+- `phases`: a list of `{"name", "goal"}`.
+
+Every item marked `accept` is a risk the plan proposes. Only the owner accepts it, by
+confirming the plan approval; a decision-log entry is not that confirmation. The approval
+sheet lists each one in full with its reason. The runner checks presence and shape and
+that each cited gate exists; the plan critique judges whether the content is true and
+complete. `docs/plan/fixtures/pocket-todo/plan/planning.json` is a full example.
 
 Run `review-plan --brain NAME --launcher PATH` on the draft (a configured brain, or `claude-code`, `codex`, `gemini-cli`).
 In supervised mode send the plan, seed and checks to a separate session. Ask for

@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 from builder.contracts import BuilderError
 from builder.brains import ADAPTERS, Brain, LEGACY, command as brain_command
 from builder.review_gate import decode_provider_report, prompt, report_schema
+import stand_in  # noqa: F401  (test-only confirmer for protected actions, P2-T2)
 
 REPLIES = ROOT / "docs/plan/fixtures/pocket-todo/reviewer-replies"
 STRICT_ENDING = "Return only the JSON object. No text before or after it."
@@ -45,8 +46,16 @@ def schema_errors(schema, data, where="$"):
     return errors
 
 
-def approved_report():
+def real_report():
     return json.loads((REPLIES / "approved-report.json").read_text(encoding="utf-8"))
+
+
+def approved_report():
+    """The real P1-era report with the category every finding now needs (P2-T7)."""
+    report = real_report()
+    for finding in report["findings"]:
+        finding["category"] = "maintainability"
+    return report
 
 
 def packet_for(report, **extra):
@@ -58,6 +67,10 @@ class ReportSchemaTests(unittest.TestCase):
         report = approved_report()
         self.assertIn("design", report["evidence"])
         self.assertEqual(schema_errors(report_schema(packet_for(report, design_review=True)), report), [])
+        # The real reply predates categories (P2-T7): the only errors are the missing categories.
+        raw = real_report()
+        self.assertEqual(schema_errors(report_schema(packet_for(raw, design_review=True)), raw),
+                         [f"$.findings[{index}].category: missing" for index in range(len(raw["findings"]))])
 
     def test_rejects_a_missing_evidence_area(self):
         report = approved_report()
@@ -92,7 +105,7 @@ class PlanReportSchemaTests(unittest.TestCase):
                 "verdict": "request_changes", "summary": "Checked retry semantics.",
                 "evidence": {"requirements": "product.md", "architecture": "architecture.md",
                              "checks": "gate.py"},
-                "findings": [{"severity": "blocking", "path": "plan/architecture.md:1",
+                "findings": [{"severity": "blocking", "category": "correctness", "path": "plan/architecture.md:1",
                               "scenario": "Retry after lost response", "consequence": "Duplicate write",
                               "evidence": "No retry identity", "recommendation": "Add a request id."}],
                 **change}
@@ -244,6 +257,10 @@ class PlanCritiqueStrictOutputTests(unittest.TestCase):
         # Data loss is not bounded by the security threat model (two of the owner's devices are not a threat).
         self.assertIn("a reachable data-loss exposure in the deployment the owner chose", seen["prompt"])
         self.assertNotIn("can be broken by an implementation that passes every gate", seen["prompt"])
+        # P2-T5: the critic checks the plan's required sections for its depth.
+        self.assertIn("plan/planning.json (version 2) holds the sections a full-depth plan must have: problem, "
+                      "assumptions, estimate, risks, stack, threat_model, reachability, concurrency, "
+                      "failure_paths, options, components, phases", " ".join(seen["prompt"].split()))
 
         listed = re.search(r"Files you may cite: ([^\n]+)", seen["prompt"]).group(1).split(", ")
         self.assertIn("plan/architecture.md", listed)

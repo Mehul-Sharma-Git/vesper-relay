@@ -77,18 +77,70 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `backend` as appropriate. Read the returned guide and keep the returned
   project path. Use `vesper runs --repo .` to find an earlier run.
 - **Plan.** Read the committed seed when applicable. Fill in the planning
-  packet and independent checks. Run `vesper --project PATH review` and show the
-  proposed scope, evidence, and digest. Run
-  `vesper --project PATH approve --digest DIGEST` only after authorization.
+  packet and independent checks. Run `vesper --project PATH review` to print the
+  plain-language approval sheet (`review --json` gives the raw bundle for tools). Run
+  `vesper --project PATH approve --digest DIGEST` only after authorization; the owner
+  then confirms it (see Approvals).
 - **Execute.** Run `vesper --project PATH prepare`, read the returned job brief,
   and edit only its work copy within the assigned scope. Run
   `vesper --project PATH submit ATTEMPT_ID` to run the approved checks, then
   `review-candidate` with a reviewer brain (`--brain NAME`) or an attested independent report.
   Repeat for ready jobs. Resume with `status` and the existing run.
+- **Add a check after approval.** `vesper --project PATH add-check --id G_X --script x.py
+  --jobs J_X[,J_Y] --reason "..."` (or `--command "go test ./..."` in place of `--script`)
+  adds a new gate without a full re-approval. It may only add: a new check ID, a new script
+  name, and jobs that are not accepted yet and whose candidate is not awaiting review;
+  approved checks are never removed, edited or reassigned. The amendment is kept under
+  `.builder/amendments/` with a digest chained to the approval, the owner confirms it on its
+  sheet (see Approvals), and the next verification of each assigned job runs the new check
+  (the last job to finish runs every gate). `status` lists every amendment.
 - **Deliver.** For a Git run, use `review-change` and `patch` to show the final
   diff and digest. Use `apply --digest DIGEST` only after approval. For a new
   site, use `export NEW_DIRECTORY`. Report evidence that passed and any
   behaviors still needing verification.
+- **Findings and decisions.** Every finding of a plan critique or a job review has a
+  category (correctness, security, data, performance, maintainability, design, other)
+  and is kept in `.builder/backlog.json` with an ID (`F1`, `F2`, …); `status` lists the
+  backlog and `awaiting_decision`. Reviewers find and explain; you decide. A plan-critique
+  blocker, a security or data advisory on a job, and the review blockers of a job whose
+  attempts are used up all wait for you (status `awaiting_decision`): run
+  `vesper --project PATH decide F3 --fix` to send the plan back, return the job for
+  correction (it counts as a retry) or grant one more attempt, or
+  `decide F3 --accept-risk --reason "..."` to accept it as a risk, which you confirm on a
+  risk sheet (see Approvals). Once every plan blocker is accepted, `approve` can proceed and
+  the plan sheet lists each acceptance; security and data advisories from the critique are
+  listed under the risks you accept by approving. A run never reaches `complete` while a
+  finding still waits for you.
+- **Approvals.** Approving a plan, applying a patch, committing a repair,
+  attesting that a report came from an independent reviewer, adding a check after
+  approval and accepting a risk are human-only. Each
+  shows a plain-language sheet (what is delivered or changed, each promise and its
+  gate, what each job may change, the critique or review verdict, what changed since
+  the last confirmation, and the short digest) and runs only after a person confirms.
+  `[approvals] confirmer` in the personal config chooses how: `tty` (default) prints
+  the sheet in a terminal and asks you to type back a short code, and refuses when
+  standard input is not a terminal, so an assistant's tool call cannot confirm;
+  `macos-dialog` shows a short form in a native dialog with a "Show full sheet"
+  button. An assistant runs the command and asks you to confirm. Both make approval
+  a deliberate human act; neither is authentication against software that controls
+  your machine. `VESPER_TEST_CONFIRMER` names a test-only stand-in for automated
+  tests; `vesper doctor` warns whenever it is set.
+- **Plan usage.** Every AI call Vesper starts is logged in
+  `~/.local/state/vesper-relay/usage.jsonl` (run, job, role, brain, model, start, end,
+  and tokens when the AI reports them). Estimates are in % of your plan's session and
+  weekly limits and wall time, never dollars. Vendors don't publish exact plan numbers,
+  so Vesper learns from your runs: before and after a run, log what your plan shows
+  with `vesper usage record --account claude --session 42 --week 13` (accounts:
+  `claude`, `chatgpt`, `gemini`). `vesper --project PATH estimate` (and the plan sheet
+  from `review`) then shows jobs, AI calls, tokens, wall time, session and weekly % per
+  account as a low–high band, sessions needed with your reserve
+  (`[limits] reserve_percent`), and a confidence level, low until 5 calibrated runs.
+  Before any readings it says "uncalibrated" and shows tokens and time only. Before
+  each job `run` checks the last reading, the usage since it and the job's estimate
+  against your reserve; if the job could cross it, `run` stops before that job (never
+  during one) with status `paused_for_limits` and exit code 3, says when the window
+  should reset, and continues from the accepted work when you run it again.
+  `run --start-after HH:MM` waits for that local time first.
 - **Learn.** Verified Vesper runs record typed local signals automatically.
   Use `vesper learn` to see proposals and `vesper --project PATH incidents` to
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and
@@ -124,6 +176,11 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   attempt fails. `none` and `--trust-host` run on the host and warn every time; `--launcher
   PATH` keeps a custom launcher. Sandboxed brains log in from the macOS Keychain (service
   `vesper-relay`) or `~/.config/vesper/secrets.env` (mode 600); see START-HERE.md.
+- **Gate evidence.** A gate can save evidence (screenshots, traces) in the folder named
+  by `VESPER_ARTIFACTS`. The independent reviewer's copy holds the approved gate scripts
+  (`checks/`), each gate's log (`logs/<ID>.log`, the last 256 KB when longer) and what
+  each gate saved (`artifacts/<ID>/`, up to 20 MB in all). Any change to that copy is
+  refused before the verdict counts.
 - **Choose brains.** Any supported AI can do every role; one is enough. The
   adapters are `claude-code`, `codex` and `gemini-cli`. Name brains by purpose
   in the personal config (`[brains.strong] use = "claude-code"`, optional `model`

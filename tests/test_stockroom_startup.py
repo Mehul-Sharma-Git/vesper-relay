@@ -3,6 +3,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import stand_in  # noqa: F401  (test-only environment: confirmer and state folder)
+
 
 CHECK = Path(__file__).resolve().parents[1] / "examples/stockroom/checks/api.py"
 SERVER = CHECK.parents[2] / "stockroom-app/server.py"

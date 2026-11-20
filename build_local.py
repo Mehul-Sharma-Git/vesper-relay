@@ -66,6 +66,14 @@ def resolve_boundary(args, default=True):
     return (engine.check(), False) if engine else (None, True)
 
 
+def clock_time(value):
+    """--start-after HH:MM, checked while parsing, before any sandbox or state is touched."""
+    import re
+    if not re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", value):
+        raise argparse.ArgumentTypeError("takes a 24-hour time, for example 07:30")
+    return value
+
+
 def initialize(root, idea):
     root.mkdir(parents=True, exist_ok=True)
     if any(root.iterdir()):
@@ -82,7 +90,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init").add_argument("--idea", required=True)
     commands.add_parser("brief")
-    commands.add_parser("review")
+    commands.add_parser("review").add_argument(
+        "--json", action="store_true", help="Print the review bundle as JSON for tools (default: the plan sheet)")
     commands.add_parser("approve").add_argument("--digest", required=True)
     commands.add_parser("prepare")
     submit = commands.add_parser("submit")
@@ -98,9 +107,25 @@ def main():
     review_limit_options(review_candidate)
     commands.add_parser("abandon").add_argument("attempt")
     commands.add_parser("retry").add_argument("--reason", required=True)
+    decide = commands.add_parser("decide", help="Decide a finding: send it back, or accept it as a risk")
+    decide.add_argument("finding", help="A finding ID from status, for example F3")
+    decision = decide.add_mutually_exclusive_group(required=True)
+    decision.add_argument("--fix", action="store_true", help="Send the plan back, or give the job another attempt")
+    decision.add_argument("--accept-risk", action="store_true", help="Accept it as a risk (you confirm it)")
+    decide.add_argument("--reason", help="Why (required with --accept-risk)")
+    add_check = commands.add_parser("add-check", help="Add a check after approval (the owner confirms it)")
+    add_check.add_argument("--id", required=True, help="The new check's ID, for example G_X")
+    gate = add_check.add_mutually_exclusive_group(required=True)
+    gate.add_argument("--script", type=Path, help="A Python gate script, copied into the run")
+    gate.add_argument("--command", dest="gate_command", help='A command gate, for example "go test ./..."')
+    add_check.add_argument("--jobs", help="Comma-separated unfinished jobs that must pass it")
+    add_check.add_argument("--reason", help="Why the check is added (shown to the owner and recorded)")
     commands.add_parser("status")
+    commands.add_parser("estimate").add_argument("--json", action="store_true", help="Print the estimate as JSON")
     commands.add_parser("export").add_argument("destination", type=Path)
     run = commands.add_parser("run")
+    run.add_argument("--start-after", metavar="HH:MM", type=clock_time,
+                     help="Wait for this local time first, for example after a plan window resets")
     brain_options(run, reviewer=True)
     boundary_options(run)
     review_limit_options(run)
@@ -113,6 +138,15 @@ def main():
         elif args.command == "brief":
             guide = Path(__file__).resolve().parent / "docs" / "PLANNER.md"
             print(f"Project: {root}\nIdea: {root / 'plan' / 'idea.md'}\n\n" + guide.read_text())
+            return 0
+        elif args.command == "estimate":
+            from builder.usage import render
+            result = engine.estimate()
+            if not args.json:
+                print(render(result) if "error" not in result else "Estimate unavailable: " + result["error"])
+                return 0
+        elif args.command == "review" and not args.json:
+            print(engine.review_sheet(), end="")
             return 0
         elif args.command in {"status", "review"}:
             result = getattr(engine, args.command)()
@@ -137,6 +171,12 @@ def main():
                     result = engine.abandon(args.attempt)
                 elif args.command == "retry":
                     result = engine.retry(args.reason)
+                elif args.command == "decide":
+                    result = engine.decide(args.finding, fix=args.fix, accept=args.accept_risk, reason=args.reason)
+                elif args.command == "add-check":
+                    result = engine.add_check(args.id, script=args.script, command=args.gate_command,
+                                              jobs=args.jobs.split(",") if args.jobs is not None else None,
+                                              reason=args.reason)
                 elif args.command == "export":
                     result = engine.export(args.destination.resolve())
                 elif args.command == "run":
@@ -144,10 +184,10 @@ def main():
                     launcher, trust_host = resolve_boundary(args)
                     result = engine.run(selection, launcher, trust_host=trust_host,
                                         review_timeout=args.review_timeout,
-                                        review_max_turns=args.review_max_turns)
+                                        review_max_turns=args.review_max_turns, start_after=args.start_after)
                 else:
                     result = engine.prepare()
-                if args.command in {"submit", "run", "review-candidate"} and (
+                if args.command in {"submit", "run", "review-candidate", "decide"} and (
                     result.get("status") == "complete" or result.get("outcome") == "accepted"
                 ):
                     state = engine.state()
@@ -159,7 +199,18 @@ def main():
                             print(f"vesper: change verified, but learning could not be recorded: {exc}",
                                   file=sys.stderr)
         print(json.dumps(result, indent=2, ensure_ascii=False))
-        return int(result.get("outcome") == "rejected" or result.get("status") == "blocked")
+        if result.get("status") == "paused_for_limits":
+            pause = result["pause"]
+            print(f"builder: paused before {pause['job']}: {pause['account']} {pause['limit']} usage would reach "
+                  f"{pause['projected']}% (limit {pause['threshold']}% with your reserve); {pause['resume']}.",
+                  file=sys.stderr)
+            return 3
+        if "awaiting_decision" in (result.get("outcome"), result.get("status")):
+            print("builder: waiting for the owner's decision on " + ", ".join(result.get("awaiting_decision") or
+                  engine.status().get("awaiting_decision", [])) + ": run decide FINDING_ID --fix, or "
+                  '--accept-risk --reason "..." (status lists each finding)', file=sys.stderr)
+        return int(result.get("outcome") in ("rejected", "awaiting_decision")
+                   or result.get("status") in ("blocked", "awaiting_decision"))
     except (BuilderError, OSError, UnicodeError) as exc:
         print(f"builder: {exc}", file=sys.stderr)
         return 2

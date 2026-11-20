@@ -25,7 +25,7 @@ from builder.team import catalog, profile, render
 
 ROOT = Path(__file__).resolve().parent
 CORE = {"init", "brief", "review", "approve", "prepare", "submit", "abandon", "retry",
-        "status", "export", "run", "review-candidate"}
+        "status", "export", "run", "review-candidate", "estimate", "add-check", "decide"}
 MODES = ("build", "feature", "bug", "design", "frontend", "backend", "maintenance")
 MARK = "Vesper Relay managed installation"
 
@@ -88,7 +88,7 @@ def start(args):
         (root / "plan" / "learning-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
         shutil.copytree(root / "seed" / "tests", root / "checks" / "baseline_tests")
         (root / "checks" / "vesper_regression.py").write_text(MAINTENANCE_GATE)
-    intake = {"mode": mode, "repository": meta, "guidance": suggestions, "planning_version": 1}
+    intake = {"mode": mode, "repository": meta, "guidance": suggestions, "planning_version": 2}
     intake["team_contract"] = 1
     (root / "plan" / "intake.json").write_text(json.dumps(intake, indent=2) + "\n")
     atomic_json(root / ".vesper.json", {"intake": intake, "seed_digest": fingerprint(inventory(root / "seed"))})
@@ -137,7 +137,8 @@ def consult(project, args):
                   + render(role) + "\n\nConsultation task:\n" + args.task)
         response, log = directory / "response.md", directory / "consult.log"
         code = launch(brain, "consult", launcher, trust_host, work=workspace, input_text=prompt, log=log,
-                      timeout=180, response=response, role=args.role)
+                      timeout=180, response=response, role=args.role,
+                      ledger={"run": project, "job": None, "role": "consult"})
         require(code == 0, f"Consultation failed with exit {code}")
         require(inventory(workspace) == before, "Consultation changed its read-only baseline copy")
         report = response if response.is_file() else log
@@ -249,6 +250,12 @@ def main():
                          "then ~/.config/vesper/config.toml)")
     checkup.add_argument("--no-call", action="store_true", help="Skip the tiny dry call to each brain")
     checkup.add_argument("--json", action="store_true", help="Print the report as JSON")
+    usage_command = commands.add_parser("usage", help="Plan usage readings for estimates").add_subparsers(
+        dest="action", required=True)
+    reading = usage_command.add_parser("record", help="Log observed plan usage % (calibrates estimates)")
+    reading.add_argument("--account", required=True, help="claude, chatgpt or gemini")
+    reading.add_argument("--session", required=True, type=float, help="Current session usage %%")
+    reading.add_argument("--week", required=True, type=float, help="Current weekly usage %%")
     commands.add_parser("root")
     commands.add_parser("runs").add_argument("--repo", type=Path)
     for name in sorted(CORE):
@@ -335,6 +342,10 @@ def main():
             if code:
                 print(json.dumps(result, indent=2))
                 return 1
+        elif args.command == "usage":
+            from builder.usage import record_reading
+            number = lambda value: int(value) if float(value).is_integer() else value
+            result = record_reading(args.account, number(args.session), number(args.week))
         elif args.command == "root":
             result = {"checkout": str(ROOT)}
         elif args.command == "runs":

@@ -23,12 +23,13 @@ MAX_BYTES = 256_000
 # The explicit table of which section, and so which key, belongs to which level.
 LEVELS = {
     "brains": "personal", "roles": "personal", "sandbox": "personal", "limits": "personal",
-    "defaults": "personal", "tools": "personal", "paths": "personal",
+    "defaults": "personal", "tools": "personal", "paths": "personal", "approvals": "personal",
     "stack": "project", "hosting": "project", "checks": "project",
 }
 
 # Built-in defaults; the review limits match the CLI's --review-timeout/--review-max-turns.
 DEFAULTS = {
+    "approvals.confirmer": "tty",
     "limits.reserve_percent": 25,
     "limits.review_max_turns": 20,
     "limits.review_timeout": 180,
@@ -155,6 +156,10 @@ def validate(values):
     backend = values.get("sandbox.backend")
     require(backend in SANDBOX_BACKENDS,
             "sandbox.backend must be one of " + ", ".join(SANDBOX_BACKENDS))
+    from .approvals import CONFIRMERS, LATER
+    confirmer = values.get("approvals.confirmer")
+    require(confirmer not in LATER, f"approvals.confirmer {confirmer} is not available yet; use tty or macos-dialog")
+    require(confirmer in CONFIRMERS, "approvals.confirmer must be one of " + ", ".join(CONFIRMERS))
     reserve = values.get("limits.reserve_percent")
     require(type(reserve) is int and 0 <= reserve <= 100,
             "limits.reserve_percent must be a whole number from 0 to 100")
