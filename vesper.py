@@ -25,7 +25,7 @@ from builder.team import catalog, profile, render
 
 ROOT = Path(__file__).resolve().parent
 CORE = {"init", "brief", "review", "approve", "prepare", "submit", "abandon", "retry",
-        "status", "export", "run", "review-candidate", "estimate", "add-check"}
+        "status", "export", "run", "review-candidate", "estimate", "add-check", "decide"}
 MODES = ("build", "feature", "bug", "design", "frontend", "backend", "maintenance")
 MARK = "Vesper Relay managed installation"
 

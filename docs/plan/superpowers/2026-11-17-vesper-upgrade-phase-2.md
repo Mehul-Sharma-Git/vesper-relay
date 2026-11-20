@@ -79,13 +79,13 @@ Depends on: P1-G, P2-T2 · Size: M · Spec: `docs/plan/phase-2-evidence-and-cont
 ## Task P2-T7: Advisory backlog and decision gate
 Depends on: P1-G, P2-T2 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T7
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P2-T7 and every file under its "Read first"
-- [ ] Create branch `plan/p2-t7`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P2-T7 and every file under its "Read first"
+- [x] Create branch `plan/p2-t7`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P2-G: Phase 2 gate
 Depends on: P2-T1..T7 · Size: S · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-G

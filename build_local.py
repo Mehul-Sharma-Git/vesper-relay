@@ -107,6 +107,12 @@ def main():
     review_limit_options(review_candidate)
     commands.add_parser("abandon").add_argument("attempt")
     commands.add_parser("retry").add_argument("--reason", required=True)
+    decide = commands.add_parser("decide", help="Decide a finding: send it back, or accept it as a risk")
+    decide.add_argument("finding", help="A finding ID from status, for example F3")
+    decision = decide.add_mutually_exclusive_group(required=True)
+    decision.add_argument("--fix", action="store_true", help="Send the plan back, or give the job another attempt")
+    decision.add_argument("--accept-risk", action="store_true", help="Accept it as a risk (you confirm it)")
+    decide.add_argument("--reason", help="Why (required with --accept-risk)")
     add_check = commands.add_parser("add-check", help="Add a check after approval (the owner confirms it)")
     add_check.add_argument("--id", required=True, help="The new check's ID, for example G_X")
     gate = add_check.add_mutually_exclusive_group(required=True)
@@ -165,6 +171,8 @@ def main():
                     result = engine.abandon(args.attempt)
                 elif args.command == "retry":
                     result = engine.retry(args.reason)
+                elif args.command == "decide":
+                    result = engine.decide(args.finding, fix=args.fix, accept=args.accept_risk, reason=args.reason)
                 elif args.command == "add-check":
                     result = engine.add_check(args.id, script=args.script, command=args.gate_command,
                                               jobs=args.jobs.split(",") if args.jobs is not None else None,
@@ -179,7 +187,7 @@ def main():
                                         review_max_turns=args.review_max_turns, start_after=args.start_after)
                 else:
                     result = engine.prepare()
-                if args.command in {"submit", "run", "review-candidate"} and (
+                if args.command in {"submit", "run", "review-candidate", "decide"} and (
                     result.get("status") == "complete" or result.get("outcome") == "accepted"
                 ):
                     state = engine.state()
@@ -197,7 +205,12 @@ def main():
                   f"{pause['projected']}% (limit {pause['threshold']}% with your reserve); {pause['resume']}.",
                   file=sys.stderr)
             return 3
-        return int(result.get("outcome") == "rejected" or result.get("status") == "blocked")
+        if "awaiting_decision" in (result.get("outcome"), result.get("status")):
+            print("builder: waiting for the owner's decision on " + ", ".join(result.get("awaiting_decision") or
+                  engine.status().get("awaiting_decision", [])) + ": run decide FINDING_ID --fix, or "
+                  '--accept-risk --reason "..." (status lists each finding)', file=sys.stderr)
+        return int(result.get("outcome") in ("rejected", "awaiting_decision")
+                   or result.get("status") in ("blocked", "awaiting_decision"))
     except (BuilderError, OSError, UnicodeError) as exc:
         print(f"builder: {exc}", file=sys.stderr)
         return 2

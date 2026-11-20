@@ -6,6 +6,7 @@ import tempfile
 from uuid import uuid4
 
 from .contracts import BuilderError, fingerprint, inventory, nonempty, read_json, require, reviewed_text, safe_path
+from .review_gate import CATEGORIES, CATEGORY_PROMPT
 from .team import profile, render
 
 IMPACTS = ("new_system", "data", "security", "integrations", "deployment", "cross_layer")
@@ -256,6 +257,7 @@ def validate_critique(report, bundle, packet_digest):
                 and all(nonempty(finding.get(key)) for key in
                         ("scenario", "consequence", "evidence", "recommendation")),
                 "Plan findings need scenario, consequence, evidence and smallest correction")
+        require(finding.get("category") in CATEGORIES, "Each plan finding needs a category: " + ", ".join(CATEGORIES))
         citation = safe_path(finding.get("path"))
         path = re.sub(r":[1-9][0-9]*(?:-[1-9][0-9]*)?$", "", citation)
         area, separator, relative = path.partition("/")
@@ -287,10 +289,10 @@ def attach_critique(root, bundle):
 
 def plan_report_schema(digest, identity):
     """JSON Schema for a plan critique; mirrors validate_critique for strict-output providers."""
-    from .review_gate import text_schema
+    from .review_gate import category_schema, text_schema
 
     areas = ["requirements", "architecture", "checks"]
-    finding = ["severity", "path", "scenario", "consequence", "evidence", "recommendation"]
+    finding = ["severity", "category", "path", "scenario", "consequence", "evidence", "recommendation"]
     return {
         "type": "object",
         "required": ["phase", "packet_digest", "reviewer", "verdict", "summary", "evidence", "findings"],
@@ -306,6 +308,7 @@ def plan_report_schema(digest, identity):
                 "type": "object", "required": finding,
                 "properties": {key: text_schema() for key in finding} | {
                     "severity": {"type": "string", "enum": ["blocking", "advisory"]},
+                    "category": category_schema(),
                     "path": {**text_schema(), "pattern": CITATION}}}},
         },
     }
@@ -411,7 +414,7 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
                 "accepts, so it reaches the approval; block it if its stated reason is wrong. Likewise, "
                 "every threat outside that model, whether or not the plan names it, is reported the same "
                 "way, never dropped: the plan's threat model is the owner's only once the owner approves. "
-                "Polish and alternatives are advisory. Each finding's path is "
+                "Polish and alternatives are advisory. " + CATEGORY_PROMPT + "Each finding's path is "
                 "exactly one supplied file, optionally with :LINE or :START-END, never a folder; put a "
                 "finding that spans files on the file that most needs the change. "
                 "plan/planning.json is Vesper's routing manifest: its architecture.revision is the "
@@ -422,7 +425,8 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
                 json.dumps({"phase": "plan", "packet_digest": digest, "reviewer": identity,
                     "verdict": "approve or request_changes", "summary": "actual observations",
                     "evidence": {"requirements": "cite artifact", "architecture": "cite artifact", "checks": "cite artifact"},
-                    "findings": [{"severity": "blocking or advisory", "path": "plan/architecture.md",
+                    "findings": [{"severity": "blocking or advisory", "category": " | ".join(CATEGORIES),
+                        "path": "plan/architecture.md",
                         "scenario": "concrete trigger", "consequence": "effect", "evidence": "exact artifact",
                         "recommendation": "smallest correction"}]}) + "\n" + STRICT_ENDING)
             schema = plan_report_schema(digest, identity)
@@ -460,7 +464,10 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
     if report_launched:
         result["adapter"] = brain.adapter.name
     atomic_json(runner.control / "plan-critique.json", result)
+    from .decisions import awaiting, record_critique
+    record_critique(runner.root, result)  # P2-T7: every finding reaches the backlog
     if attested:
         from .approvals import keep, run_store
         keep(run_store(runner.root), attested)
-    return {**result, "status": "reviewed" if report["verdict"] == "approve" else "blocked"}
+    return {**result, "status": "reviewed" if report["verdict"] == "approve" else "blocked",
+            "awaiting_decision": awaiting(runner.root)}

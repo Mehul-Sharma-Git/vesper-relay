@@ -95,7 +95,9 @@ check "planning manifest v2: sections by depth in SECTIONS; new runs write plann
     sh -c 'grep -q "^SECTIONS = {" builder/planning.py && grep -q "\"planning_version\": 2}" vesper.py'
 check "add-check: amendments in builder/amendments.py chained to the approval digest; a protected action (P2-T6)" "P2-T7, P3-T3, P5-T1" \
     sh -c 'grep -q "^def add(runner, check_id" builder/amendments.py && grep -q "\"add-check\": \"Adding this check\"" builder/approvals.py'
-check "approve requires an approving plan critique at full/focused depth" "P2-T2, P2-T5" \
+check "findings have a category; backlog.json and decide (--fix/--accept-risk) in builder/decisions.py (P2-T7)" "P2-G, P3-T4, P5-T1, P5-T3" \
+    sh -c 'grep -q "^CATEGORIES = " builder/review_gate.py && grep -q "^def decide(runner, finding_id" builder/decisions.py && grep -q "\"accept-risk\": \"Accepting this risk\"" builder/approvals.py'
+check "approve requires an approving plan critique at full/focused depth, or the owner's decision on each blocker (P2-T7)" "P2-T2, P2-T5" \
     grep -q "Independent plan critique must approve" builder/runner.py
 check "review_plan decodes through the brain adapter (tolerant decoder; P1-T1, P1-T8)" "P3-T4" \
     sh -c 'grep -q "parse_result(brain, reply)" builder/planning.py && grep -q "return decode_provider_report(text)" builder/brains/base.py'
