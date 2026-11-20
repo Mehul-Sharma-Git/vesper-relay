@@ -1,8 +1,8 @@
 """Human-only approvals (P2-T2): confirmers, confirmation records and "what changed".
 
 A protected action (approving a plan, applying a patch, committing a repair, attesting that a
-report came from an independent reviewer) runs only after a human confirms it on a
-plain-language sheet. The confirmer is chosen in the personal config:
+report came from an independent reviewer, adding a check after approval, P2-T6) runs only after
+a human confirms it on a plain-language sheet. The confirmer is chosen in the personal config:
 
     [approvals]
     confirmer = "tty"            # or "macos-dialog"
@@ -37,6 +37,7 @@ ACTIONS = {
     "apply-patch": "Applying this patch",
     "commit-repair": "Committing this repair",
     "attest-independence": "Attesting this review",
+    "add-check": "Adding this check",
 }
 CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DIALOG = """on run argv
@@ -140,7 +141,7 @@ def confirm(action, subject, digest, sheet, *, environ=None, confirmer=None, std
 # Records --------------------------------------------------------------------------------
 
 def run_store(root):
-    """Confirmations about one run: plan approval, attesting its reviews."""
+    """Confirmations about one run: plan approval, attesting its reviews, adding checks."""
     return Path(root) / ".builder" / "confirmations.json"
 
 

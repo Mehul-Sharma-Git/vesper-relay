@@ -86,12 +86,21 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `vesper --project PATH submit ATTEMPT_ID` to run the approved checks, then
   `review-candidate` with a reviewer brain (`--brain NAME`) or an attested independent report.
   Repeat for ready jobs. Resume with `status` and the existing run.
+- **Add a check after approval.** `vesper --project PATH add-check --id G_X --script x.py
+  --jobs J_X[,J_Y] --reason "..."` (or `--command "go test ./..."` in place of `--script`)
+  adds a new gate without a full re-approval. It may only add: a new check ID, a new script
+  name, and jobs that are not accepted yet and whose candidate is not awaiting review;
+  approved checks are never removed, edited or reassigned. The amendment is kept under
+  `.builder/amendments/` with a digest chained to the approval, the owner confirms it on its
+  sheet (see Approvals), and the next verification of each assigned job runs the new check
+  (the last job to finish runs every gate). `status` lists every amendment.
 - **Deliver.** For a Git run, use `review-change` and `patch` to show the final
   diff and digest. Use `apply --digest DIGEST` only after approval. For a new
   site, use `export NEW_DIRECTORY`. Report evidence that passed and any
   behaviors still needing verification.
-- **Approvals.** Approving a plan, applying a patch, committing a repair and
-  attesting that a report came from an independent reviewer are human-only. Each
+- **Approvals.** Approving a plan, applying a patch, committing a repair,
+  attesting that a report came from an independent reviewer and adding a check after
+  approval are human-only. Each
   shows a plain-language sheet (what is delivered or changed, each promise and its
   gate, what each job may change, the critique or review verdict, what changed since
   the last confirmation, and the short digest) and runs only after a person confirms.

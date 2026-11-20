@@ -11,6 +11,7 @@ import sys
 import tempfile
 from uuid import uuid4
 
+from .amendments import package as checks_package  # the approved checks plus any added after (P2-T6)
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract, safe_path)
 from .process import run_process
@@ -428,7 +429,15 @@ class Runner:
                 and inventory(approval / "plan") == bundle["plan"]
                 and inventory(approval / "checks") == bundle["checks"],
                 "Frozen approval files have changed")
-        return reviewed_contract(approval / "plan", bundle["plan"], bundle["checks"])
+        from .amendments import apply
+        # Checks added after approval (P2-T6), each verified against its confirmed digest.
+        return apply(self, state, reviewed_contract(approval / "plan", bundle["plan"], bundle["checks"]))
+
+    def add_check(self, check_id, *, script=None, command=None, jobs=None, reason=None):
+        """Add a check after approval (P2-T6): a protected action the owner confirms."""
+        from .amendments import add
+        amendment = add(self, check_id, script=script, command=command, jobs=jobs, reason=reason)
+        return {**self.status(), "amendment": amendment}
 
     def snapshot(self, state):
         return self.control / "snapshots" / state["snapshot_id"]
@@ -477,11 +486,12 @@ class Runner:
             phase = "blocked"
         else:
             phase = "ready"
+        from .amendments import listed
         return {"status": phase, "title": contract["title"], "delivery": contract["delivery"],
                 "digest": state["digest"], "snapshot": str(self.snapshot(state)),
                 "completed": state["completed"], "next_job": job and job["id"],
                 "active": state["active"], "attempts": state["attempts"],
-                "retry_grants": state.get("retry_grants", [])}
+                "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state)}
 
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
@@ -513,10 +523,11 @@ class Runner:
         # Workers read and run the gates (owner decision 2026-11-19). The copy is ignored by
         # verify, so it is never checked for scope or promoted; Vesper runs the approved gates.
         gates_copy = workspace / GATES_DIR
-        copy_tree(self.approval(state) / "checks", gates_copy)
+        package, manifest = checks_package(self, state)
+        copy_tree(package, gates_copy)
         copied = inventory(gates_copy)
         require({path: record[0] for path, record in copied.items()}
-                == {path: record[0] for path, record in state["bundle"]["checks"].items()},
+                == {path: record[0] for path, record in manifest.items()},
                 "Approved checks changed while copying")
         for path, (digest, mode) in copied.items():
             if digest is not None:
@@ -691,8 +702,9 @@ class Runner:
                 "Review copy changed during preparation")
         # Gate evidence (P2-T1): the approved scripts, each gate's log and what it saved. All of it
         # is inside the review view digest, so a changed copy is refused.
-        copy_tree(self.approval(state) / "checks", workspace / "checks")
-        require(inventory(workspace / "checks") == state["bundle"]["checks"], "Review copy changed during preparation")
+        package, manifest = checks_package(self, state)
+        copy_tree(package, workspace / "checks")
+        require(inventory(workspace / "checks") == manifest, "Review copy changed during preparation")
         (workspace / "logs").mkdir()
         for check in attempt["checks"]:
             copy_log_tail(self.root / check["log"], workspace / "logs" / (check["id"] + ".log"))
@@ -870,16 +882,15 @@ class Runner:
         artifacts = directory / "artifacts" / check["id"]
         artifacts.mkdir(parents=True, exist_ok=True)
         limit = check.get("timeout", REGRESSION_TIMEOUT if check["id"] == "VESPER_REGRESSION" else 45)
+        package, manifest = checks_package(self, state)
         if "command" in check:
-            code, intact = execute_command_check(check["command"], check.get("overlay"),
-                                                 self.approval(state) / "checks", state["bundle"]["checks"],
+            code, intact = execute_command_check(check["command"], check.get("overlay"), package, manifest,
                                                  candidate, inventory(candidate), log, launcher,
                                                  timeout=limit, gate_env=gate_env, prepared=prepared,
                                                  ignore=ignore, dependencies=dependencies, artifacts=artifacts)
         else:
-            code, intact = execute_check(check["script"], self.approval(state) / "checks",
-                                         state["bundle"]["checks"], candidate, inventory(candidate), log, launcher,
-                                         timeout=limit, gate_env=gate_env, artifacts=artifacts)
+            code, intact = execute_check(check["script"], package, manifest, candidate, inventory(candidate), log,
+                                         launcher, timeout=limit, gate_env=gate_env, artifacts=artifacts)
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
         state["active"]["checks"].append(result)
         self.save(state)
