@@ -141,12 +141,12 @@ def replay(destination):
         control.write_text(f'raise RuntimeError({reason!r})\n')
         command = plan(control)
         command('repair-reproduce', '--launcher', str(launcher), code=2)
-        command('approve', '--digest', json.loads(command('review'))['digest'], code=2)
+        command('approve', '--digest', json.loads(command('review', '--json'))['digest'], code=2)
         assert not git('for-each-ref', 'refs/heads/vesper/repair')
     print('Product and provider failure controls created zero repair refs.', flush=True)
 
     repair = plan(probe)
-    approved = json.loads(repair('review'))['digest']
+    approved = json.loads(repair('review', '--json'))['digest']
     proof = json.loads(repair('repair-reproduce', '--launcher', str(launcher)))
     assert proof['defect']['outcome'] == 'reproduced' and proof['digest'] == approved
     print('Named start/runs workflow reproduced on the frozen faulty baseline.', flush=True)
