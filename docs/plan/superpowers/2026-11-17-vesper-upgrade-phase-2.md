@@ -87,10 +87,32 @@ Depends on: P1-G, P2-T2 · Size: M · Spec: `docs/plan/phase-2-evidence-and-cont
 - [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
 - [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
-## Task P2-G: Phase 2 gate
-Depends on: P2-T1..T7 · Size: S · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-G
+## Task P2-T8: Review the code a change touches
+Depends on: P2-T7 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T8
 
-- [x] Confirm every task this gate depends on is `done` on the board
-- [x] Run the gate exactly as written in `docs/plan/phase-2-evidence-and-control.md`
-- [x] Record results, elapsed time and plan usage in `docs/plan/appendix-b-test-run-evidence.md`
-- [x] Set the gate's board status (`done`, or `blocked` with the failing criterion)
+- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [ ] Read `docs/plan/00-context.md`, then task P2-T8 and every file under its "Read first"
+- [ ] Create branch `plan/p2-t8`
+- [ ] Write the failing tests listed under "Acceptance" and watch them fail
+- [ ] Implement "Change"; respect "Do not"
+- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+
+## Task P2-T9: Estimates you can check
+Depends on: P2-T3 · Size: M · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-T9
+
+- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [ ] Read `docs/plan/00-context.md`, then task P2-T9 and every file under its "Read first"
+- [ ] Create branch `plan/p2-t9`
+- [ ] Write the failing tests listed under "Acceptance" and watch them fail
+- [ ] Implement "Change"; respect "Do not"
+- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+
+## Task P2-G: Phase 2 gate
+Depends on: P2-T1..T9 · Size: S · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-G (and its "Rerun" note)
+
+- [ ] Confirm every task this gate depends on is `done` on the board
+- [ ] Rerun the two failed criteria as the "Rerun" note in `docs/plan/phase-2-evidence-and-control.md` says
+- [ ] Record results, elapsed time and plan usage in `docs/plan/appendix-b-test-run-evidence.md`
+- [ ] Set the gate's board status (`done`, or `blocked` with the failing criterion)

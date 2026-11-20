@@ -12,6 +12,24 @@ with every blocker and every security or data advisory, from the plan critique a
 job reviews, either fixed or decided by the owner through P2-T7; every review parses the
 first time; and the exported app's three gates pass.
 
+**Rerun (owner, 20 Nov 2026):** the first P2-G run failed two criteria, the seeded security
+advisory and the estimate bands (appendix B, "Gate P2-G — 2026-11-20 18:56", findings 53 and
+54). After P2-T8 and P2-T9, rerun only those two; the other five passed on 20 Nov and stand.
+1. Seeded advisory: the bug-fix run on the run-2b seed (a reachable SQL injection inside the
+   `delete_list` the fix touches), with the job's `max_attempts` set to 1. The owner's threat
+   model for that plan is its decision D3: loopback by default, other websites refused,
+   local programs trusted (a device on the Wi-Fi reaches the app only with `--host 0.0.0.0`,
+   whose full access the owner accepted as A9). The injection is reachable only by such
+   trusted callers, so under P2-T8's rule it is an advisory. Pass when the review reports
+   the injection as a security advisory and acceptance waits for the owner's `decide`. If the
+   reviewer files it as a blocker, the owner still decides (the single attempt is used up),
+   but the criterion is recorded as not exercised.
+2. Estimates: first one calibration run with marked readings and the same brain config as
+   the checked runs (Claude workers, Codex reviewer, so both accounts calibrate), then two
+   consecutive runs (Pocket Todo, then a bug fix) whose estimates come from marked readings
+   only. Pass when `vesper usage check` reports inside for every account and limit of both
+   runs.
+
 ---
 
 ## P2-T1 — Gate logs, scripts and artifacts in the review copy
@@ -227,3 +245,73 @@ first time; and the exported app's three gates pass.
   open blockers reaches `awaiting_decision`, and both decisions work; an AI-issued
   `--accept-risk` on a plan-critique blocker or a job-review blocker is refused without a
   human confirmation, and the confirmer shows the risk sheet for each.
+
+## P2-T8 — Review the code a change touches
+
+- **Why:** at P2-G (run 2b, finding 53) the seed's `delete_list` built its SQL from a raw
+  path segment, a reachable injection that deleted every list. The worker added the
+  missing check two lines below it; the candidate reviewer approved with no findings,
+  because it judged only the changed lines. The owner decided (20 Nov 2026) that a review
+  also checks the code around a change.
+- **Read first:** `builder/review_gate.py` (`prompt`, `CANDIDATE_SWEEP`, `write_diff`),
+  `builder/runner.py` (`stage_review`), `team/roles/reviewer.md`,
+  `team/skills/candidate-review/SKILL.md`.
+- **Change:**
+  1. The review packet names the touched code: for each changed file, each enclosing
+     definition (function, method or class) around the changed lines, with its line range,
+     as `touched` in `review.json`; when no definition can be found (a language Vesper does
+     not parse, top-level code), the whole file, up to the diff budget. The diff shows each
+     touched definition in full.
+  2. The candidate-review prompt asks for a sweep of the touched code, not only the changed
+     lines: a reachable defect there is reported whether or not the candidate introduced
+     it, with its category. It is blocking when the job may change that code (it is inside
+     the job's paths) and the defect breaks a requirement or decision, or is a security
+     defect a threat inside the owner's threat model can reach; otherwise it is an
+     advisory, so a security or data one waits for the owner (P2-T7). The threat model is
+     `planning.json`'s `threat_model` when the plan has one; at `skip` depth, the one the
+     plan's decisions record; if neither records one, the threats its decisions defend
+     against (as the candidate blocker rule already says).
+- **Do not:** give the reviewer write access or widen the review copy; require reviewing
+  files the candidate did not change; change the plan critique.
+- **Acceptance:** tests that `touched` lists the enclosing Python function and the
+  enclosing JavaScript function of a changed line, and the whole file when none is found;
+  that the diff shows a touched function in full; that the prompt contains the sweep of
+  touched code, its blocking rule and where the threat model comes from at each depth.
+  P2-G's rerun is the real-reviewer check.
+
+## P2-T9 — Estimates you can check
+
+- **Why:** at P2-G (finding 54) no pair of runs could be checked against its band: `/usage`
+  shows whole points, so a rise under one point reads 0; the assistant driving the runs
+  spends the same account, so each reading pair also counts its usage; and nothing
+  compared a run's observed usage with the band its plan was approved on.
+- **Read first:** `builder/usage.py` (`record_reading`, `calibrate`, `estimate`,
+  `limit_check`), `builder/runner.py` (`approve`), `vesper.py` (`usage`), `tests/test_usage.py`.
+- **Change:**
+  1. Readings can be marked as bracketing one stretch of Vesper's own work: `vesper usage
+     record --account claude --session 42 --week 13 --before RUN` and `--after RUN`, taken
+     right before and right after each `review-plan` or `run` invocation (a run that pauses
+     for the owner's decisions or for limits gets a pair around each part), with the
+     assistant otherwise idle. Bands come only from marked pairs: unmarked readings, which
+     can include the host assistant's own use of the same account, no longer calibrate. An
+     account with no marked pair is "uncalibrated" and shows tokens and time only.
+  2. `approve` keeps the estimate it showed (per account and limit) in the run's state.
+  3. `vesper --project RUN usage check` compares, per account and limit, the run's observed
+     rise after approval (the sum over its marked pairs taken after `approve`; pairs around
+     `review-plan` still calibrate but are not compared, because the estimate `approve` keeps
+     no longer includes the critique) with that kept estimate: inside, below or above,
+     where a rise within one reading step (1 point) of the band counts as inside because
+     readings are whole points. A run whose kept estimate had no band, or with a part not
+     bracketed by marked readings, is reported as unchecked. `status` of a complete run
+     shows the result once its readings exist.
+  4. `docs/USAGE.md` says how to take marked readings for every account a run uses
+     (Claude: `/usage`; ChatGPT: Codex `/status`; `usage record --account chatgpt` already
+     exists).
+- **Do not:** add dollar figures; change the reserve rule or the pause before a job (P2-T4).
+- **Acceptance:** tests with synthetic ledgers: a marked pair calibrates and unmarked pairs
+  never do (an account with only unmarked readings is uncalibrated); a paused run's two
+  marked parts are summed; a marked pair around `review-plan` calibrates but is left out of
+  `usage check`; the approval keeps the estimate; `usage check` reports inside for a rise one
+  step below the band and below for two steps below; a run with an unbracketed part, or
+  approved without a band, is reported as unchecked.
+
