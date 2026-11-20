@@ -183,8 +183,8 @@ def main():
         if result.get("status") == "paused_for_limits":
             pause = result["pause"]
             print(f"builder: paused before {pause['job']}: {pause['account']} {pause['limit']} usage would reach "
-                  f"{pause['projected']}% (limit {pause['threshold']}% with your reserve). Window resets "
-                  f"{pause['resets_at'] or 'at an unknown time'}; {pause['resume']}.", file=sys.stderr)
+                  f"{pause['projected']}% (limit {pause['threshold']}% with your reserve); {pause['resume']}.",
+                  file=sys.stderr)
             return 3
         return int(result.get("outcome") == "rejected" or result.get("status") == "blocked")
     except (BuilderError, OSError, UnicodeError) as exc:

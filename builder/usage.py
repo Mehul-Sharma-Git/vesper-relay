@@ -328,7 +328,7 @@ def wait_until(hhmm, *, clock=None, sleep=None):
     require(match, "--start-after takes a 24-hour time, for example 07:30")
     clock = clock or (lambda: datetime.now().astimezone())
     sleep = sleep or time.sleep
-    now = clock()
+    now = clock().astimezone()  # HH:MM is local time
     target = now.replace(hour=int(match[1]), minute=int(match[2]), second=0, microsecond=0)
     if target <= now:
         target += timedelta(days=1)
@@ -347,7 +347,7 @@ def limit_check(contract, bundle, job, rows, *, brains, reserve, now):
                       reserve=reserve)
     calibration = calibrate(rows)
     model = {}
-    for role in (job["role"], "reviewer"):
+    for role in (job["role"], *(("reviewer",) if "team" in bundle else ())):
         brain = brains(role)
         if brain:
             model.setdefault(ACCOUNTS.get(brain.adapter.name, brain.adapter.name), set()).add(brain.model)
@@ -364,20 +364,32 @@ def limit_check(contract, bundle, job, rows, *, brains, reserve, now):
             continue
         models = model.get(account, {None})
         chosen = models.pop() if len(models) == 1 else None
-        since = sum(row.get("tokens") or 0 for row in rows if row.get("kind") == "call"
-                    and row.get("account") == account and row["start"] >= reading["at"])
         for limit in LIMITS:
             if limit not in entry:
                 continue
+            # A window that reset after the reading starts again from 0 at the reset.
+            reset_since = next_reset(rows, account, limit, parse_time(reading["at"]))
+            if reset_since and reset_since <= now:
+                base, start = 0.0, reset_since.astimezone(timezone.utc).isoformat(timespec="seconds")
+            else:
+                base, start = reading[limit], reading["at"]
+            since = sum(row.get("tokens") or 0 for row in rows if row.get("kind") == "call"
+                        and row.get("account") == account and parse_time(row["start"]) >= parse_time(start))
             used = percent_band(calibration, account, chosen, since, limit)[1] if since else 0.0
-            projected = reading[limit] + used + entry[limit][1]
+            projected = base + used + entry[limit][1]
             if projected > threshold:
                 reset = next_reset(rows, account, limit, now)
+                local = reset.astimezone() if reset else None
+                soon = bool(reset) and reset - now < timedelta(hours=23)
                 return {"job": job["id"], "account": account, "limit": limit,
-                        "last_reading": reading[limit], "used_since": round(used, 1),
+                        "last_reading": base, "used_since": round(used, 1),
                         "job_estimate": entry[limit][1], "projected": round(projected, 1),
                         "threshold": threshold,
                         "resets_at": reset.isoformat(timespec="minutes") if reset else None,
-                        "resume": ("record a new reading after the window resets, then run again "
-                                   "(or `run --start-after HH:MM`)")}, notes
+                        "resets_at_local": local.strftime("%Y-%m-%d %H:%M") if local else None,
+                        "start_after": (local + timedelta(minutes=1)).strftime("%H:%M") if soon else None,
+                        "resume": (f"run again after {local:%Y-%m-%d %H:%M} (local time), for example "
+                                   f"`run --start-after {(local + timedelta(minutes=1)):%H:%M}`" if soon else
+                                   f"run again after {local:%Y-%m-%d %H:%M} (local time)" if local else
+                                   "record a new plan reading once the window has reset, then run again")}, notes
     return None, notes

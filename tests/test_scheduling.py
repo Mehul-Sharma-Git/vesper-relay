@@ -37,16 +37,24 @@ print(json.dumps({'type': 'result', 'result': 'done', 'usage': {'input_tokens': 
 
 
 class Clock:
-    def __init__(self, when):
+    """A fake clock. Given a time it stands still there; given none it follows real time (as the
+    ledger's call stamps do), and sleeping moves it forward."""
+    def __init__(self, when=None):
         self.when = when
-        self.slept = 0
+        self.offset = timedelta()
 
     def __call__(self):
-        return self.when
+        return (self.when or datetime.now(timezone.utc)) + self.offset
 
     def sleep(self, seconds):
-        self.slept += seconds
-        self.when += timedelta(seconds=seconds)
+        self.offset += timedelta(seconds=seconds)
+
+
+def shifted(rows, days):
+    """Synthetic history moved into the past, so it never overlaps the test's own calls."""
+    keys = ("at", "start", "end")
+    return [{**row, **{key: (datetime.fromisoformat(row[key]) + timedelta(days=days)).isoformat(timespec="seconds")
+                       for key in keys if key in row}} for row in rows]
 
 
 class ResetTests(unittest.TestCase):
@@ -117,21 +125,22 @@ class SchedulingTests(unittest.TestCase):
         self.runner = Runner(self.project)
         self.runner.approve(self.runner.review()["digest"])
         # Calibration: 0.5% of the session per 1k tokens, give or take; history has 4-9k-token calls.
-        for row in test_usage.synthetic(6, model=None):
+        for row in shifted(test_usage.synthetic(6, model=None), days=-10):
             usage.append(row)
-        self.clock = Clock(test_usage.START + timedelta(days=1))
+        self.clock = Clock()
         self.control(1000)
 
     def control(self, tokens, fail_first=None):
         (self.root / "control.json").write_text(json.dumps({"tokens": tokens, "fail_first": fail_first}))
 
-    def reading(self, session, week=40):
+    def reading(self, session, week=40, ago=None):
+        when = self.clock() - (ago or timedelta())
         usage.append({"kind": "reading", "account": "claude", "session": session, "week": week,
-                      "at": self.clock().isoformat(timespec="seconds")})
-        self.clock.sleep(60)
+                      "at": when.isoformat(timespec="seconds")})
 
-    def run_jobs(self):
-        return self.runner.run(Selection(worker="claude-code", settings={}), trust_host=True, clock=self.clock)
+    def run_jobs(self, **options):
+        return self.runner.run(Selection(worker="claude-code", settings={}), trust_host=True, clock=self.clock,
+                               sleep=self.clock.sleep, **options)
 
     def calls(self):
         path = self.root / "calls.json"
@@ -146,18 +155,39 @@ class SchedulingTests(unittest.TestCase):
         pause = result["pause"]
         self.assertEqual((pause["job"], pause["account"], pause["limit"]), ("J2", "claude", "session"))
         self.assertGreater(pause["projected"], 75)
+        self.assertGreater(pause["used_since"], 15)  # J1's own calls count against the window
         self.assertEqual(pause["threshold"], 75)
         self.assertIn("run again", pause["resume"])
         self.assertIn("resets_at", pause)
         self.assertEqual(self.calls(), ["J1"])
         self.assertEqual([item["job"] for item in self.runner.state()["attempts"]], ["J1"])
         # The window resets; run again picks up at J2 from the accepted snapshot.
+        self.clock.sleep(60)
         self.reading(session=3)
         self.control(1000)
         result = self.run_jobs()
         self.assertEqual(result["status"], "complete")
         self.assertEqual(self.calls(), ["J1", "J2"])
         self.assertEqual([item["job"] for item in self.runner.state()["attempts"]], ["J1", "J2"])
+
+    def test_start_after_resumes_past_a_reset_without_a_new_reading(self):
+        # A recorded reset 3 hours ago puts the next one 2 hours from now.
+        self.reading(session=90, ago=timedelta(hours=4))
+        self.reading(session=5, ago=timedelta(hours=3))
+        self.reading(session=50, ago=timedelta(minutes=1))
+        self.control(40000)
+        pause = self.run_jobs()["pause"]
+        self.assertEqual(pause["job"], "J2")
+        reset = datetime.fromisoformat(pause["resets_at"])
+        self.assertAlmostEqual((reset - self.clock()).total_seconds(), 2 * 3600, delta=120)
+        local = reset.astimezone()
+        self.assertEqual(pause["resets_at_local"], local.strftime("%Y-%m-%d %H:%M"))
+        self.assertEqual(pause["start_after"], (local + timedelta(minutes=1)).strftime("%H:%M"))
+        # Unattended: wait past the reset with --start-after, no new reading, and J2 runs.
+        self.control(1000)
+        result = self.run_jobs(start_after=pause["start_after"])
+        self.assertEqual(result["status"], "complete")
+        self.assertGreater(self.clock(), reset)
 
     def test_never_interrupts_a_running_job(self):
         # J1's first attempt fails and pushes usage over the line; its retry still runs, and the
