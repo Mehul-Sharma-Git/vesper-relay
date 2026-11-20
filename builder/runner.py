@@ -390,6 +390,9 @@ class Runner:
         if "repair" in bundle:
             from .repair import reproduction_record
             proof = reproduction_record(self, digest, bundle)
+        # P2-T9: keep the estimate the plan was approved on, so `usage check` can compare with it.
+        from .usage import for_project
+        estimate = for_project(contract, bundle)
         # Human-only (P2-T2): the owner confirms on the plan sheet before anything is locked.
         confirmation = confirm("approve-plan", str(self.root), digest,
                                plan_sheet(self.root, contract, bundle, digest, run_store(self.root)))
@@ -409,7 +412,7 @@ class Runner:
         sync_tree(initial)
         state = {"format": 1, "digest": digest, "approved_at": stamp(), "approval_id": approval_id,
                  "bundle": bundle, "snapshot_id": approval_id, "snapshot_digest": fingerprint(bundle["seed"]),
-                 "completed": [], "active": None, "attempts": []}
+                 "completed": [], "active": None, "attempts": [], "estimate": estimate}
         if proof:
             state["repair_reproduction"] = proof
         state["confirmation"] = {key: confirmation[key] for key in ("digest", "confirmer", "at")}
@@ -514,11 +517,18 @@ class Runner:
         else:
             phase = "ready"
         from .amendments import listed
-        return {"status": phase, "title": contract["title"], "delivery": contract["delivery"],
-                "digest": state["digest"], "snapshot": str(self.snapshot(state)),
-                "completed": state["completed"], "next_job": job and job["id"],
-                "active": state["active"], "attempts": state["attempts"],
-                "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state), **decisions}
+        result = {"status": phase, "title": contract["title"], "delivery": contract["delivery"],
+                  "digest": state["digest"], "snapshot": str(self.snapshot(state)),
+                  "completed": state["completed"], "next_job": job and job["id"],
+                  "active": state["active"], "attempts": state["attempts"],
+                  "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state), **decisions}
+        if phase == "complete":
+            # P2-T9: once the run's marked readings exist, show how its usage compared with the estimate.
+            from .usage import check_run, entries, has_marked_readings
+            rows = entries()
+            if has_marked_readings(self.root, state, rows):
+                result["usage_check"] = check_run(self.root, state, rows)
+        return result
 
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
