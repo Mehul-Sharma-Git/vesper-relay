@@ -107,6 +107,13 @@ def main():
     review_limit_options(review_candidate)
     commands.add_parser("abandon").add_argument("attempt")
     commands.add_parser("retry").add_argument("--reason", required=True)
+    add_check = commands.add_parser("add-check", help="Add a check after approval (the owner confirms it)")
+    add_check.add_argument("--id", required=True, help="The new check's ID, for example G_X")
+    gate = add_check.add_mutually_exclusive_group(required=True)
+    gate.add_argument("--script", type=Path, help="A Python gate script, copied into the run")
+    gate.add_argument("--command", dest="gate_command", help='A command gate, for example "go test ./..."')
+    add_check.add_argument("--jobs", help="Comma-separated unfinished jobs that must pass it")
+    add_check.add_argument("--reason", help="Why the check is added (shown to the owner and recorded)")
     commands.add_parser("status")
     commands.add_parser("estimate").add_argument("--json", action="store_true", help="Print the estimate as JSON")
     commands.add_parser("export").add_argument("destination", type=Path)
@@ -158,6 +165,10 @@ def main():
                     result = engine.abandon(args.attempt)
                 elif args.command == "retry":
                     result = engine.retry(args.reason)
+                elif args.command == "add-check":
+                    result = engine.add_check(args.id, script=args.script, command=args.gate_command,
+                                              jobs=args.jobs.split(",") if args.jobs is not None else None,
+                                              reason=args.reason)
                 elif args.command == "export":
                     result = engine.export(args.destination.resolve())
                 elif args.command == "run":

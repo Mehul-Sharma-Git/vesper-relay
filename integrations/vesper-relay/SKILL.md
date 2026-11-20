@@ -52,6 +52,9 @@ implementation details within the approved plan.
    the user confirms the attestation. A writing session must never attest to its
    own review. Repeat for ready
    jobs. `run` can start the writer and reviewer automatically when configured.
+   To add a gate mid-build, run `add-check --id G_X --script FILE --jobs J_X
+   --reason "..."` (unfinished jobs only) and tell the user to confirm it on its
+   sheet; approved checks are never edited or removed.
 6. For Git work, run `review-change` and inspect `patch`. Show the findings
    and the exact patch digest. Apply only if authorized; the user confirms the
    apply on its sheet. For a new website use

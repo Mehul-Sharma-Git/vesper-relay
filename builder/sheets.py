@@ -181,3 +181,33 @@ def attest_sheet(store, subject, what, report, adapter=None):
     facts = [f"Review of: {what}", f"Verdict: {report.get('verdict')}, {blockers} blockers",
              "You vouch: this report came from a separate reviewer session, not the author."]
     return Sheet("\n".join(lines) + "\n", short_form(lines[0], facts, changed, digest), files), digest
+
+
+# Adding a check after approval (P2-T6) -------------------------------------------------------
+
+def add_check_sheet(contract, record, digest, folder, changed, earlier, files, source=None):
+    """Each new check's id and its script or command, its jobs and the reason, all from the
+    amendment record the confirmation locks."""
+    import shlex
+    from .approvals import entry
+    check = record["check"]
+    if "script" in check:
+        size = lines_text(entry(source, check["script"])["lines"]) if source else "size not known"
+        how = f"Script: {check['script']} ({size}), run as python3 -I -B {check['script']} CANDIDATE"
+        where = f".builder/amendments/{folder}/checks/{check['script']}"
+    else:
+        how = f"Command: {shlex.join(check['command'])}, run in a throwaway copy of the candidate"
+        where = f".builder/amendments/{folder}/amendment.json"
+    jobs = ", ".join(record["jobs"])
+    changed = what_changed_text(changed)
+    lines = ["Vesper Relay: add a check after approval", "", f"Run: {contract['title']}", "",
+             f"New check: {check['id']}", f"  {how}",
+             f"  Must pass on: {jobs} (the last job to finish also runs every gate)",
+             f"  Reason: {in_full(record['reason'])}", "",
+             "Nothing approved is removed or edited: every approved check still runs on its jobs.",
+             f"Checks added earlier in this run: {earlier}", "", changed, "",
+             f"Look further: {where}",
+             f"Approved plan: {short_digest(record['approval'])}", f"Digest: {short_digest(digest)}"]
+    facts = [f"New check: {check['id']}", one_line(how), f"Must pass on: {jobs}",
+             f"Reason: {one_line(record['reason'])}"]
+    return Sheet("\n".join(lines) + "\n", short_form(lines[0], facts, changed, digest), files)
