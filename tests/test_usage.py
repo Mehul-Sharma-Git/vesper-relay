@@ -80,6 +80,39 @@ class CalibrationTests(unittest.TestCase):
         self.assertNotEqual(usage.confidence(usage.calibrate(synthetic(5))[("claude", "sonnet")]), "low")
 
 
+class LedgerTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        patch = mock.patch.dict(os.environ, {"VESPER_STATE_DIR": temp.name})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.ledger = Path(temp.name) / "usage.jsonl"
+
+    def test_a_launch_that_never_starts_is_not_a_call(self):
+        from builder.brains import launch
+        from builder.contracts import BuilderError
+        with tempfile.TemporaryDirectory() as work, self.assertRaises(BuilderError):
+            launch(Brain("strong", ADAPTERS["claude-code"], "sonnet"), "worker", None, False, work=Path(work),
+                   input_text="", log=Path(work) / "log", timeout=5, ledger={"run": "r", "job": "J", "role": "x"})
+        self.assertEqual(usage.entries(), [])
+
+    def test_readings_name_a_known_account(self):
+        from builder.contracts import BuilderError
+        usage.record_reading(" Claude ", 10, 20)
+        self.assertEqual(usage.entries()[-1]["account"], "claude")
+        with self.assertRaisesRegex(BuilderError, "claude, chatgpt or gemini"):
+            usage.record_reading("cluade", 10, 20)
+
+    def test_malformed_rows_are_skipped(self):
+        rows = synthetic(5)
+        self.ledger.write_text("\n".join(json.dumps(row) for row in rows) + "\n"
+                               + json.dumps({"kind": "reading", "account": "claude"}) + "\n"
+                               + json.dumps({"kind": "call", "account": "claude", "tokens": 5}) + "\n{torn")
+        self.assertEqual(len(usage.entries()), len(rows))
+        self.assertEqual(len(usage.calibrate(usage.entries())[("claude", "sonnet")]), 5)
+
+
 class EstimateTests(unittest.TestCase):
     contract = {"title": "Pocket Todo", "delivery": "app", "requirements": [],
                 "checks": [{"id": "G1", "script": "g.py"}],

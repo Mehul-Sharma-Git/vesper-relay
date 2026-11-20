@@ -48,7 +48,17 @@ def append(entry, path=None):
     return entry
 
 
+FIELDS = {"call": ("account", "start", "end"), "reading": ("account", "at", "session", "week")}
+
+
+def well_formed(item):
+    fields = FIELDS.get(item.get("kind")) if isinstance(item, dict) else None
+    return bool(fields) and all(item.get(name) is not None for name in fields) and (
+        item["kind"] != "reading" or all(isinstance(item[name], (int, float)) for name in LIMITS))
+
+
 def entries(path=None):
+    """The ledger's rows; a torn line or a row missing a field is skipped, never fatal."""
     path = path or ledger_path()
     if not path.is_file():
         return []
@@ -58,7 +68,7 @@ def entries(path=None):
             item = json.loads(line)
         except ValueError:
             continue  # a torn last line from an interrupted write
-        if isinstance(item, dict):
+        if well_formed(item):
             rows.append(item)
     return rows
 
@@ -88,11 +98,13 @@ def record_call(*, run, job, role, brain, start, end, counts):
 
 
 def record_reading(account, session, week):
-    require(isinstance(account, str) and account.strip(), "Name the account, for example claude")
+    known = sorted(set(ACCOUNTS.values()))
+    account = account.strip().lower() if isinstance(account, str) else ""
+    require(account in known, "Name the account: claude, chatgpt or gemini")
     for name, value in (("session", session), ("week", week)):
         require(isinstance(value, (int, float)) and 0 <= value <= 100,
                 f"The {name} reading must be a percentage between 0 and 100")
-    return append({"kind": "reading", "account": account.strip(), "session": session, "week": week,
+    return append({"kind": "reading", "account": account, "session": session, "week": week,
                    "at": now()})
 
 

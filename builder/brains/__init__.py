@@ -212,13 +212,14 @@ def launch(brain, operation, launcher, trust_host, *, work, input_text, log, tim
     (P2-T3) with its start, end and, when the adapter reports them, its tokens."""
     from ..usage import now
     start = now()
-    try:
-        return run_brain(brain, operation, launcher, trust_host, work=work, input_text=input_text, log=log,
-                         timeout=timeout, response=response, schema=schema, max_turns=max_turns,
-                         on_start=on_start, role=role)
-    finally:
-        if ledger is not None:
-            note_call(brain, ledger, start, response, log)
+    code = run_brain(brain, operation, launcher, trust_host, work=work, input_text=input_text, log=log,
+                     timeout=timeout, response=response, schema=schema, max_turns=max_turns,
+                     on_start=on_start, role=role)
+    # Only a process that ran and returned is a call: a launch refused before it started (no
+    # login, no sandbox) raises above and leaves no row to skew later estimates.
+    if ledger is not None:
+        note_call(brain, ledger, start, response, log)
+    return code
 
 
 REPLY_LIMIT = 4_000_000  # read no more than this to find a usage block
