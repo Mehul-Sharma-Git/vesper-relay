@@ -103,6 +103,8 @@ def main():
     commands.add_parser("estimate").add_argument("--json", action="store_true", help="Print the estimate as JSON")
     commands.add_parser("export").add_argument("destination", type=Path)
     run = commands.add_parser("run")
+    run.add_argument("--start-after", metavar="HH:MM",
+                     help="Wait for this local time first, for example after a plan window resets")
     brain_options(run, reviewer=True)
     boundary_options(run)
     review_limit_options(run)
@@ -155,7 +157,7 @@ def main():
                     launcher, trust_host = resolve_boundary(args)
                     result = engine.run(selection, launcher, trust_host=trust_host,
                                         review_timeout=args.review_timeout,
-                                        review_max_turns=args.review_max_turns)
+                                        review_max_turns=args.review_max_turns, start_after=args.start_after)
                 else:
                     result = engine.prepare()
                 if args.command in {"submit", "run", "review-candidate"} and (
@@ -170,6 +172,12 @@ def main():
                             print(f"vesper: change verified, but learning could not be recorded: {exc}",
                                   file=sys.stderr)
         print(json.dumps(result, indent=2, ensure_ascii=False))
+        if result.get("status") == "paused_for_limits":
+            pause = result["pause"]
+            print(f"builder: paused before {pause['job']}: {pause['account']} {pause['limit']} usage would reach "
+                  f"{pause['projected']}% (limit {pause['threshold']}% with your reserve). Window resets "
+                  f"{pause['resets_at'] or 'at an unknown time'}; {pause['resume']}.", file=sys.stderr)
+            return 3
         return int(result.get("outcome") == "rejected" or result.get("status") == "blocked")
     except (BuilderError, OSError, UnicodeError) as exc:
         print(f"builder: {exc}", file=sys.stderr)

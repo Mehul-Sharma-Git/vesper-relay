@@ -182,7 +182,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P2-T1 | Gate logs, scripts and artifacts in the review copy | P1-G | S | done |
 | P2-T2 | Human-only approvals and a plain-language approval sheet, in every door | P1-G | L | done |
 | P2-T3 | Usage ledger and plan-limit estimates | P1-G | M | done |
-| P2-T4 | Limit-aware scheduling (pause and resume) | P2-T3 | M | doing |
+| P2-T4 | Limit-aware scheduling (pause and resume) | P2-T3 | M | done |
 | P2-T5 | Required plan sections by depth (extend `planning.json`) | P1-G | M | todo |
 | P2-T6 | Additive checks after approval | P1-G, P2-T2 | M | todo |
 | P2-T7 | Advisory backlog and decision gate (advisories and blockers) | P1-G, P2-T2 | L | todo |

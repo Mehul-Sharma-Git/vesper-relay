@@ -286,3 +286,98 @@ def for_project(contract, bundle):
         return estimate(contract, bundle, entries(), brains=configured_brains(), reserve=reserve)
     except BuilderError as exc:
         return {"error": str(exc)}
+
+
+# Limit-aware scheduling (P2-T4) ---------------------------------------------------------------
+
+from datetime import timedelta  # noqa: E402
+
+WINDOWS = {"session": timedelta(hours=5), "week": timedelta(days=7)}
+
+
+def parse_time(text):
+    when = datetime.fromisoformat(text)
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def last_reading(rows, account):
+    readings = [row for row in rows if row.get("kind") == "reading" and row["account"] == account]
+    return max(readings, key=lambda row: row["at"]) if readings else None
+
+
+def next_reset(rows, account, limit, now):
+    """When the `limit` window should next reset: the last recorded reset (a reading lower than
+    the one before it) plus whole windows, the first after `now`. None when no reset is recorded."""
+    readings = sorted((row for row in rows if row.get("kind") == "reading" and row["account"] == account),
+                      key=lambda row: row["at"])
+    resets = [later for earlier, later in zip(readings, readings[1:]) if later[limit] < earlier[limit]]
+    if not resets:
+        return None
+    reset = parse_time(resets[-1]["at"])
+    while reset <= now:
+        reset += WINDOWS[limit]
+    return reset
+
+
+def wait_until(hhmm, *, clock=None, sleep=None):
+    """`run --start-after HH:MM`: wait for the next local HH:MM (today, else tomorrow)."""
+    import re
+    import sys
+    import time
+    match = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", hhmm or "")
+    require(match, "--start-after takes a 24-hour time, for example 07:30")
+    clock = clock or (lambda: datetime.now().astimezone())
+    sleep = sleep or time.sleep
+    now = clock()
+    target = now.replace(hour=int(match[1]), minute=int(match[2]), second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    print(f"vesper: waiting until {target:%Y-%m-%d %H:%M} before starting", file=sys.stderr, flush=True)
+    while clock() < target:
+        sleep(min(300, (target - clock()).total_seconds()))
+    return target
+
+
+def limit_check(contract, bundle, job, rows, *, brains, reserve, now):
+    """(pause or None, notes). Pause when the last plan reading, the usage logged since it and the
+    high end of this job's estimate would cross 100% minus the reserve, for any account and limit."""
+    notes = []
+    threshold = 100 - reserve
+    result = estimate(dict(contract, jobs=[job]), {**bundle, "plan_critique": True}, rows, brains=brains,
+                      reserve=reserve)
+    calibration = calibrate(rows)
+    model = {}
+    for role in (job["role"], "reviewer"):
+        brain = brains(role)
+        if brain:
+            model.setdefault(ACCOUNTS.get(brain.adapter.name, brain.adapter.name), set()).add(brain.model)
+    for account, entry in sorted(result["accounts"].items()):
+        if account == "unassigned":
+            continue
+        reading = last_reading(rows, account)
+        if reading is None:
+            notes.append(f"{account}: no plan reading yet, so {job['id']} started without a limit check "
+                         "(record one with `vesper usage record`)")
+            continue
+        if not entry.get("calibrated"):
+            notes.append(f"{account}: uncalibrated, so {job['id']} started without a limit check")
+            continue
+        models = model.get(account, {None})
+        chosen = models.pop() if len(models) == 1 else None
+        since = sum(row.get("tokens") or 0 for row in rows if row.get("kind") == "call"
+                    and row.get("account") == account and row["start"] >= reading["at"])
+        for limit in LIMITS:
+            if limit not in entry:
+                continue
+            used = percent_band(calibration, account, chosen, since, limit)[1] if since else 0.0
+            projected = reading[limit] + used + entry[limit][1]
+            if projected > threshold:
+                reset = next_reset(rows, account, limit, now)
+                return {"job": job["id"], "account": account, "limit": limit,
+                        "last_reading": reading[limit], "used_since": round(used, 1),
+                        "job_estimate": entry[limit][1], "projected": round(projected, 1),
+                        "threshold": threshold,
+                        "resets_at": reset.isoformat(timespec="minutes") if reset else None,
+                        "resume": ("record a new reading after the window resets, then run again "
+                                   "(or `run --start-after HH:MM`)")}, notes
+    return None, notes

@@ -113,7 +113,12 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   from `review`) then shows jobs, AI calls, tokens, wall time, session and weekly % per
   account as a low–high band, sessions needed with your reserve
   (`[limits] reserve_percent`), and a confidence level, low until 5 calibrated runs.
-  Before any readings it says "uncalibrated" and shows tokens and time only.
+  Before any readings it says "uncalibrated" and shows tokens and time only. Before
+  each job `run` checks the last reading, the usage since it and the job's estimate
+  against your reserve; if the job could cross it, `run` stops before that job (never
+  during one) with status `paused_for_limits` and exit code 3, says when the window
+  should reset, and continues from the accepted work when you run it again.
+  `run --start-after HH:MM` waits for that local time first.
 - **Learn.** Verified Vesper runs record typed local signals automatically.
   Use `vesper learn` to see proposals and `vesper --project PATH incidents` to
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and
