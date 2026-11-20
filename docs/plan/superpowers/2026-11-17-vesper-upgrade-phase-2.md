@@ -90,7 +90,7 @@ Depends on: P1-G, P2-T2 · Size: M · Spec: `docs/plan/phase-2-evidence-and-cont
 ## Task P2-G: Phase 2 gate
 Depends on: P2-T1..T7 · Size: S · Spec: `docs/plan/phase-2-evidence-and-control.md`, section P2-G
 
-- [ ] Confirm every task this gate depends on is `done` on the board
-- [ ] Run the gate exactly as written in `docs/plan/phase-2-evidence-and-control.md`
-- [ ] Record results, elapsed time and plan usage in `docs/plan/appendix-b-test-run-evidence.md`
-- [ ] Set the gate's board status (`done`, or `blocked` with the failing criterion)
+- [x] Confirm every task this gate depends on is `done` on the board
+- [x] Run the gate exactly as written in `docs/plan/phase-2-evidence-and-control.md`
+- [x] Record results, elapsed time and plan usage in `docs/plan/appendix-b-test-run-evidence.md`
+- [x] Set the gate's board status (`done`, or `blocked` with the failing criterion)
