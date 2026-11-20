@@ -1,6 +1,8 @@
 """Create the independent evidence packet and validate a candidate verdict."""
+import ast
 import difflib
 import json
+from pathlib import Path
 import re
 
 from .contracts import BuilderError, nonempty, require, safe_path
@@ -19,7 +21,9 @@ BINDING = ("attempt_id", "base_digest", "candidate_digest")
 CANDIDATE_BLOCKER_RULE = (
     "Blocking means: the candidate breaks a requirement, the approved contract or a recorded decision for "
     "an input that a user, the app's own interface, or a threat inside the owner's threat model can produce "
-    "(the threat model is in the plan; if it records none, use the threats its decisions defend against); a "
+    "(the owner's threat model is plan/planning.json's threat_model when the plan has one; at skip depth, the "
+    "one the plan's decisions record in plan/decisions.md; if neither records one, the threats its decisions "
+    "defend against); a "
     "security defect such a threat can reach; a change outside the approved scope; or required evidence that "
     "is missing. Everything else is advisory: hardening the plan does not ask for, a threat outside the "
     "owner's threat model, input only a hand-made request outside that model can send, and a requirement "
@@ -35,6 +39,16 @@ CANDIDATE_SWEEP = (
     "(transactions, locks held while waiting on input); every input the threat model lets reach the app "
     "(headers, origins, methods including preflight); and for an interface, every control while a request "
     "is pending or after it fails, keyboard and focus, and typed text that must survive.\n")
+# P2-G finding 53: a reviewer approved a fix two lines below a reachable injection it never
+# reported, because it judged only the changed lines (P2-T8).
+TOUCHED_SWEEP = (
+    "review.json lists touched: the definitions (or whole files) this change touches, each shown in full "
+    "at the end of its file's section in diff.patch. Sweep that code too, not only the changed lines, and "
+    "report every reachable defect in it whether or not this candidate introduced it, with its category. "
+    "Such a defect is blocking when the job may change that code (it is inside the job's writable paths, "
+    "as the touched code always is) and it breaks a requirement or recorded decision, or is a security "
+    "defect a threat inside the owner's threat model can reach; otherwise it is advisory, and a security or "
+    "data advisory waits for the owner's decision.\n")
 EARLIER_PROMPT = ("review.json lists earlier_blockers: the blockers earlier reviews of this job raised. Check each "
                   "first and say in your summary whether this candidate resolves it; an unresolved one stays a "
                   "blocker only if it meets the blocking rule above. Raise a new blocker only under that rule.\n")
@@ -163,8 +177,10 @@ def report_schema(packet):
     }
 
 
-def write_diff(destination, before, after, paths):
+def write_diff(destination, before, after, paths, touched=None):
+    """The diff of each changed path, then (P2-T8) each touched definition, or the whole file, in full."""
     budget = 512_000
+    touched = {item["path"]: item for item in touched or ()}
     with destination.open("w", encoding="utf-8") as output:
         for name in paths:
             old, new = before / name, after / name
@@ -186,6 +202,199 @@ def write_diff(destination, before, after, paths):
                 budget -= len(chunk)
             else:
                 output.write("Diff exceeds the inline budget. Inspect the supplied files.\n")
+            if name in touched:
+                budget -= write_touched(output, name, b, touched[name], budget)
+
+
+def write_touched(output, name, lines, entry, budget):
+    """Write one file's touched code in full, within the budget; return what it used."""
+    if entry.get("whole_file"):
+        parts = [(f"Touched code in full: {name}, whole file (lines 1-{len(lines)})", 1, len(lines))]
+    else:
+        parts = [(f"Touched code in full: {name}, {item['name']} (lines {item['start']}-{item['end']})",
+                  item["start"], item["end"]) for item in entry["definitions"]]
+    used = 0
+    for title, start, end in parts:
+        block = (f"\n{title}\n" + "".join(f"{number:>5} | {lines[number - 1]}" for number in range(start, end + 1))
+                 + ("" if lines and lines[end - 1].endswith("\n") else "\n"))
+        if used + len(block) > budget:
+            output.write(f"\n{title}: exceeds the inline budget; read it in candidate/{name}.\n")
+            continue
+        output.write(block)
+        used += len(block)
+    return used
+
+
+# Touched code (P2-T8) ----------------------------------------------------------------------------
+
+JS_SUFFIXES = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts")
+JS_KEYWORDS = {"if", "for", "while", "switch", "catch", "function", "return", "with", "else", "do", "try"}
+JS_DEFINITION = re.compile(r"""
+      (?:\basync\s+)?\bfunction\b\s*\*?\s*(?P<function>[A-Za-z_$][\w$]*)?\s*\(
+    | \bclass\s+(?P<class>[A-Za-z_$][\w$]*)
+    | (?P<arrow>[A-Za-z_$][\w$]*)\s*[:=]\s*(?:async\s+)?(?:\([^()]*\)|[A-Za-z_$][\w$]*)\s*=>\s*(?=\{)
+    | (?P<method>[A-Za-z_$][\w$]*)\s*\([^()]*\)\s*(?::\s*[^{;=]+)?(?=\{)
+""", re.X)
+GO_DEFINITION = re.compile(r"\bfunc\s*(?:\([^()]*\)\s*)?(?P<function>[A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*\(")
+
+
+def changed_lines(old, new):
+    """Candidate line numbers (1-based) that differ from the base; a deletion marks its neighbours."""
+    lines = set()
+    for tag, _, _, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag in ("replace", "insert"):
+            lines.update(range(j1 + 1, j2 + 1))
+        elif tag == "delete":
+            lines.update(number for number in (j1, j1 + 1) if 1 <= number <= len(new))
+    return lines
+
+
+def python_definitions(text):
+    """(qualified name, kind, start, end) for every function, method and class, decorators included."""
+    found = []
+
+    def visit(node, prefix, in_class):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                start = min([child.lineno] + [item.lineno for item in child.decorator_list])
+                kind = "class" if isinstance(child, ast.ClassDef) else "method" if in_class else "function"
+                found.append((prefix + child.name, kind, start, child.end_lineno))
+                visit(child, prefix + child.name + ".", isinstance(child, ast.ClassDef))
+            else:
+                visit(child, prefix, in_class)
+    visit(ast.parse(text), "", False)
+    return found
+
+
+def mask_code(text):
+    """The text with comments and string contents blanked (newlines kept), for brace matching in
+    JavaScript, TypeScript and Go. A template literal keeps its ${...} expressions as code."""
+    out, size, i = list(text), len(text), 0
+    depth, opened, in_template = 0, [], False  # opened: the depth at each ${ inside a template
+
+    def blank(start, end):
+        for index in range(start, end):
+            if out[index] != "\n":
+                out[index] = " "
+    while i < size:
+        if in_template:
+            start = i
+            while i < size and text[i] != "`" and not text.startswith("${", i):
+                i += 2 if text[i] == "\\" else 1
+            blank(start, min(i, size))
+            if i >= size:
+                break
+            if text[i] == "`":
+                in_template, i = False, i + 1
+            else:
+                opened.append(depth)
+                depth, in_template, i = depth + 1, False, i + 2
+            continue
+        char = text[i]
+        if char == "}" and opened and depth - 1 == opened[-1]:
+            opened.pop()
+            depth, in_template, i = depth - 1, True, i + 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            end = size if end < 0 else end
+            blank(i, end)
+            i = end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            end = size if end < 0 else end + 2
+            blank(i, end)
+            i = end
+        elif char in "'\"":
+            start, i = i + 1, i + 1
+            while i < size and text[i] not in (char, "\n"):
+                i += 2 if text[i] == "\\" else 1
+            blank(start, min(i, size))
+            i += 1
+        elif char == "`":
+            in_template, i = True, i + 1
+        else:
+            depth += (char == "{") - (char == "}")
+            i += 1
+    return "".join(out)
+
+
+def brace_definitions(text, pattern):
+    """(name, kind, start, end) for each definition whose body is a balanced {...} block."""
+    masked = mask_code(text)
+    found = []
+    for match in pattern.finditer(masked):
+        name = next(((group, value) for group, value in match.groupdict().items() if value), (None, None))
+        kind, label = name
+        if kind == "method" and label in JS_KEYWORDS:
+            continue
+        position = match.end()
+        if masked[position - 1:position] == "(":
+            level = 1
+            while position < len(masked) and level:
+                level += {"(": 1, ")": -1}.get(masked[position], 0)
+                position += 1
+        opening = masked.find("{", position if kind != "class" else match.end())
+        if opening < 0 or masked[match.end():opening].strip(" \t\n").count(";"):
+            continue
+        level, end = 0, opening
+        while end < len(masked):
+            level += {"{": 1, "}": -1}.get(masked[end], 0)
+            if level == 0:
+                break
+            end += 1
+        if level:
+            continue
+        line = masked.count("\n", 0, match.start()) + 1
+        found.append((label or "(anonymous)", "function" if kind in ("function", "arrow") else kind, line,
+                      masked.count("\n", 0, end) + 1))
+    return found
+
+
+def touched_code(before, after, paths):
+    """For each changed file in the candidate: the innermost definitions around its changed lines,
+    or the whole file when a changed line is outside every definition or the language is not one
+    Vesper parses (Python, JavaScript or TypeScript, Go). Deleted and binary files are left out."""
+    touched = []
+    for name in paths:
+        new = Path(after) / name
+        if not new.is_file():
+            continue
+        try:
+            text = new.read_text(encoding="utf-8")
+            old_path = Path(before) / name
+            old = old_path.read_text(encoding="utf-8") if old_path.is_file() else ""
+        except UnicodeError:
+            continue
+        lines = changed_lines(old.splitlines(), text.splitlines())
+        try:
+            if name.endswith(".py"):
+                definitions = python_definitions(text)
+            elif name.endswith(JS_SUFFIXES):
+                definitions = brace_definitions(text, JS_DEFINITION)
+            elif name.endswith(".go"):
+                definitions = brace_definitions(text, GO_DEFINITION)
+            else:
+                definitions = None
+        except (SyntaxError, ValueError, RecursionError):
+            definitions = None
+        chosen = []
+        for line in sorted(lines):
+            around = [item for item in definitions or () if item[2] <= line <= item[3]]
+            if not around:
+                chosen = None
+                break
+            innermost = min(around, key=lambda item: item[3] - item[2])
+            if innermost not in chosen:
+                chosen.append(innermost)
+        if not lines:
+            continue
+        if chosen is None or definitions is None:
+            touched.append({"path": name, "whole_file": True})
+        else:
+            touched.append({"path": name, "definitions": [
+                {"name": label, "kind": kind, "start": start, "end": end}
+                for label, kind, start, end in sorted(chosen, key=lambda item: item[2])]})
+    return touched
 
 
 def gate_evidence(packet):
@@ -211,6 +420,7 @@ def prompt(role, packet):
         "Use verdict 'approve' only with no blockers, or 'request_changes' with at least one blocker.\n"
         + gate_evidence(packet)
         + CANDIDATE_BLOCKER_RULE
+        + (TOUCHED_SWEEP if packet.get("touched") else "")
         + CATEGORY_PROMPT
         + CANDIDATE_SWEEP
         + (EARLIER_PROMPT if packet.get("earlier_blockers") else "")

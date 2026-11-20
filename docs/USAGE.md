@@ -180,7 +180,11 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   by `VESPER_ARTIFACTS`. The independent reviewer's copy holds the approved gate scripts
   (`checks/`), each gate's log (`logs/<ID>.log`, the last 256 KB when longer) and what
   each gate saved (`artifacts/<ID>/`, up to 20 MB in all). Any change to that copy is
-  refused before the verdict counts.
+  refused before the verdict counts. `review.json` lists the code the change touches
+  (`touched`: each enclosing function, method or class, or the whole file for top-level
+  code and languages Vesper does not parse), and `diff.patch` shows it in full; the
+  reviewer sweeps it and reports reachable defects there even when the change did not
+  introduce them.
 - **Choose brains.** Any supported AI can do every role; one is enough. The
   adapters are `claude-code`, `codex` and `gemini-cli`. Name brains by purpose
   in the personal config (`[brains.strong] use = "claude-code"`, optional `model`
