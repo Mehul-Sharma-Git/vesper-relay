@@ -1,5 +1,6 @@
 """Shared agent foundation (P3-T1): the critical-thinking skill in every role, the worker's
-reasoning note kept with its attempt and shown to the reviewer, and the depth rule."""
+reasoning note kept with its attempt, the depth rule, and only the hand-off's labelled claims
+shown to the reviewer: never the reasoning (00-context, "One AI is enough"; owner, 21 Nov 2026)."""
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 from builder.brains import Selection
 from builder.planning import review_plan
-from builder.providers import REASONING_FIELDS, reasoning_note, worker_prompt
+from builder.providers import CLAIMS_LIMIT, REASONING_FIELDS, handoff_claims, reasoning_note, worker_prompt
 from builder.review_gate import prompt as review_prompt
 from builder.team import PROFILES, SHARED_SKILLS, catalog, freeze_team, profile, render
 import test_planning
@@ -91,6 +92,18 @@ class ReasoningNoteTests(unittest.TestCase):
                 self.assertEqual(note, NOTE.strip())
         self.assertEqual(ADAPTERS["claude-code"].summary("Error: not logged in"), "Error: not logged in")
 
+    def test_the_reviewer_gets_the_hand_offs_labelled_claims_never_the_note(self):
+        text = (NOTE + "\n## Summary\nRestored the check [verified: ran the gate].\nA plain line.\n"
+                "- Old clients still work [Inferred from the unchanged route]\n- Fast enough [assumed]\n")
+        self.assertEqual(handoff_claims(text), ["Restored the check [verified: ran the gate].",
+                                                "- Old clients still work [Inferred from the unchanged route]",
+                                                "- Fast enough [assumed]"])
+        self.assertEqual(handoff_claims(NOTE), [])  # the note's own labels stay private
+        self.assertEqual(handoff_claims("Done. Should work."), [])
+        many = handoff_claims("\n".join(f"claim {n} [verified]" + "x" * 900 for n in range(200)))
+        self.assertEqual(len(many), CLAIMS_LIMIT)
+        self.assertTrue(all(len(line) <= 500 for line in many))
+
     def test_the_last_note_wins_and_a_long_note_is_cut(self):
         first = NOTE.replace("Restore the stale-write version check.", "First draft.")
         note, _ = reasoning_note(first + "\n" + NOTE)
@@ -132,13 +145,17 @@ class SharedSkillTests(unittest.TestCase):
             brief = worker_prompt(contract, job, None, {}, None)
         self.assertIn("## Reasoning note", brief)
         packet = {"attempt_id": "a", "base_digest": "b", "candidate_digest": "c", "checks": [],
-                  "reasoning_note": NOTE}
+                  "claims": ["Restored the check [verified: ran the gate]."]}
         text = review_prompt(profile("reviewer"), packet)
         self.assertIn("[verified]", text)
         self.assertIn("advisory finding with category other", text)
-        self.assertIn("reasoning_note", text)
-        missing = review_prompt(profile("reviewer"), {**packet, "reasoning_note": None})
-        self.assertIn("gave no reasoning note", missing)
+        self.assertIn("review.json lists claims", text)
+        self.assertNotIn("Restored the check", text)  # the claims are data in review.json
+        none = review_prompt(profile("reviewer"), {**packet, "claims": []})
+        self.assertIn("labelled no claims", none)
+        manual = review_prompt(profile("reviewer"), {key: packet[key] for key in packet if key != "claims"})
+        self.assertNotIn("review.json lists claims", manual)  # a manual attempt has no hand-off to read
+        self.assertNotIn("labelled no claims", manual)
 
 
 class DepthRuleTests(unittest.TestCase):
@@ -175,7 +192,7 @@ class DepthRuleTests(unittest.TestCase):
     def run_once(self):
         return self.runner.run(Selection(worker="claude-code", settings={}), trust_host=True, reserve=0)
 
-    def test_full_depth_keeps_the_note_and_the_reviewer_sees_it(self):
+    def test_full_depth_keeps_the_note_and_the_reviewer_sees_only_the_claims(self):
         bin_dir = self.stand_in()
         self.approve_full()
         result = self.run_once()
@@ -185,7 +202,12 @@ class DepthRuleTests(unittest.TestCase):
         saved = self.root / attempt["reasoning_note"]
         self.assertEqual(saved, self.runner.attempt_dir(attempt) / "reasoning.md")
         self.assertEqual(saved.read_text(), NOTE.strip() + "\n")
-        self.assertEqual(json.loads((bin_dir / "review.json").read_text())["reasoning_note"], NOTE.strip())
+        packet = json.loads((bin_dir / "review.json").read_text())
+        self.assertEqual(packet["claims"], ["Restored the check [verified: ran the gate]."])
+        for name in ("review.json", "review.md"):
+            seen = (bin_dir / name).read_text()
+            self.assertNotIn("blocks the second device", seen)
+            self.assertNotIn("the gate fails on the seed", seen)
         self.assertIn("[verified]", (bin_dir / "review.md").read_text())
         self.assertIn("critical-thinking", (bin_dir / "brief.md").read_text())
 
@@ -211,7 +233,8 @@ class DepthRuleTests(unittest.TestCase):
         self.assertNotIn("reasoning_note", attempt)
         self.assertEqual(len(attempt["warnings"]), 1)
         self.assertIn("no '## Reasoning note' section", attempt["warnings"][0])
-        self.assertIsNone(json.loads((bin_dir / "review.json").read_text())["reasoning_note"])
+        self.assertEqual(json.loads((bin_dir / "review.json").read_text())["claims"],
+                         ["Restored the check [verified: ran the gate]."])
 
     def test_focused_depth_warns_and_continues_without_a_note(self):
         self.stand_in(note=False)

@@ -11,8 +11,9 @@ attack your own work before anyone else does.
 ## Reasoning note
 
 Write this note before your main output. A worker puts it at the start of
-its final message; the runner keeps it with the attempt and gives it to the
-independent reviewer. At `full` planning depth a final message without it is
+its final message, and the runner keeps it with the attempt. The independent
+reviewer never sees your reasoning, only the labelled claims of your
+hand-off. At `full` planning depth a final message without the note is
 rejected.
 
 ```

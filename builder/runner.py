@@ -17,7 +17,7 @@ from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
 from .process import run_process
 from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
     tools as brain_tools, usage
-from .providers import GATES_DIR, NOTE_PROMPT, reasoning_note, review_limits, worker_prompt
+from .providers import GATES_DIR, NOTE_PROMPT, handoff_claims, reasoning_note, review_limits, worker_prompt
 from .review_gate import (needs_security, prompt as review_prompt, report_schema, touched_code, validate_report,
                           write_diff)
 from .sandbox import Sandbox, check_job, command_job
@@ -774,9 +774,9 @@ class Runner:
         if state["bundle"].get("design_review") and job["role"] == "frontend":
             packet["design_review"] = True
         if "adapter" in attempt:
-            # A launched worker's reasoning note, or None when it gave none (P3-T1).
-            note = attempt.get("reasoning_note")
-            packet["reasoning_note"] = (self.root / note).read_text(encoding="utf-8").strip() if note else None
+            # A launched worker's labelled claims, never its reasoning note (P3-T1; 00-context,
+            # "One AI is enough": the reviewer has no access to the worker's reasoning).
+            packet["claims"] = attempt.get("claims", [])
         workspace = directory / "review"
         workspace.mkdir()
         copy_tree(self.snapshot(state), workspace / "base")
@@ -941,12 +941,14 @@ class Runner:
         return result
 
     def keep_reasoning(self, state, job, brain, log):
-        """Keep a launched worker's reasoning note from its final message in reasoning.md (P3-T1).
-        Without one, a full-depth job is rejected as a process failure; at any other depth the
-        attempt carries a warning and continues. Returns False when the attempt was rejected."""
+        """Keep a launched worker's reasoning note from its final message in reasoning.md, and the
+        labelled claims of its hand-off for the reviewer (P3-T1). Without a note, a full-depth job
+        is rejected as a process failure; at any other depth the attempt carries a warning and
+        continues. Returns False when the attempt was rejected."""
         attempt = state["active"]
-        said = read_tail(log, limit=200_000) if log.is_file() else ""  # a launcher may keep no log
-        note, problem = reasoning_note(brain.adapter.summary(said))
+        said = brain.adapter.summary(read_tail(log, limit=200_000) if log.is_file() else "")  # may keep no log
+        attempt["claims"] = handoff_claims(said)
+        note, problem = reasoning_note(said)
         if note:
             path = self.attempt_dir(attempt) / "reasoning.md"
             path.write_text(note + "\n", encoding="utf-8")

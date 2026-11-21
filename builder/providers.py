@@ -45,7 +45,13 @@ REASONING_HEADING = re.compile(r"^[ \t]*#{2,3}[ \t]*reasoning note[ \t]*:?[ \t]*
 ANY_HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]", re.M)
 NOTE_PROMPT = ("Start your final message with the '## Reasoning note' the critical-thinking skill describes, "
                "every field filled, then your summary with each factual claim labelled [verified], [inferred] "
-               "or [assumed]. Vesper keeps the note with this attempt and gives it to the independent reviewer.")
+               "or [assumed]. Vesper keeps the note with this attempt; the independent reviewer never sees it, "
+               "only the labelled claims of your summary, which it checks against the evidence.")
+# What the reviewer gets: the hand-off's labelled claims, never the reasoning (00-context, "One AI
+# is enough": no access to the worker's reasoning; owner, 21 Nov 2026).
+CLAIM_LABEL = re.compile(r"\[(?:verified|inferred|assumed)\b[^\]\n]*\]", re.I)
+CLAIMS_LIMIT = 60
+CLAIM_LENGTH = 500
 
 
 def reasoning_note(text):
@@ -75,6 +81,22 @@ def reasoning_note(text):
     if len(note) > REASONING_LIMIT:
         note = note[:REASONING_LIMIT - 12].rstrip() + "\n[note cut]"
     return note, None
+
+
+def handoff_claims(text):
+    """The labelled claim lines of a worker's final message outside every reasoning note
+    (each cut to CLAIM_LENGTH, at most CLAIMS_LIMIT)."""
+    text = (text or "").replace("\u2019", "'")
+    kept, position = [], 0
+    for start in REASONING_HEADING.finditer(text):
+        if start.start() < position:
+            continue
+        kept.append(text[position:start.start()])
+        following = ANY_HEADING.search(text, start.end())
+        position = following.start() if following else len(text)
+    kept.append(text[position:])
+    lines = [line.strip() for line in "".join(kept).splitlines() if CLAIM_LABEL.search(line)]
+    return [line[:CLAIM_LENGTH] for line in lines][:CLAIMS_LIMIT]
 
 
 def gate_lines(gates):

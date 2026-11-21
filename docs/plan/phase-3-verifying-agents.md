@@ -36,8 +36,11 @@ are present for every job.
      - **Self-critique:** before finishing, re-read the diff or output as a hostile
        reviewer would, list what that reviewer would flag, fix it, then hand off.
   2. The runner stores the worker's reasoning note from its final message in
-     `.builder/attempts/<id>/reasoning.md` and copies it into the review packet. Missing
-     note: warning on `skip` and `focused` depth, rejection (`failure_kind: "process"`) on `full`.
+     `.builder/attempts/<id>/reasoning.md`. Missing note: warning on `skip` and `focused`
+     depth, rejection (`failure_kind: "process"`) on `full`. The review packet gets only the
+     labelled claims of the worker's hand-off (`claims` in `review.json`), never the note:
+     reviewer independence includes no access to the worker's reasoning (`00-context.md`,
+     "One AI is enough"; owner, 21 Nov 2026, on the review of PR #56).
   3. Reviewer prompt: check that `[verified]` claims have evidence; an unsupported
      `[verified]` claim is an advisory finding (category `other`).
 - **Acceptance:** tests for note extraction, the depth rule, and that the critical-thinking

@@ -52,14 +52,15 @@ TOUCHED_SWEEP = (
 EARLIER_PROMPT = ("review.json lists earlier_blockers: the blockers earlier reviews of this job raised. Check each "
                   "first and say in your summary whether this candidate resolves it; an unresolved one stays a "
                   "blocker only if it meets the blocking rule above. Raise a new blocker only under that rule.\n")
-# P3-T1: the worker labels its claims; a [verified] claim needs evidence.
+# P3-T1: the worker labels its claims; a [verified] claim needs evidence. The reviewer gets the
+# hand-off's labelled claims only, never the worker's reasoning (00-context, "One AI is enough").
 CLAIMS_PROMPT = (
-    "review.json holds reasoning_note: the reasoning note the worker wrote before its summary (critical-thinking "
-    "skill). Read it as the worker's claims, not as evidence. Check that every claim labelled [verified] there "
-    "is backed by something in this review copy (a gate log, the diff, a file and line); report each unsupported "
-    "[verified] claim as an advisory finding with category other, naming the claim. ")
-NO_NOTE_PROMPT = ("review.json's reasoning_note is null: the worker gave no reasoning note, so treat every claim it "
-                  "makes as unverified. ")
+    "review.json lists claims: the labelled factual claims from the worker's hand-off ([verified], [inferred], "
+    "[assumed]). They are the worker's words, not evidence. Check that every [verified] claim is backed by "
+    "something in this review copy (a gate log, the diff, a file and line); report each unsupported [verified] "
+    "claim as an advisory finding with category other, naming the claim. ")
+NO_CLAIMS_PROMPT = ("review.json's claims list is empty: the worker labelled no claims in its hand-off, so treat "
+                    "everything it says as unverified. ")
 STRICT_ENDING = "Return only the JSON object. No text before or after it."
 SECURITY_PATH = re.compile(r"(^|[/_.-])(auth\w*|acl|permissions?|secrets?|tokens?|crypto\w*|tenants?|workflows)([/_.-]|$)", re.I)
 
@@ -437,7 +438,7 @@ def prompt(role, packet):
         + CATEGORY_PROMPT
         + CANDIDATE_SWEEP
         + (EARLIER_PROMPT if packet.get("earlier_blockers") else "")
-        + ((CLAIMS_PROMPT if packet["reasoning_note"] else NO_NOTE_PROMPT) + "\n" if "reasoning_note" in packet else "")
+        + ((CLAIMS_PROMPT if packet["claims"] else NO_CLAIMS_PROMPT) + "\n" if "claims" in packet else "")
         + json.dumps({**{key: packet[key] for key in BINDING},
                       "verdict": "approve", "summary": "Explain what was reviewed.",
                       "evidence": dict.fromkeys(evidence_areas(packet), "Replace with actual evidence."), "findings": []}, indent=2)
