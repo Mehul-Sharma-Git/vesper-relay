@@ -5,6 +5,7 @@ diagnostic only."""
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 
 from .contracts import require, reviewed_text
@@ -36,6 +37,97 @@ SHELL_PROMPT = ("You can run commands inside your workspace. Run the project's o
                 "app before finishing. Report the exact commands and results.")
 
 
+# The worker's reasoning note (P3-T1, team/skills/critical-thinking): each field needs content.
+REASONING_FIELDS = ("Understanding", "Assumptions", "Options considered", "Choice and why", "Pre-mortem",
+                    "How I'd know I'm wrong")
+REASONING_LIMIT = 8000
+# A note starts at a line naming it in any form (a heading of any level, bold, "Reasoning note:")
+# or at its first field, and ends at the blank line after its last field has content, at a
+# heading, or at the end of the message. Review of PR #56: the hand-off may follow the note with
+# no heading, and a note in another form must not reach the reviewer either.
+NOTE_MARKER = re.compile(r"^[ \t>#*_-]*reasoning note\b", re.I)
+ANY_HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]")
+FIELD_LABEL = r"^[ \t]*(?:[-*+][ \t]+)?[*_]*({})[*_]*[ \t]*:[*_]*"
+FIELD_LINE = re.compile(FIELD_LABEL.format("|".join(map(re.escape, REASONING_FIELDS))), re.I)
+LAST_FIELD = re.compile(FIELD_LABEL.format(re.escape(REASONING_FIELDS[-1])), re.I)
+NOTE_PROMPT = ("Start your final message with the '## Reasoning note' the critical-thinking skill describes, "
+               "every field filled, then a blank line and your summary with each factual claim labelled "
+               "[verified], [inferred] or [assumed]. Vesper keeps the note with this attempt; the independent "
+               "reviewer never sees it, only the labelled claims of your summary, which it checks against the "
+               "evidence.")
+# What the reviewer gets: the hand-off's labelled claims, never the reasoning (00-context, "One AI
+# is enough": no access to the worker's reasoning; owner, 21 Nov 2026).
+CLAIM_LABEL = re.compile(r"\[(?:verified|inferred|assumed)\b[^\]\n]*\]", re.I)
+CLAIMS_LIMIT = 60
+CLAIM_LENGTH = 500
+
+
+def note_spans(lines):
+    """The (start, end) line ranges of every reasoning note, marked or not, in message order."""
+    spans, start, last_seen, last_filled = [], None, False, False
+    for index, line in enumerate(lines):
+        marker = NOTE_MARKER.match(line)
+        if marker and start is not None:
+            spans.append((start, index))
+            start = None
+        if marker or FIELD_LINE.match(line):
+            if start is None:
+                start, last_seen, last_filled = index, False, False
+            found = LAST_FIELD.match(line)
+            if found:
+                last_seen, last_filled = True, bool(line[found.end():].strip(" \t*_-"))
+            elif last_seen:
+                last_filled = True  # another field after the last one: keep going
+            continue
+        if start is None:
+            continue
+        if ANY_HEADING.match(line) or (not line.strip() and last_filled):
+            spans.append((start, index))
+            start = None
+        elif line.strip() and last_seen:
+            last_filled = True
+    if start is not None:
+        spans.append((start, len(lines)))
+    return spans
+
+
+def reasoning_note(text):
+    """The last reasoning note in a worker's final message that starts with its name, as (note,
+    None), or (None, why it is missing)."""
+    lines = (text or "").replace("\u2019", "'").splitlines()
+    marked = [(start, end) for start, end in note_spans(lines) if NOTE_MARKER.match(lines[start])]
+    if not marked:
+        return None, "no '## Reasoning note' section"
+    start, end = marked[-1]
+    body = "\n".join(lines[start + 1:end])
+    labels = []
+    for field in REASONING_FIELDS:
+        found = re.search(FIELD_LABEL.format(re.escape(field)), body, re.I | re.M)
+        labels.append((found.start(), found.end(), field) if found else (None, None, field))
+    missing = [field for begin, _, field in labels if begin is None]
+    placed = sorted(item for item in labels if item[0] is not None)
+    for index, (_, stop_label, field) in enumerate(placed):
+        stop = placed[index + 1][0] if index + 1 < len(placed) else len(body)
+        if not body[stop_label:stop].strip(" \t\n*_-"):
+            missing.append(field)
+    if missing:
+        ordered = [field for field in REASONING_FIELDS if field in missing]
+        return None, "the reasoning note has no " + ", ".join(ordered)
+    note = "\n".join(lines[start:end]).strip()
+    if len(note) > REASONING_LIMIT:
+        note = note[:REASONING_LIMIT - 12].rstrip() + "\n[note cut]"
+    return note, None
+
+
+def handoff_claims(text):
+    """The labelled claim lines of a worker's final message outside every reasoning note
+    (each cut to CLAIM_LENGTH, at most CLAIMS_LIMIT)."""
+    lines = (text or "").replace("\u2019", "'").splitlines()
+    inside = {index for start, end in note_spans(lines) for index in range(start, end)}
+    found = [line.strip() for index, line in enumerate(lines) if index not in inside and CLAIM_LABEL.search(line)]
+    return [line[:CLAIM_LENGTH] for line in found][:CLAIMS_LIMIT]
+
+
 def gate_lines(gates):
     lines = []
     for check in gates:
@@ -63,6 +155,7 @@ def worker_prompt(contract, job, plans, manifest, failure, intake=None, speciali
         "Use workspace files as context. Keep secrets and external actions out of this job. "
         "The coordinator independently checks and publishes your changes. "
         "Finish with a short summary or explain the blocker.",
+        NOTE_PROMPT,
         *([SHELL_PROMPT] if shell else []),
         "Approved contract (task subset)\n" + json.dumps({
             "title": contract["title"], "delivery": contract["delivery"], "requirements": requirements,

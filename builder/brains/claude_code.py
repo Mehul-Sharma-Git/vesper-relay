@@ -54,11 +54,17 @@ class ClaudeCode(Adapter):
         return self.command(tool_list(tools), ["--output-format", "json"], model, effort, max_turns, program)
 
     def summary(self, text):
-        try:
-            data = json.loads(text)
-        except (ValueError, RecursionError):
-            return text
-        return data["result"] if isinstance(data, dict) and isinstance(data.get("result"), str) else text
+        """The result text of ``--output-format json``. The log holds stderr too, so a whole-log
+        parse failing falls back to the last line that is a result object (P3-T1: the worker's
+        reasoning note is read from it)."""
+        for candidate in (text, *reversed(text.splitlines())):
+            try:
+                data = json.loads(candidate)
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(data, dict) and isinstance(data.get("result"), str):
+                return data["result"]
+        return text
 
     def reviewer_command(self, *, response=None, schema=None, model=None, effort=None, max_turns=20,
                          program=None, tools=READ_TOOLS):

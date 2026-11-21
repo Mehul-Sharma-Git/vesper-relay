@@ -103,6 +103,8 @@ check "estimates you can check: only marked reading pairs calibrate, approve kee
     sh -c 'grep -q "^def marked_pairs(rows, account)" builder/usage.py && grep -q "^def check_run(run, state, rows)" builder/usage.py && grep -q "\"estimate\": estimate}" builder/runner.py'
 check "Codex reports tokens: --json event log, usage_report=True, no reply decoded from its event log (P2-T10)" "P2-G" \
     sh -c 'grep -q "usage_report=True" builder/brains/codex.py && grep -q "\"--json\"" builder/brains/codex.py && grep -q "reply_in_log = False" builder/brains/codex.py && grep -q "^def reply_path(brain, response, log, launcher=None)" builder/brains/__init__.py'
+check "every role loads critical-thinking (SHARED_SKILLS); a launched worker's reasoning note goes to reasoning.md, required at full depth; the reviewer gets only the hand-off's labelled claims (P3-T1)" "P3-G, P3-T3, P3-T4" \
+    sh -c 'grep -q "^SHARED_SKILLS = (\"critical-thinking\",)" builder/team.py && grep -q "^def reasoning_note(text)" builder/providers.py && grep -q "def keep_reasoning(self, state, job, brain, log)" builder/runner.py && grep -q "packet\[\"claims\"\]" builder/review_gate.py && ! grep -q "packet\[\"reasoning_note\"\]" builder/runner.py'
 check "approve requires an approving plan critique at full/focused depth, or the owner's decision on each blocker (P2-T7)" "P2-T2, P2-T5" \
     grep -q "Independent plan critique must approve" builder/runner.py
 check "review_plan decodes through the brain adapter (tolerant decoder; P1-T1, P1-T8)" "P3-T4" \
