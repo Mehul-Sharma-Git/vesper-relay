@@ -123,7 +123,20 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   risk sheet (see Approvals). Once every plan blocker is accepted, `approve` can proceed and
   the plan sheet lists each acceptance; security and data advisories from the critique are
   listed under the risks you accept by approving. A run never reaches `complete` while a
-  finding still waits for you.
+  finding still waits for you. `decide F3 --dismiss --reason "..."` dismisses a job-review
+  finding as not a defect (you confirm it on the same kind of sheet); the candidate goes on as
+  with an accepted risk, and the reviewer's calibration counts it as a false alarm.
+- **Job reviews.** A review blocker needs a `repro` (the input or steps and the observed
+  result); a blocker without one becomes a suspected advisory that waits for your decision.
+  Each finding has a `confidence` (high, medium, low). With a sandbox the reviewer may run
+  commands in its read-only copy and write a failing test under `/tmp` to prove a finding. At
+  `full` depth a launched review is four lens reviews (correctness, security, performance,
+  readability), each with its passages from the reviewer knowledge pack, merged into one:
+  every finding once (same path, category and recommendation), the strongest severity kept,
+  `request_changes` while a blocker remains. A job whose diff passes 400 changed lines gets a
+  note in its review packet and in `status` (`size_notes`) suggesting smaller jobs; it is
+  never refused. Each finding's outcome goes to `.builder/calibration.jsonl`: `unknown`,
+  `confirmed` (the job came back and the fix changed that path) or `dismissed`.
 - **Approvals.** Approving a plan, applying a patch, committing a repair,
   attesting that a report came from an independent reviewer, adding a check after
   approval and accepting a risk are human-only. Each
@@ -173,7 +186,9 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   reset, and continues from the accepted work when you run it again.
   `run --start-after HH:MM` waits for that local time first.
 - **Learn.** Verified Vesper runs record typed local signals automatically.
-  Use `vesper learn` to see proposals and `vesper --project PATH incidents` to
+  Use `vesper learn` to see proposals and each review lens's precision
+  (`reviewer_precision`: confirmed ÷ (confirmed + dismissed) over your runs), and
+  `vesper --project PATH incidents` to
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and
   `vesper maintain` for other planned changes to Vesper.
 

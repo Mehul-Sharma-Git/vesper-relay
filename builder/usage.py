@@ -197,11 +197,14 @@ def estimate(contract, bundle, rows, *, brains, reserve=25):
     planning = bundle.get("planning") or {}
     critique = planning.get("depth") not in (None, "skip") and not bundle.get("plan_critique")
     plan = []  # (role, account, model, low calls, high calls)
+    # P3-T4: a full-depth review is four lens reviews.
+    from .review_gate import LENSES
+    reviews = len(LENSES) if planning.get("depth") == "full" else 1
     for job in contract["jobs"]:
         attempts = job.get("max_attempts", 2)
         plan.append(("worker", job["role"], brains(job["role"]), 1, attempts))
         if team:
-            plan.append(("reviewer", "reviewer", brains("reviewer"), 1, attempts))
+            plan.append(("reviewer", "reviewer", brains("reviewer"), reviews, attempts * reviews))
     if critique:
         plan.append(("reviewer", "critic", brains("reviewer"), 1, 1))
     calls = [row for row in rows if row.get("kind") == "call"]

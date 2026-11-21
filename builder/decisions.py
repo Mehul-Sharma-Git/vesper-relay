@@ -10,6 +10,9 @@ ID (F1, F2, ...) and shown in `status`. A finding's status says what happens to 
     fix                the owner sent the plan or the job back for correction
     accepted           the owner accepted it as a risk, with a reason (a protected action), or the
                        owner's confirmed plan approval accepted it from the plan sheet
+    dismissed          the owner dismissed a job finding as not a defect, with a reason (a protected
+                       action; P3-T4): the candidate goes on as with an accepted risk, and reviewer
+                       calibration counts the finding as a false alarm
     superseded         the plan it was about was revised before a decision
 
 The backlog is a view for people. What the gates trust is digest-bound: a plan finding's text comes
@@ -18,7 +21,9 @@ the run's state, where each attempt also records which findings wait and the own
 acceptance counts only when its digest, recomputed from that text, matches a human confirmation on
 record. `decide FINDING_ID --fix` sends the plan back, returns the job for correction (counts as a
 retry) or grants a job out of attempts one more; `decide FINDING_ID --accept-risk --reason "..."`
-is human-only: the confirmer shows the risk sheet first.
+is human-only: the confirmer shows the risk sheet first. `decide FINDING_ID --dismiss --reason "..."`
+is the same for a job finding the owner judges wrong. A job-review blocker without a repro is a
+suspected advisory (P3-T4) and waits for the owner too.
 """
 from pathlib import Path
 
@@ -27,8 +32,8 @@ from .review_gate import DECISION_CATEGORIES
 
 FILE = "backlog.json"
 RISK = "Accepted risk: owner must confirm"
-TEXT = ("scenario", "consequence", "evidence", "recommendation")
-FIELDS = ("severity", "category", "path", *TEXT)
+TEXT = ("scenario", "consequence", "evidence", "recommendation", "repro")
+FIELDS = ("severity", "category", "path", *TEXT, "suspected")
 
 
 def store(root):
@@ -58,7 +63,7 @@ def awaiting(root):
 def owner_decides(finding):
     """A blocker, a security or data advisory, or a risk the critic says only the owner can accept."""
     return (finding["severity"] == "blocking" or finding.get("category") in DECISION_CATEGORIES
-            or str(finding.get("recommendation", "")).startswith(RISK))
+            or str(finding.get("recommendation", "")).startswith(RISK) or bool(finding.get("suspected")))
 
 
 def sync(data, key, finding, status, **where):
@@ -258,7 +263,7 @@ def sent_back(attempt, ids):
                     for name in ids for item in [job_item(attempt, name)])
 
 
-def decide_job(runner, state, attempt, finding_id, fix, reason):
+def decide_job(runner, state, attempt, finding_id, fix, reason, dismiss=False):
     from .runner import stamp
     contract = runner.frozen_contract(state)
     job = next(job for job in contract["jobs"] if job["id"] == attempt["job"])
@@ -299,11 +304,22 @@ def decide_job(runner, state, attempt, finding_id, fix, reason):
     others = [name for name in waiting if name != finding_id]
     if others:
         accepts += f", once you have also decided {', '.join(others)}"
+    if dismiss:
+        # The text the owner confirms says it is a dismissal, so the digest binds that too.
+        accepts = f"You dismiss this {what} as not a defect. " + accepts
     decision, keep = accept_risk(runner.root, item, reason, accepts + ".")
+    if dismiss:
+        decision["dismissed"] = True
     decisions[finding_id] = decision
     runner.save(state)
-    mark(runner.root, {finding_id}, "accepted", decisions)
+    mark(runner.root, {finding_id}, "dismissed" if dismiss else "accepted", decisions)
     keep()
+    if dismiss:
+        from . import calibration
+        found = calibration.outcomes(calibration.rows(runner.root)).get(finding_id)
+        calibration.append(runner.root, [{**{key: value for key, value in (found or {}).items() if key != "at"},
+                                          "finding": finding_id, "job": attempt["job"], "attempt": attempt["id"],
+                                          "outcome": "dismissed"}])
     if not others and (pending or exhausted):
         require(all_accepted(runner.root, attempt), "An accepted finding has no matching human confirmation on record")
         accepted = list(attempt["awaiting_decision"])
@@ -316,11 +332,12 @@ def decide_job(runner, state, attempt, finding_id, fix, reason):
 
 # Deciding ------------------------------------------------------------------------------------------
 
-def decide(runner, finding_id, *, fix=False, accept=False, reason=None):
+def decide(runner, finding_id, *, fix=False, accept=False, dismiss=False, reason=None):
     """The owner's decision on one finding. Run under the runner's lock."""
-    require(fix != accept, "Choose one decision: --fix or --accept-risk")
+    require(fix + accept + dismiss == 1, "Choose one decision: --fix, --accept-risk or --dismiss")
     reason = reason.strip() if isinstance(reason, str) else ""
-    require(fix or reason, "--accept-risk needs --reason: say why the risk is acceptable")
+    require(fix or reason, ("--dismiss needs --reason: say why it is not a defect" if dismiss
+                            else "--accept-risk needs --reason: say why the risk is acceptable"))
     if runner.state_file.exists():
         state = runner.state()
         attempts = ([state["active"]] if state["active"] else []) + state["attempts"]
@@ -329,7 +346,9 @@ def decide(runner, finding_id, *, fix=False, accept=False, reason=None):
             listed = next((item for item in load(runner.root)["items"] if item["id"] == finding_id), None)
             require(listed, f"Unknown finding {finding_id}; `status` lists the backlog")
             raise_not_waiting(finding_id, listed)
-        return decide_job(runner, state, attempt, finding_id, fix, reason)
+        return decide_job(runner, state, attempt, finding_id, fix, reason, dismiss)
+    require(not dismiss, "--dismiss is for job review findings; decide a plan critique finding with --fix or "
+                         "--accept-risk")
     return decide_plan(runner, finding_id, fix, reason)
 
 

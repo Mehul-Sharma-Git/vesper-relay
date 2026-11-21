@@ -239,14 +239,20 @@ def risk_sheet(store, subject, item, accepts, reason, digest):
     files = [{"path": f"findings/{item['id']}", "sha256": digest, "size": 0, "lines": None}]
     changed = what_changed_text(changed_since(store, "accept-risk", subject, files)[0])
     kind = f"{item['category']} {'blocker' if item['severity'] == 'blocking' else 'advisory'}"
-    lines = ["Vesper Relay: accept a risk", "", f"Finding {item['id']}: {kind}, from {describe(item)}",
+    if item.get("suspected"):
+        kind = f"{item['category']} suspected blocker (no repro, so it did not block)"  # P3-T4
+    # P3-T4: a dismissal confirms on this sheet too; its text says what is dismissed.
+    title = "Vesper Relay: dismiss a finding" if accepts.startswith("You dismiss") else "Vesper Relay: accept a risk"
+    lines = [title, "", f"Finding {item['id']}: {kind}, from {describe(item)}",
              f"  Where: {item.get('path') or 'not stated'}"]
     if item.get("scenario"):
         lines.append(f"  When: {in_full(item['scenario'])}")
     if item.get("consequence"):
         lines.append(f"  Then: {in_full(item['consequence'])}")
-    lines += [f"  What the reviewer found: {in_full(item.get('evidence', 'not stated'))}",
-              f"  What the reviewer recommends: {in_full(item['recommendation'])}", "",
+    lines += [f"  What the reviewer found: {in_full(item.get('evidence', 'not stated'))}"]
+    if item.get("repro"):
+        lines.append(f"  How to reproduce it: {in_full(item['repro'])}")
+    lines += [f"  What the reviewer recommends: {in_full(item['recommendation'])}", "",
               f"What you accept: {accepts}", f"Your reason: {in_full(reason)}", "",
               "The finding stays on record; only your confirmation accepts it.", "", changed, "",
               f"Digest: {short_digest(digest)}"]
