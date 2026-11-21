@@ -112,7 +112,9 @@ def main():
     decision = decide.add_mutually_exclusive_group(required=True)
     decision.add_argument("--fix", action="store_true", help="Send the plan back, or give the job another attempt")
     decision.add_argument("--accept-risk", action="store_true", help="Accept it as a risk (you confirm it)")
-    decide.add_argument("--reason", help="Why (required with --accept-risk)")
+    decision.add_argument("--dismiss", action="store_true",
+                          help="Dismiss a job review finding as not a defect (you confirm it; calibrates the reviewer)")
+    decide.add_argument("--reason", help="Why (required with --accept-risk and --dismiss)")
     add_check = commands.add_parser("add-check", help="Add a check after approval (the owner confirms it)")
     add_check.add_argument("--id", required=True, help="The new check's ID, for example G_X")
     gate = add_check.add_mutually_exclusive_group(required=True)
@@ -180,7 +182,8 @@ def main():
                 elif args.command == "retry":
                     result = engine.retry(args.reason)
                 elif args.command == "decide":
-                    result = engine.decide(args.finding, fix=args.fix, accept=args.accept_risk, reason=args.reason)
+                    result = engine.decide(args.finding, fix=args.fix, accept=args.accept_risk, dismiss=args.dismiss,
+                                           reason=args.reason)
                 elif args.command == "add-check":
                     result = engine.add_check(args.id, script=args.script, command=args.gate_command,
                                               jobs=args.jobs.split(",") if args.jobs is not None else None,

@@ -62,6 +62,129 @@ CLAIMS_PROMPT = (
 NO_CLAIMS_PROMPT = ("review.json's claims list is empty: the worker labelled no claims in its hand-off, so treat "
                     "everything it says as unverified. ")
 STRICT_ENDING = "Return only the JSON object. No text before or after it."
+# P3-T4: a blocker comes with evidence a person can rerun; without it, it only suspects.
+CONFIDENCE = ("high", "medium", "low")
+EVIDENCE_PROMPT = (
+    "Every blocking finding needs repro: the smallest reproduction that shows the defect (the exact input, "
+    "request or steps and the observed result, quoting command output when you ran something; or the file and "
+    "line and the input that reaches it when you could not run it). A blocking finding without repro is recorded "
+    "as a suspected advisory for the owner to decide and does not send the job back. Give every finding a "
+    "confidence: high (you reproduced it or read it directly), medium (a reading of the code you are fairly sure "
+    "of), or low (a suspicion worth checking); use repro \"\" when an advisory has none.\n")
+PROVE_PROMPT = (
+    "You can run commands in this review copy (shell, inside the sandbox): run the gates, start the app, or call "
+    "it to prove a finding. The copy is read-only: write any failing test or script under /tmp, your own temp "
+    "folder, never in the copy; run it, and quote it and its output in repro.\n")
+# Multi-lens review at full depth (P3-T4): four reviews of the same candidate, merged by the runner.
+# Design is not a lens; the designer's gate covers it (phase 4).
+LENSES = ("correctness", "security", "performance", "readability")
+LENS_FOCUS = {
+    "correctness": ("does every requirement, failure path, retry and concurrent change behave as the plan says",
+                    "correctness race condition retry idempotency stale state error handling partial write"),
+    "security": ("what can a threat inside the owner's threat model reach: authorization and object ownership, "
+                 "injection, CSRF, CORS and Origin, secrets in logs, unbounded input, error leakage",
+                 "security authorization object ownership injection CSRF CORS Origin secret log unbounded input "
+                 "error leakage"),
+    "performance": ("what grows with data or traffic: N+1 queries, unbounded reads or bodies, work repeated per "
+                    "request, missing limits and timeouts",
+                    "performance N+1 query unbounded input pagination timeout"),
+    "readability": ("what will mislead the next person to change this code: names, structure, duplicated sources of "
+                    "truth, hidden control flow, conventions of the language",
+                    "readability naming structure Go TypeScript style"),
+}
+LENS_PASSAGES = 5
+# Size guideline (P3-T4): reviews lose precision on large diffs; a note, never a refusal.
+SIZE_LIMIT = 400
+
+
+def size_note(count):
+    """The note for a job whose diff exceeds the guideline, or None."""
+    if count <= SIZE_LIMIT:
+        return None
+    return (f"This job's diff has {count} changed lines, over the {SIZE_LIMIT}-line review guideline: reviews lose "
+            "precision on large diffs, so the planner should split future jobs of this size.")
+
+
+def changed_line_count(before, after, paths):
+    """Lines added plus lines removed across the changed text files (binary files count 0)."""
+    total = 0
+    for name in paths:
+        old, new = Path(before) / name, Path(after) / name
+        try:
+            a = old.read_text(encoding="utf-8").splitlines() if old.is_file() else []
+            b = new.read_text(encoding="utf-8").splitlines() if new.is_file() else []
+        except UnicodeError:
+            continue
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+            if tag != "equal":
+                total += (i2 - i1) + (j2 - j1)
+    return total
+
+
+def downgrade(report):
+    """A copy of the report in which each blocking finding without repro is a suspected advisory,
+    and its verdict follows the blockers left; returns (report, how many were downgraded)."""
+    findings, count = [], 0
+    for item in report["findings"]:
+        if item["severity"] == "blocking" and not nonempty(item.get("repro")):
+            item = {**item, "severity": "advisory", "suspected": True,
+                    "evidence": "Suspected blocker (no repro given, so it does not block): " + item["evidence"]}
+            count += 1
+        findings.append(item)
+    verdict = "request_changes" if any(item["severity"] == "blocking" for item in findings) else "approve"
+    return {**report, "findings": findings, "verdict": verdict}, count
+
+
+def normalised(text):
+    return " ".join(re.findall(r"[a-z0-9]+", str(text).lower()))
+
+
+def merge(reports, packet):
+    """One report from the lens reports ({lens: report}), the same whatever order they arrived in:
+    every finding in lens order, a duplicate (same path, category and normalised recommendation)
+    folded into the first with its lenses listed and the strongest severity, confidence and repro
+    kept; the verdict asks for changes when any blocker remains."""
+    findings, seen = [], {}
+    rank = {name: index for index, name in enumerate(CONFIDENCE)}
+    for lens in LENSES:
+        for item in reports[lens]["findings"]:
+            key = (item["path"], item["category"], normalised(item["recommendation"]))
+            if key not in seen:
+                seen[key] = {**item, "lenses": [lens]}
+                findings.append(seen[key])
+                continue
+            kept = seen[key]
+            if lens not in kept["lenses"]:
+                kept["lenses"].append(lens)
+            if item["severity"] == "blocking" and kept["severity"] != "blocking":
+                kept.update({name: item[name] for name in item}, lenses=kept["lenses"])
+            if not nonempty(kept.get("repro")) and nonempty(item.get("repro")):
+                kept["repro"] = item["repro"]
+            if rank.get(item.get("confidence"), 9) < rank.get(kept.get("confidence"), 9):
+                kept["confidence"] = item["confidence"]
+    areas = evidence_areas(packet)
+    return {**{key: packet[key] for key in BINDING},
+            "verdict": "request_changes" if any(item["severity"] == "blocking" for item in findings) else "approve",
+            "summary": "\n".join(f"[{lens}] {reports[lens]['summary']}" for lens in LENSES),
+            "evidence": {area: "\n".join(f"[{lens}] {reports[lens]['evidence'][area]}" for lens in LENSES)
+                         for area in areas},
+            "findings": findings}
+
+
+def lens_prompt(lens, passages=()):
+    """The part of a lens reviewer's prompt that names its lens and its knowledge passages."""
+    focus = LENS_FOCUS[lens][0]
+    lines = [f"Lens: {lens}. This candidate gets four independent reviews, one per lens (correctness, security, "
+             f"performance, readability), merged by Vesper. Yours is {lens}: {focus}. Report what this lens finds "
+             "in full, by the blocking rule above; still fill every evidence area, saying where it is outside "
+             "your lens."]
+    if passages:
+        lines.append(f"Knowledge passages for the {lens} lens from the reviewer knowledge pack (approved reference, "
+                     "best match first):")
+        for hit in passages:
+            body = "\n".join("  " + line for line in hit["text"].split("\n"))
+            lines.append(f"- {hit['file']} > {hit['heading']}\n{body}")
+    return "\n".join(lines) + "\n"
 SECURITY_PATH = re.compile(r"(^|[/_.-])(auth\w*|acl|permissions?|secrets?|tokens?|crypto\w*|tenants?|workflows)([/_.-]|$)", re.I)
 
 
@@ -92,6 +215,9 @@ def validate_report(data, packet):
                 "Each finding needs severity, evidence and recommendation")
         require(item.get("category") in CATEGORIES,
                 "Each finding needs a category: " + ", ".join(CATEGORIES))
+        require("repro" not in item or isinstance(item["repro"], str), "A finding's repro must be text")
+        require("confidence" not in item or item["confidence"] in CONFIDENCE,
+                "A finding's confidence must be one of: " + ", ".join(CONFIDENCE))
         safe_path(item.get("path"))
         if item["severity"] == "blocking":
             blockers.append(item)
@@ -167,7 +293,7 @@ def category_schema():
 def report_schema(packet):
     """JSON Schema for a candidate review; mirrors validate_report for strict-output providers."""
     areas = list(evidence_areas(packet))
-    finding = ("severity", "category", "path", "evidence", "recommendation")
+    finding = ("severity", "category", "path", "evidence", "recommendation", "repro", "confidence")
     return {
         "type": "object",
         "required": [*BINDING, "verdict", "summary", "evidence", "findings"],
@@ -181,7 +307,9 @@ def report_schema(packet):
                 "type": "object", "required": list(finding),
                 "properties": {key: text_schema() for key in finding} | {
                     "severity": {"type": "string", "enum": ["blocking", "advisory"]},
-                    "category": category_schema()}}},
+                    "category": category_schema(),
+                    "repro": {"type": "string"},  # empty for an advisory without one (P3-T4)
+                    "confidence": {"type": "string", "enum": list(CONFIDENCE)}}}},
         },
     }
 
@@ -420,9 +548,10 @@ def gate_evidence(packet):
             + ". Read them; the evidence lines in review.json are only their last lines.\n")
 
 
-def prompt(role, packet, knowledge_path=None):
+def prompt(role, packet, knowledge_path=None, *, shell=False, lens=None, passages=()):
     """The reviewer's prompt. ``knowledge_path`` is where the run's approved knowledge packs are
-    readable (P3-T2), when they are."""
+    readable (P3-T2), when they are; ``shell`` says the reviewer may run commands in the sandbox;
+    ``lens`` and its ``passages`` make it one of the four lens reviews (P3-T4)."""
     from .knowledge import where
     from .team import render
 
@@ -440,11 +569,18 @@ def prompt(role, packet, knowledge_path=None):
         + (TOUCHED_SWEEP if packet.get("touched") else "")
         + CATEGORY_PROMPT
         + CANDIDATE_SWEEP
+        + EVIDENCE_PROMPT
+        + (PROVE_PROMPT if shell else "")
+        + (lens_prompt(lens, passages) if lens else "")
+        + (packet["size_note"] + " Review it in full all the same.\n" if packet.get("size_note") else "")
         + (EARLIER_PROMPT if packet.get("earlier_blockers") else "")
         + ((CLAIMS_PROMPT if packet["claims"] else NO_CLAIMS_PROMPT) + "\n" if "claims" in packet else "")
         + json.dumps({**{key: packet[key] for key in BINDING},
                       "verdict": "approve", "summary": "Explain what was reviewed.",
                       "evidence": dict.fromkeys(evidence_areas(packet), "Replace with actual evidence."), "findings": []}, indent=2)
+        + "\nEach finding: " + json.dumps({"severity": "blocking", "category": "security", "path": "server.py",
+                                           "evidence": "...", "recommendation": "...", "repro": "...",
+                                           "confidence": "high"})
         + "\n" + STRICT_ENDING
         + ("\n" + where(knowledge_path) if knowledge_path else "")
     )

@@ -33,6 +33,9 @@ def summary(data):
               "active": list(data["active"])}
     if data.get("repairs"):
         result["repairs"] = list(data["repairs"].values())
+    # P3-T4: how often each review lens was right, over every run in the state folder.
+    from .calibration import across
+    result["reviewer_precision"] = across(state_home() / "runs")
     return result
 
 

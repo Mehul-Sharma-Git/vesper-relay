@@ -111,7 +111,9 @@ are present for every job.
 - **Change:**
   1. Schema (from P1-T2) gains `repro` (string) on findings and `confidence`
      (`high | medium | low`). A `blocking` finding without `repro` is downgraded to a
-     `suspected` advisory automatically, and the owner sees it.
+     `suspected` advisory automatically, and the owner sees it. (Built: a suspected advisory
+     waits for the owner's decision, like a security or data advisory, and its sheet says it is
+     suspected; `decide --dismiss` is human-confirmed like `--accept-risk`.)
   2. With a sandbox backend, the reviewer may run commands in its read-only copy (P1-T10) to
      prove a finding; it may write a failing test into its own temp dir and quote it in `repro`.
   3. **Multi-lens at `full` depth:** the runner launches four lens reviews (correctness,

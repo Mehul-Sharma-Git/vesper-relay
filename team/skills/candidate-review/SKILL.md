@@ -24,7 +24,11 @@ update to both order and account and exercise a foreign ID” is actionable.
 “Add more tests” without a missed scenario is not.
 
 Report blockers before advisories. Include path and line, trigger, impact,
-and corrective direction or evidence needed. Separate inspected,
+and corrective direction or evidence needed. Back every blocker with a
+`repro` someone else can rerun (for the order example: "PATCH /orders/84 as
+account B -> 200, order cancelled; expected 404"); a blocker without one
+only suspects and goes to the owner. Prefer a repro you ran over one you
+reasoned, and say which in `confidence`. Separate inspected,
 reproduced, and inferred claims; identify unreviewed areas. Send findings
 to the planner and writers. An incomplete review or unrun required gate
 cannot be presented as approval.

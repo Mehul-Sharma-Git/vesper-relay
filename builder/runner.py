@@ -19,8 +19,9 @@ from .process import run_process
 from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
     tools as brain_tools, usage
 from .providers import GATES_DIR, NOTE_PROMPT, handoff_claims, reasoning_note, review_limits, worker_prompt
-from .review_gate import (needs_security, prompt as review_prompt, report_schema, touched_code, validate_report,
-                          write_diff)
+from .review_gate import (LENSES, LENS_FOCUS, LENS_PASSAGES, changed_line_count, downgrade, merge as merge_lenses,
+                          needs_security, prompt as review_prompt, report_schema, size_note, touched_code,
+                          validate_report, write_diff)
 from .sandbox import Sandbox, check_job, command_job
 
 # VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
@@ -459,10 +460,11 @@ class Runner:
         from .qa import prove
         return prove(self, against=against, launcher=launcher)
 
-    def decide(self, finding_id, *, fix=False, accept=False, reason=None):
-        """The owner's decision on a finding (P2-T7); accepting a risk is a protected action."""
+    def decide(self, finding_id, *, fix=False, accept=False, dismiss=False, reason=None):
+        """The owner's decision on a finding (P2-T7); accepting a risk or dismissing a finding
+        (P3-T4) is a protected action."""
         from .decisions import decide
-        return decide(self, finding_id, fix=fix, accept=accept, reason=reason)
+        return decide(self, finding_id, fix=fix, accept=accept, dismiss=dismiss, reason=reason)
 
     def add_check(self, check_id, *, script=None, command=None, jobs=None, reason=None):
         """Add a check after approval (P2-T6): a protected action the owner confirms."""
@@ -535,6 +537,12 @@ class Runner:
                   "completed": state["completed"], "next_job": job and job["id"],
                   "active": state["active"], "attempts": state["attempts"],
                   "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state), **decisions}
+        # P3-T4: a job whose diff passed the 400-line guideline, with the note for the planner.
+        notes = [{"job": item["job"], "attempt": item["id"], "note": item["review"]["size_note"]}
+                 for item in state["attempts"] + ([state["active"]] if state["active"] else [])
+                 if item.get("review", {}).get("size_note")]
+        if notes:
+            result["size_notes"] = notes
         if phase == "complete":
             # P2-T9: once the run's marked readings exist, show how its usage compared with the estimate.
             from .usage import check_run, entries, has_marked_readings
@@ -700,6 +708,7 @@ class Runner:
             require(stat.S_IMODE(workspace.stat().st_mode) == mode, "Workspace root mode has changed")
             changed, denied = scope_changes(base, proposed, job["paths"])
             require(not denied, "Changes outside job scope: " + ", ".join(denied))
+            self.calibrate_fix(state, job, proposed)
             directory = self.attempt_dir(attempt) / ("verify-" + uuid4().hex)
             directory.mkdir()
             candidate = directory / "candidate"
@@ -827,6 +836,11 @@ class Runner:
         packet["touched"] = touched_code(workspace / "base", workspace / "candidate", attempt["changed"])
         write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"],
                    packet["touched"])
+        # P3-T4: past 400 changed lines the packet carries a note suggesting smaller jobs; never a refusal.
+        packet["changed_lines"] = changed_line_count(workspace / "base", workspace / "candidate", attempt["changed"])
+        note = size_note(packet["changed_lines"])
+        if note:
+            packet["size_note"] = note
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
         (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
         (workspace / "review.md").write_text(review_prompt(profile, packet), encoding="utf-8")
@@ -866,58 +880,37 @@ class Runner:
             require("repair" not in state["bundle"], "A Vesper repair requires a separately launched reviewer")
             require(external_attested, "Attest that the report came from an independent reviewer")
         launched = {"provider": "operator"}
+        reported = None
+        downgraded = 0
         if report is None:
             require(brain, "Provide an independent JSON report or choose a reviewer brain")
-            # Use a fresh copy so a prior reviewer invocation cannot supply a later reviewer's inputs.
-            with tempfile.TemporaryDirectory(prefix="review-session-", dir=directory) as temp:
-                session = Path(temp)
-                view = session / "workspace"
-                copy_tree(workspace, view)
-                require(fingerprint(inventory(view / "base")) == packet["base_digest"]
-                        and fingerprint(inventory(view / "candidate")) == packet["candidate_digest"]
-                        and inventory(view / "plan") == state["bundle"]["plan"],
-                        "Reviewer inputs changed before launch")
-                # Rebuild the prompt and evidence from the frozen role and recorded packet.
-                role_key = "security_reviewer" if packet["reviewer_revision"] == (
-                    state["bundle"]["team"]["security_reviewer"]["revision"]) else "reviewer"
-                profile = state["bundle"]["team"][role_key]
-                (view / "review.json").write_text(json.dumps({key: value for key, value in packet.items()
-                                                           if key not in ("workspace", "directory")}, indent=2))
-                write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"],
-                           packet.get("touched"))
-                schema = report_schema(packet)
-                (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
-                # The approved packs sit beside the review copy, never inside it (P3-T2).
-                packs = self.knowledge_copy(state, session / "knowledge")
-                knowledge_path = (KNOWLEDGE_MOUNT if isinstance(launcher, Sandbox) else str(packs)) if packs else None
-                text = review_prompt(profile, packet, knowledge_path)
-                (view / "review.md").write_text(text)
-                view_digest = fingerprint(inventory(view))
-                response = session / "response.json"
-                log = directory / ("reviewer-" + uuid4().hex + ".log")
-                code = launch(brain, "reviewer", launcher, trust_host, work=view,
-                              input_text=text, log=log, timeout=review_timeout,
-                              response=response, schema=schema, max_turns=review_max_turns,
-                              ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"},
-                              knowledge=packs)
-                require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
-                require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
-                # An adapter whose log is an event stream has no reply without the file (P2-T10).
-                output = reply_path(brain, response, log, launcher)
-                require(output is not None, f"Reviewer brain {brain.name} wrote no reply file. "
-                        "Tested candidate remains pending.")
-                require(not output.is_symlink() and output.stat().st_size <= 256_000,
-                        "Reviewer output was linked or exceeded the report limit")
-                reply = output.read_text(encoding="utf-8")
-                report = parse_result(brain, reply)
-                launched = {"provider": brain.name, "adapter": brain.adapter.name}
-                # The reply carries the usage, or else the call's log does (an event stream, P2-T10).
-                spent = usage(brain, reply) or (usage(brain, read_tail(log, limit=REPLY_LIMIT))
-                                                if output != log and log.is_file() and not log.is_symlink()
-                                                else None)
-                if spent:
-                    launched["usage"] = spent
+            # P3-T4: at full depth four lens reviews, merged deterministically; otherwise one review.
+            lenses = LENSES if state["bundle"].get("planning", {}).get("depth") == "full" else (None,)
+            reports, spent = {}, []
+            for lens in lenses:
+                raw, used = self.launch_review(state, attempt, packet, directory, workspace, brain, launcher,
+                                               trust_host, review_timeout, review_max_turns, lens)
+                validate_report(raw, packet)
+                reports[lens], count = downgrade(raw)
+                downgraded += count
+                spent.append({"lens": lens, "reported_verdict": raw["verdict"], "verdict": reports[lens]["verdict"],
+                              "findings": len(raw["findings"]), **({"usage": used} if used else {})})
+            launched = {"provider": brain.name, "adapter": brain.adapter.name}
+            if lenses == LENSES:
+                report = merge_lenses(reports, packet)
+                reported = "request_changes" if any(item["reported_verdict"] == "request_changes"
+                                                    for item in spent) else "approve"
+                launched["lenses"] = spent
+            else:
+                report, reported = reports[None], spent[0]["reported_verdict"]
+                if "usage" in spent[0]:
+                    launched["usage"] = spent[0]["usage"]
         require(len(json.dumps(report)) <= 256_000, "Reviewer output exceeded the report limit")
+        if reported is None:
+            # An attested report: checked as given, then its blockers without repro downgraded (P3-T4).
+            validate_report(report, packet)
+            reported = report["verdict"]
+            report, downgraded = downgrade(report)
         blockers = validate_report(report, packet)
         attested = None
         if launched["provider"] == "operator":
@@ -937,7 +930,7 @@ class Runner:
                 and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
                 "Tested candidate changed after verification")
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
-                             **launched}
+                             "reported_verdict": reported, "downgraded": downgraded, **launched}
         from .decisions import record_review
         if blockers:
             result = self.finish(state, "rejected", "Review blockers: " + "; ".join(
@@ -948,6 +941,7 @@ class Runner:
             ids, waiting = record_review(self.root, result, report["findings"], rejected=True,
                                          exhausted=len(self.attempts_for(state, job)) >= self.budget_for(state, job))
             result["finding_ids"] = ids
+            self.calibrate_review(result, report["findings"], ids)
             if waiting:
                 result["awaiting_decision"] = waiting
             self.save(state)
@@ -955,6 +949,7 @@ class Runner:
             # P2-T7: a security or data advisory waits for the owner's decision.
             ids, waiting = record_review(self.root, attempt, report["findings"], rejected=False, exhausted=False)
             attempt["finding_ids"] = ids
+            self.calibrate_review(attempt, report["findings"], ids)
             if waiting:
                 attempt["awaiting_decision"] = waiting
                 self.save(state)
@@ -965,6 +960,103 @@ class Runner:
             from .approvals import keep, run_store
             keep(run_store(self.root), attested)
         return result
+
+    def launch_review(self, state, attempt, packet, directory, workspace, brain, launcher, trust_host,
+                      review_timeout, review_max_turns, lens=None):
+        """One launched review of the staged candidate, in a fresh read-only copy of the review
+        workspace, as one lens (P3-T4) or the whole review. Returns (report, usage or None)."""
+        with tempfile.TemporaryDirectory(prefix="review-session-", dir=directory) as temp:
+            session = Path(temp)
+            view = session / "workspace"
+            copy_tree(workspace, view)
+            require(fingerprint(inventory(view / "base")) == packet["base_digest"]
+                    and fingerprint(inventory(view / "candidate")) == packet["candidate_digest"]
+                    and inventory(view / "plan") == state["bundle"]["plan"],
+                    "Reviewer inputs changed before launch")
+            # Rebuild the prompt and evidence from the frozen role and recorded packet.
+            role_key = "security_reviewer" if packet["reviewer_revision"] == (
+                state["bundle"]["team"]["security_reviewer"]["revision"]) else "reviewer"
+            profile = state["bundle"]["team"][role_key]
+            (view / "review.json").write_text(json.dumps({key: value for key, value in packet.items()
+                                                       if key not in ("workspace", "directory")}, indent=2))
+            write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"],
+                       packet.get("touched"))
+            schema = report_schema(packet)
+            (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
+            # The approved packs sit beside the review copy, never inside it (P3-T2).
+            packs = self.knowledge_copy(state, session / "knowledge")
+            sandboxed = isinstance(launcher, Sandbox)
+            knowledge_path = (KNOWLEDGE_MOUNT if sandboxed else str(packs)) if packs else None
+            passages = ()
+            if lens:
+                from .knowledge import search
+                files = state["bundle"].get("team", {}).get("knowledge", {}).get("reviewer")
+                passages = search(files, LENS_FOCUS[lens][1], LENS_PASSAGES) if files else ()
+            # With a sandbox backend the reviewer may run commands to prove a finding (P1-T10, P3-T4).
+            shell = "shell" in brain_tools(brain, "reviewer", None, sandboxed)
+            text = review_prompt(profile, packet, knowledge_path, shell=shell, lens=lens, passages=passages)
+            (view / "review.md").write_text(text)
+            view_digest = fingerprint(inventory(view))
+            response = session / "response.json"
+            log = directory / ("reviewer-" + (lens + "-" if lens else "") + uuid4().hex + ".log")
+            code = launch(brain, "reviewer", launcher, trust_host, work=view,
+                          input_text=text, log=log, timeout=review_timeout,
+                          response=response, schema=schema, max_turns=review_max_turns,
+                          ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"},
+                          knowledge=packs)
+            label = f"Reviewer ({lens} lens)" if lens else "Reviewer"
+            require(code == 0, f"{label} exited {code}. Tested candidate remains pending.")
+            require(fingerprint(inventory(view)) == view_digest, f"{label} modified its read-only input copy")
+            # An adapter whose log is an event stream has no reply without the file (P2-T10).
+            output = reply_path(brain, response, log, launcher)
+            require(output is not None, f"Reviewer brain {brain.name} wrote no reply file. "
+                    "Tested candidate remains pending.")
+            require(not output.is_symlink() and output.stat().st_size <= 256_000,
+                    "Reviewer output was linked or exceeded the report limit")
+            reply = output.read_text(encoding="utf-8")
+            report = parse_result(brain, reply)
+            # The reply carries the usage, or else the call's log does (an event stream, P2-T10).
+            spent = usage(brain, reply) or (usage(brain, read_tail(log, limit=REPLY_LIMIT))
+                                            if output != log and log.is_file() and not log.is_symlink()
+                                            else None)
+            require(isinstance(report, dict) and len(json.dumps(report)) <= 256_000,
+                    "Reviewer output exceeded the report limit")
+            return report, spent
+
+    def calibrate_review(self, attempt, findings, ids):
+        """Record each job-review finding for calibration, its outcome unknown so far (P3-T4)."""
+        from . import calibration
+        calibration.append(self.root, [
+            {"finding": finding_id, "job": attempt["job"], "attempt": attempt["id"],
+             "lens": finding.get("lenses") or ["combined"], "category": finding["category"],
+             "severity": finding["severity"], **({"suspected": True} if finding.get("suspected") else {}),
+             "outcome": "unknown"} for finding, finding_id in zip(findings, ids)])
+
+    def calibrate_fix(self, state, job, proposed):
+        """When a job comes back, each finding that sent it back is confirmed if the new candidate
+        changed that finding's path (P3-T4): a blocker returned automatically, or a finding the
+        owner sent back with decide --fix."""
+        from . import calibration
+        previous = self.attempts_for(state, job)
+        last = previous[-1] if previous else None
+        if not last or last.get("failure_kind") != "review" or not last.get("candidate"):
+            return
+        try:
+            before = inventory(self.root / last["candidate"]["path"])
+        except (BuilderError, OSError):
+            return
+        known = calibration.outcomes(calibration.rows(self.root))
+        decisions = last.get("decisions", {})
+        rows = []
+        for finding, finding_id in zip(last.get("review", {}).get("findings", []), last.get("finding_ids", [])):
+            sent_back = finding["severity"] == "blocking" or (decisions.get(finding_id) or {}).get("kind") == "fix"
+            path = calibration.finding_path(finding.get("path"))
+            if (sent_back and known.get(finding_id, {}).get("outcome") == "unknown"
+                    and before.get(path) != proposed.get(path)):
+                rows.append({**known[finding_id], "attempt": state["active"]["id"], "outcome": "confirmed"})
+        for row in rows:
+            row.pop("at", None)
+        calibration.append(self.root, rows)
 
     def keep_reasoning(self, state, job, brain, log):
         """Keep a launched worker's reasoning note from its final message in reasoning.md, and the
