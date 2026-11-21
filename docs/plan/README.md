@@ -190,7 +190,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P2-T9 | Estimates you can check: marked readings and `usage check` (P2-G finding 54) | P2-T3 | M | done |
 | P2-T10 | Codex reports its token counts (P2-G finding 57) | P2-T9 | S | done |
 | P2-G | Phase 2 gate (rerun the two failed criteria; the 20 Nov run's other five stand) | P2-T1..T10 | S | done |
-| P3-T1 | Shared agent foundation (reasoning note, claim labels, self-critique) | P2-G | M | todo |
+| P3-T1 | Shared agent foundation (reasoning note, claim labels, self-critique) | P2-G | M | doing |
 | P3-T2 | Knowledge pack structure and `vesper kb` search | P2-G | M | todo |
 | P3-T3 | QA owns checks; prove-it-fails self-test | P3-T1 | L | todo |
 | P3-T4 | Reviewer: evidence-backed, multi-lens, calibration | P3-T1 | L | todo |
