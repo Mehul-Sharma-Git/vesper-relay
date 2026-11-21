@@ -79,6 +79,18 @@ class ReasoningNoteTests(unittest.TestCase):
         self.assertIsNone(problem)
         self.assertIn("one [assumed]", note)
 
+    def test_a_claude_code_log_with_stderr_lines_still_yields_the_note(self):
+        # The worker log holds stderr too (builder/process.py); review blocker on PR #56.
+        from builder.brains import ADAPTERS
+        result = json.dumps({"type": "result", "result": NOTE + "\n## Summary\nDone."})
+        for log in (result, "(node:12) Warning: something\n" + result + "\n",
+                    result + "\nnpm notice: update available\n"):
+            with self.subTest(log=log[:20]):
+                note, problem = reasoning_note(ADAPTERS["claude-code"].summary(log))
+                self.assertIsNone(problem)
+                self.assertEqual(note, NOTE.strip())
+        self.assertEqual(ADAPTERS["claude-code"].summary("Error: not logged in"), "Error: not logged in")
+
     def test_the_last_note_wins_and_a_long_note_is_cut(self):
         first = NOTE.replace("Restore the stale-write version check.", "First draft.")
         note, _ = reasoning_note(first + "\n" + NOTE)
