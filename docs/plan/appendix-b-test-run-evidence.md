@@ -69,10 +69,14 @@ reported about $1.26 at list price (informational; the owner's plans are fixed-f
 | 50 | P1-G run 6 (19 Nov 2026, with the finding 48 and 49 fixes): J_API's second attempt started from the first, fixed all three Codex review blockers without a regression and passed G_API, yet Codex raised two new blockers on it: a `Host` such as `999.0.0.1` accepted as an IPv4 address (no browser or rebinding page sends one) and an invalid delete-confirmation name answered 409 instead of 400 (the UI never sends one). Two attempts ran out. Cause: the job reviewer's rule was "blockers for material correctness or security defects", with nothing tying a blocker to the plan or the owner's threat model (finding 47's rule covered only the plan critique), and each review started fresh, so the bar moved with every version | Fixed in the P1-G proportional-job-review PR: the candidate-review prompt (`builder/review_gate.py`; not the shared reviewer role, so the plan critique keeps finding 47's rule) defines blocking (a requirement, contract or decision broken for input a user, the app's own interface or a threat inside the owner's threat model can produce; a security defect such a threat reaches; scope; missing required evidence) and makes everything else advisory; a retry's `review.json` lists `earlier_blockers` (up to 20), which the reviewer checks first |
 | 51 | P1-G run 7 (19 Nov 2026, with #31–#33): every Codex job review confirmed the earlier blockers fixed, yet raised one to three new ones per version, each narrower than the last, so J_API needed 4 attempts and J_UI was not done after 4. The reviewer was never asked to report everything in one pass, as the plan critique has been since #26 (finding 45) | Fixed in the P1-G candidate-sweep PR: the candidate-review prompt asks for one complete sweep by kind (each route, command or screen with every method, field, limit, encoding and error status; failure paths; concurrency and partial writes; every in-model input; and for an interface, controls while pending or failed, keyboard and focus, and typed text), reporting every blocker now. `team/roles/reviewer.md` now defers the blocking rule to the review prompt, so the plan critique and candidate review each state their own |
 | 52 | P2-G (20 Nov 2026): all 212 calls in the owner's usage ledger (`~/.local/state/vesper-relay/usage.jsonl`) came from test runs in temp folders (stand-in brains, no tokens, near-zero durations), so `vesper estimate` said "1 min" and "tokens unknown". Most test modules never set `VESPER_STATE_DIR`, so runs, ledger calls and learning went into the owner's real state | Fixed in #44: `tests/stand_in.py` points `VESPER_STATE_DIR` at a temp folder for every test process; the owner's ledger was cleaned (backup `usage.jsonl.before-p2g-cleanup`) |
-| 53 | P2-G run 2b (20 Nov 2026): the seed's `delete_list` built both its SQL statements from a raw path segment, a reachable injection (`DELETE /api/lists/(3)OR(inbox=0)?rev=1` deleted every list but Inbox). The worker added the missing revision check two lines below and left it; the Claude candidate reviewer approved with no findings, its security evidence covering only the diff ("the rev value is regex-validated"). In run 2 an unreachable f-string SQL was rightly not reported. A candidate review judges the change, not reachable defects in the code it touches | Open: P2-T8 (review the code a change touches), added to the plan on 20 Nov 2026 |
-| 54 | P2-G (20 Nov 2026): plan-limit estimates can't be checked tightly yet. The first run has no band (no earlier worker calls with tokens); `/usage` shows whole points, so a weekly rise under 1 point reads 0 (run 2: 0 against 0.5–3.8%); and the assistant driving the gate spends the same Claude account, so every reading pair includes its usage and inflates the calibrated rates (run 2b: session +2 against 3.2–34.8%). Codex had no readings at all (`chatgpt` uncalibrated) | Open: P2-T9 (marked readings only, `usage check` with a one-step tolerance; ChatGPT readings already exist), added to the plan on 20 Nov 2026 |
+| 53 | P2-G run 2b (20 Nov 2026): the seed's `delete_list` built both its SQL statements from a raw path segment, a reachable injection (`DELETE /api/lists/(3)OR(inbox=0)?rev=1` deleted every list but Inbox). The worker added the missing revision check two lines below and left it; the Claude candidate reviewer approved with no findings, its security evidence covering only the diff ("the rev value is regex-validated"). In run 2 an unreachable f-string SQL was rightly not reported. A candidate review judges the change, not reachable defects in the code it touches | Fixed in P2-T8: the review packet lists the touched definitions (`touched`), the diff shows them in full, and the candidate prompt sweeps them (a reachable in-model security defect in them blocks; otherwise an advisory). P2-G's rerun checks it with a real reviewer |
+| 54 | P2-G (20 Nov 2026): plan-limit estimates can't be checked tightly yet. The first run has no band (no earlier worker calls with tokens); `/usage` shows whole points, so a weekly rise under 1 point reads 0 (run 2: 0 against 0.5–3.8%); and the assistant driving the gate spends the same Claude account, so every reading pair includes its usage and inflates the calibrated rates (run 2b: session +2 against 3.2–34.8%). Codex had no readings at all (`chatgpt` uncalibrated) | Fixed in P2-T9: readings taken with `usage record --before RUN`/`--after RUN` around each `review-plan` or `run` part are the only ones that calibrate; `approve` keeps its estimate in the run's state; `vesper --project RUN usage check` compares the run's marked rise after approval with it (inside, below, above, with one point of tolerance, or unchecked) and `status` of a complete run shows it. P2-G's rerun checks it with real readings |
 | 55 | P2-G run 3 (20 Nov 2026): deciding the Codex critique's 32 blockers took 32 separate `decide --accept-risk` calls and 32 macOS dialogs, one finding each | Open: a batch `decide F1 F2 … --accept-risk` with one sheet listing every finding in full (P5-T1 connector or a P2 follow-up) |
 | 56 | P2-G run 3 (20 Nov 2026): on the plan Claude's critique blocked 6 times, Codex's raised 32 blockers (11 security, 9 correctness, 9 data, 3 other), several restating the owner's accepted risks (phone mode over a wildcard bind, the plan's wording of D3). With P2-T7 this is finite: the owner accepted all 32 and the run reached `complete`. Codex's job reviews converged (J_API 8, 4, 2; J_UI 8, 5) and raised no security or data advisory, only blockers | Open: P3-T4 calibration (proportion between brains) |
+| 57 | P2-G rerun (21 Nov 2026), stopped before its first run: the Codex adapter declares `usage_report=False`, so every Codex call enters the usage ledger with `tokens: None` (all 6 Codex calls of 20 Nov). `calibrate` skips a marked window holding a call without tokens, so the `chatgpt` account can never get a band, and `usage check` reports it unchecked whatever readings are taken. The rerun's estimate criterion uses a Codex reviewer and needs every account inside. The tokens exist: `codex exec --json` (in the image's codex-cli 0.170.0) prints events with per-turn usage to stdout, which the runner already logs; Vesper reads only `--output-last-message`. No run was started and no plan usage was spent | Owner (21 Nov 2026): fix first, in P2-T10; then rerun P2-G. Fixed in P2-T10 (see 58) |
+| 58 | P2-T10 (21 Nov 2026): every Codex command now adds `--json`, and `Codex.usage` sums `input_tokens` and `output_tokens` over each `turn.completed` event in the call's log. The field names come from the image's codex-cli 0.170.0 binary (the serde names of its exec `Usage`: `input_tokens`, `cached_input_tokens`, `cache_write_input_tokens`, `output_tokens`, `reasoning_output_tokens`), not from a live call, so no plan usage was spent; the cached and cache-write counts are part of the input count and the reasoning count part of the output count, so only input and output are kept. A log over the 4 MB read limit is now read from its end. A Codex reply comes only from `--output-last-message`: with no reply file, a host or sandbox Codex call has no reply (reviewer, plan critique, consult, doctor), but an external `--launcher` builds its own command, so its log stays its reply. A failed Codex worker's reason keeps its agent messages, errors and plain stderr lines, not raw events | Confirmed live in the P2-G rerun (21 Nov 2026): the first Codex call (run C's critique) entered the ledger with 158,375 tokens, and all 11 Codex calls of the rerun have tokens |
+| 59 | P2-G rerun (21 Nov 2026): `usage check` judges plan percentages only, and whole-point readings are coarse for small runs. R2 (one bug-fix attempt) rose 0 points on all four limits and read inside only through the one-point tolerance (claude session band 0.6–6.5%, chatgpt 0.7–4.8%). Its token counts fell below the estimate's token ranges (claude 50,306 against 60,667–331,489; chatgpt 105,012 against 158,375–378,532), and R1's Claude tokens (862,485) were just above theirs (121,334–843,224), but no check compares tokens | Open: also check the token range per account against the ledger in `usage check` (P3 follow-up) |
+| 60 | P2-G rerun (21 Nov 2026): with P2-T8's touched-code sweep, Codex job reviews still raised new blockers on each job's last attempt instead of converging: run C J_API 11 then 5, J_UI 6 then 7; run R1 J_API 10 then 6, J_UI 8 then 5. Every one was a hardening edge case outside the Pocket Todo fixture's gates (HTTP parser framing, Host forms, oversize integers; UI drafts, pending controls, focus), and the owner accepted all 23. The single-attempt bug fix (R2) gave no blockers | Open: fold into the fixture's gates with P3-T3; proportion between brains with P3-T4 (finding 56) |
 
 What worked and must be kept: plan digests, scope enforcement, the final full-gate rerun,
 export, the Claude adapter flags, and reviewers that traced every fetch against the
@@ -385,3 +389,100 @@ Every reading also includes the assistant session that drove the gate (same acco
   F1–F32; job blockers F57, F58, F68–F72): fold into the fixture's gates with P3-T3.
 - Batch acceptance with one sheet (finding 55); critique proportion between brains (finding 56).
 
+
+## Gate P2-G — 2026-11-21 01:43
+
+Result: **PASSED.** This rerun covered only the two criteria the 20 Nov run failed (phase-2
+file, "Rerun"); the other five passed on 20 Nov and stand. (1) Seeded advisory: with one
+attempt, Codex reported the reachable SQL injection in `delete_list` as a security
+advisory, and the run waited in `awaiting_decision` until the owner's `decide`. (2)
+Estimates: after calibration run C, the next two runs (R1 Pocket Todo, then R2 bug fix) read
+inside on every account and limit in `vesper usage check`.
+
+Setup: owner's Mac, sandbox image `vesper-sandbox:acbcacc59f3b` (codex-cli 0.170.0, Claude
+Code 2.1.327). Runner code: `dev` at `16f9eef` (P2-T10 merged). Every run used Claude
+workers and a Codex reviewer through a copy of the owner's config
+(`[brains.reviewer] use = "codex"`, `reserve_percent = 0`, the owner's choice for the gate;
+the owner's own config kept 25), passed with `VESPER_CONFIG`. Approvals and decisions went
+through the macOS-dialog confirmer. Readings came from the owner's `/usage`, recorded with
+`vesper usage record --before|--after RUN` right before and after each `review-plan` or
+`run` part. The assistant stayed idle while each part ran.
+
+### Runs
+
+| Run | What | Plan critique | Jobs | Result |
+| --- | --- | --- | --- | --- |
+| C (calibration) | Pocket Todo fixture (run 3's plan, checks and empty seed) | Codex: request_changes, 32 blockers (owner accepted all), 10 advisories; 158,375 tokens; 3 min 17 s | J_API: 11 blockers returned, then 5 blockers and 1 data advisory at out-of-attempts (F57–F62, owner accepted). J_UI: 6 returned, then 7 (F71–F77, owner accepted) | `complete`; build 5 min 28 s + 7 min 54 s |
+| R1 (checked) | Pocket Todo fixture, same plan as C | Codex: request_changes, 28 blockers (owner accepted all), 10 advisories; 274,966 tokens; 3 min 10 s | J_API: 10 returned, then 6 (F49–F54, owner accepted). J_UI: 8 returned, then 5 (F66–F70, owner accepted) | `complete`; build 5 min 16 s + 7 min 28 s |
+| R2 (checked) | Bug fix on the run-2b seed (stale list delete; reachable SQL injection in `delete_list`), J_FIX `max_attempts: 1` | none (`skip` depth) | J_FIX: no blocker; F1 security advisory (injection, awaiting decision; owner accepted), F2 correctness advisory (noted) | `complete`; 1 min 2 s |
+
+### Criteria
+
+| Criterion | Result | Evidence |
+| --- | --- | --- |
+| Seeded advisory: the review reports the injection as a security advisory and acceptance waits for the owner's `decide` | **Pass** | R2, attempt `e4d6bf0f`: F1 `severity: advisory`, `category: security`, `server.py`: "Lines 130 and 137 interpolate list_id into SQL. Lines 265–274 pass nonnumeric route IDs through to delete_list. A direct client that can reach the API can supply SQL syntax in the ID and alter row selection, risking deletion of stored lists and cascading todo loss … requests from other websites … are blocked on this route under D3." `run` exited 1 with status `awaiting_decision` ("waiting for the owner's decision on F1"). After `decide F1 --accept-risk` (macOS dialog) the run reached `complete` |
+| Estimates: two consecutive runs whose estimates come from marked readings only, inside for every account and limit | **Pass** | Table below. R1 and R2 approved estimates with bands from marked pairs only (P2-T9); `usage check` gave `inside` for claude and chatgpt, session and week, on both runs |
+
+### Estimates against observed usage
+
+Readings are session / week in whole points, from the owner's `/usage`.
+
+| Run | Part | claude | chatgpt |
+| --- | --- | --- | --- |
+| C | critique | 28 / 8 → 29 / 8 | 1 / 51 → 3 / 52 |
+| C | J_API | 30 / 8 → 0 / 9 (session reset) | 3 / 52 → 0 / 52 (session reset) |
+| C | J_UI | 0 / 9 → 7 / 10 | 0 / 52 → 3 / 53 |
+| R1 | critique | 8 / 10 → 8 / 10 | 3 / 53 → 6 / 53 |
+| R1 | J_API | 9 / 10 → 13 / 10 | 6 / 53 → 9 / 53 |
+| R1 | J_UI | 14 / 10 → 19 / 11 | 9 / 53 → 12 / 54 |
+| R2 | J_FIX | 20 / 11 → 20 / 11 | 12 / 54 → 12 / 54 |
+
+C's J_API "after" pair was taken about 7¾ hours after that part ended (02:04 to 09:48 IST,
+an overnight pause), so its weekly +1 for claude may include other use. Both sessions reset
+inside the part, which gives no session sample (`usage check` on C: session `unchecked`,
+"the window reset inside a bracketed part").
+
+| Run | Limit | Approved band | Observed rise (marked parts after approval) | `usage check` |
+| --- | --- | --- | --- | --- |
+| R1 | claude session | 2.4–16.5% | +9 (2 parts) | inside |
+| R1 | claude week | 0.3–2.9% | +1 | inside |
+| R1 | chatgpt session | 1.4–19.1% | +6 | inside |
+| R1 | chatgpt week | 0.0–9.6% | +1 | inside |
+| R2 | claude session | 0.6–6.5% | 0 (1 part) | inside (one-point tolerance) |
+| R2 | claude week | 0.0–1.1% | 0 | inside |
+| R2 | chatgpt session | 0.7–4.8% | 0 | inside (one-point tolerance) |
+| R2 | chatgpt week | 0.0–2.4% | 0 | inside |
+
+Every marked pair in the usage ledger is from this rerun; the first is C's critique (no
+reading was marked before P2-T9). The estimate's "calibrated runs" count marked parts
+(samples): R1's estimate used 2 Claude and 3 ChatGPT parts, all from C (confidence low);
+R2's used 4 and 6, from C and R1 (low and medium). Ledger tokens per run: C claude 649,910, chatgpt
+1,343,315; R1 claude 862,485, chatgpt 1,310,578; R2 claude 50,306, chatgpt 105,012. R1's
+Claude total fell just above, and both of R2's below, the estimate's token ranges, which no
+check compares (finding 59).
+
+### Fixed before the rerun (merged into `dev`)
+
+| PR | Fix | Finding |
+| --- | --- | --- |
+| #50 | Marked readings and `usage check` (P2-T9) | 54 |
+| #49 | Candidate reviews sweep the code a change touches (P2-T8) | 53 |
+| #52 | Codex reports its token counts (P2-T10), confirmed live in this rerun | 57, 58 |
+
+### Time and usage
+
+- Start 2026-11-21 01:43 IST (gate branch), end 2026-11-21 10:48 IST: 9 h 5 min, of which
+  about 7¾ h was the overnight pause after C's J_API part. Brain runtime was 33 min 35 s.
+- Plan usage before: claude session 28%, weekly 8%; chatgpt session 1%, weekly 51%. After:
+  claude session 22%, weekly 11%; chatgpt session 12%, weekly 54% (both 5-hour windows reset
+  once). The gate used about 3 weekly points on each account.
+
+### Follow-ups
+
+- Decided findings to fold into the Pocket Todo fixture's gates with P3-T3: C critique
+  F1–F32, C jobs F57–F62 and F71–F77; R1 critique F1–F28, R1 jobs F49–F54 and F66–F70.
+- R2's F1 (accepted: reachable only by callers trusted under D3, out of J_FIX's scope):
+  parameterize the `list_id` queries in a separate change to the reference app.
+- Check token ranges too, and tell a 0-point rise on a small run from a sample (finding 59).
+- Codex job reviews still don't converge in two attempts (finding 60); batch decisions are
+  still one dialog per finding, 85 this rerun (finding 55).

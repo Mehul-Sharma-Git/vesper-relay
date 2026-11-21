@@ -97,6 +97,12 @@ check "add-check: amendments in builder/amendments.py chained to the approval di
     sh -c 'grep -q "^def add(runner, check_id" builder/amendments.py && grep -q "\"add-check\": \"Adding this check\"" builder/approvals.py'
 check "findings have a category; backlog.json and decide (--fix/--accept-risk) in builder/decisions.py (P2-T7)" "P2-G, P3-T4, P5-T1, P5-T3" \
     sh -c 'grep -q "^CATEGORIES = " builder/review_gate.py && grep -q "^def decide(runner, finding_id" builder/decisions.py && grep -q "\"accept-risk\": \"Accepting this risk\"" builder/approvals.py'
+check "candidate reviews sweep touched code: touched_code and TOUCHED_SWEEP in builder/review_gate.py (P2-T8)" "P2-G, P3-T4" \
+    sh -c 'grep -q "^def touched_code(before, after, paths)" builder/review_gate.py && grep -q "^TOUCHED_SWEEP = (" builder/review_gate.py'
+check "estimates you can check: only marked reading pairs calibrate, approve keeps the estimate, usage check (P2-T9)" "P2-G, P4-T6" \
+    sh -c 'grep -q "^def marked_pairs(rows, account)" builder/usage.py && grep -q "^def check_run(run, state, rows)" builder/usage.py && grep -q "\"estimate\": estimate}" builder/runner.py'
+check "Codex reports tokens: --json event log, usage_report=True, no reply decoded from its event log (P2-T10)" "P2-G" \
+    sh -c 'grep -q "usage_report=True" builder/brains/codex.py && grep -q "\"--json\"" builder/brains/codex.py && grep -q "reply_in_log = False" builder/brains/codex.py && grep -q "^def reply_path(brain, response, log, launcher=None)" builder/brains/__init__.py'
 check "approve requires an approving plan critique at full/focused depth, or the owner's decision on each blocker (P2-T7)" "P2-T2, P2-T5" \
     grep -q "Independent plan critique must approve" builder/runner.py
 check "review_plan decodes through the brain adapter (tolerant decoder; P1-T1, P1-T8)" "P3-T4" \

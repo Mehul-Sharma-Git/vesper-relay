@@ -347,7 +347,7 @@ def citable_files(bundle):
 def review_plan(runner, report=None, *, external_attested=False, brain=None, launcher=None, trust_host=False,
                 review_timeout=PLAN_REVIEW_TIMEOUT, review_max_turns=20):
     """Independent critique of the exact plan packet: an attested report or a launched reviewer brain."""
-    from .brains import command as brain_command, launch, parse_result
+    from .brains import command as brain_command, launch, parse_result, reply_path
     from .contracts import review_bundle
     from .providers import review_limits
     from .review_gate import STRICT_ENDING
@@ -439,7 +439,8 @@ def review_plan(runner, report=None, *, external_attested=False, brain=None, lau
             require(code == 0, "Plan reviewer failed (" + (f"timed out after {review_timeout} s; raise "
                     "--review-timeout" if code == 124 else f"exit {code}") + "); no approval recorded")
             require(inventory(view) == before, "Plan reviewer modified its input copy")
-            output = response if response.is_file() else log
+            output = reply_path(brain, response, log, launcher)  # never an event-stream log (P2-T10)
+            require(output is not None, f"Plan reviewer {brain.name} wrote no reply file; no approval recorded")
             require(not output.is_symlink() and output.stat().st_size <= 256_000, "Invalid plan reviewer output")
             reply = output.read_text(encoding="utf-8")
     try:

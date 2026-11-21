@@ -49,6 +49,9 @@ class Adapter:
     # commands use is still listed, except ``hidden_flags``: accepted but not in the help text.
     help_command = ("--help",)
     hidden_flags = ()
+    # When a call that may write a reply file (reviewer, consult) leaves none, its log is the
+    # reply. False for an adapter whose log is something else (Codex's event stream, P2-T10).
+    reply_in_log = True
 
     def executable(self):
         found = shutil.which(self.binary)
@@ -84,7 +87,7 @@ class Adapter:
         return text
 
     def usage(self, text):
-        """Token counts from a reviewer reply, or None. Called only when ``usage_report``."""
+        """Token counts from a call's reply file or log, or None. Called only when ``usage_report``."""
         return None
 
     def environment(self, launcher, environ=None):

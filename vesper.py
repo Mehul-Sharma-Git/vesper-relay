@@ -12,7 +12,7 @@ import tempfile
 
 from build_local import (boundary_options, brain_options, chosen, initialize, resolve_boundary,
                          review_limit_options)
-from builder.brains import Selection, launch
+from builder.brains import Selection, launch, reply_path
 from builder.contracts import BuilderError, fingerprint, inventory, read_json, require
 from builder.git_bridge import apply_change, change, repository, seed_repository
 from builder.learning import RULES, guidance, memory, promote, record, record_repair, state_home, summary
@@ -141,7 +141,8 @@ def consult(project, args):
                       ledger={"run": project, "job": None, "role": "consult"})
         require(code == 0, f"Consultation failed with exit {code}")
         require(inventory(workspace) == before, "Consultation changed its read-only baseline copy")
-        report = response if response.is_file() else log
+        report = reply_path(brain, response, log, launcher)  # never an event-stream log (P2-T10)
+        require(report is not None, f"Consultation brain {brain.name} wrote no reply file")
         require(report.stat().st_size <= 256_000, "Consultation exceeds the output limit")
         return {"role": args.role, "revision": role["revision"], "brain": brain.name,
                 "report": report.read_text(encoding="utf-8")}
@@ -256,6 +257,13 @@ def main():
     reading.add_argument("--account", required=True, help="claude, chatgpt or gemini")
     reading.add_argument("--session", required=True, type=float, help="Current session usage %%")
     reading.add_argument("--week", required=True, type=float, help="Current weekly usage %%")
+    marked = reading.add_mutually_exclusive_group()
+    marked.add_argument("--before", type=Path, metavar="RUN",
+                        help="Taken right before a review-plan or run on RUN, the assistant otherwise idle")
+    marked.add_argument("--after", type=Path, metavar="RUN",
+                        help="Taken right after that review-plan or run on RUN")
+    usage_command.add_parser("check", help="Compare a run's usage after approval with its approved estimate "
+                                           "(needs --project)")
     commands.add_parser("root")
     commands.add_parser("runs").add_argument("--repo", type=Path)
     for name in sorted(CORE):
@@ -342,10 +350,18 @@ def main():
             if code:
                 print(json.dumps(result, indent=2))
                 return 1
+        elif args.command == "usage" and args.action == "check":
+            from builder.usage import check_run, entries
+            require(args.project, "Pass --project PATH before the command")
+            runner = Runner(args.project.resolve())
+            require((runner.root / "plan").is_dir(), f"{runner.root} is not a Vesper run folder")
+            state = runner.state() if runner.state_file.exists() else None
+            result = check_run(runner.root, state, entries())
         elif args.command == "usage":
             from builder.usage import record_reading
             number = lambda value: int(value) if float(value).is_integer() else value
-            result = record_reading(args.account, number(args.session), number(args.week))
+            result = record_reading(args.account, number(args.session), number(args.week),
+                                    before=args.before, after=args.after)
         elif args.command == "root":
             result = {"checkout": str(ROOT)}
         elif args.command == "runs":

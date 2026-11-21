@@ -175,6 +175,7 @@ class DoctorTests(Machine):
                 self.assertTrue(set(ADAPTERS[adapter].hidden_flags).isdisjoint(flags))
         self.assertIn("--max-turns", ADAPTERS["claude-code"].hidden_flags)
         self.assertIn("--skip-git-repo-check", used_flags(ADAPTERS["codex"]))
+        self.assertIn("--json", used_flags(ADAPTERS["codex"]))  # P2-T10: the event stream
         self.assertIn("--approval-mode", used_flags(ADAPTERS["gemini-cli"]))
 
     def test_old_python_fails_with_a_fix(self):
@@ -271,6 +272,18 @@ class DoctorTests(Machine):
         auth.parent.mkdir()
         auth.write_text("{}")
         self.assertEqual(self.by_name(self.run_doctor())["codex login"]["status"], "ok")
+
+    def test_codex_json_is_checked_against_codex_exec_help_in_the_image(self):
+        # P2-T10: every Codex command now carries --json; a codex whose `exec --help` lacks it fails.
+        self.docker()
+        self.write_config('[brains.reviewer]\nuse = "codex"\n')
+        self.cli("codex")
+        self.assertEqual(self.by_name(self.run_doctor())["codex flags"]["status"], "ok")
+        self.assertTrue(any(line.startswith("run ") and "codex exec --help" in line for line in self.calls("docker")))
+        self.cli("codex", drop=("--json",))
+        flags = self.by_name(self.run_doctor())["codex flags"]
+        self.assertEqual(flags["status"], "fail")
+        self.assertIn("--json", flags["detail"])
 
     def test_no_brains_is_a_warning(self):
         self.docker()

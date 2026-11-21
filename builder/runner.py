@@ -15,9 +15,11 @@ from .amendments import package as checks_package  # the approved checks plus an
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract, safe_path)
 from .process import run_process
-from .brains import command as brain_command, launch, parse_result, tools as brain_tools, usage
+from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
+    tools as brain_tools, usage
 from .providers import GATES_DIR, review_limits, worker_prompt
-from .review_gate import needs_security, prompt as review_prompt, report_schema, validate_report, write_diff
+from .review_gate import (needs_security, prompt as review_prompt, report_schema, touched_code, validate_report,
+                          write_diff)
 from .sandbox import Sandbox, check_job, command_job
 
 # VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
@@ -389,6 +391,9 @@ class Runner:
         if "repair" in bundle:
             from .repair import reproduction_record
             proof = reproduction_record(self, digest, bundle)
+        # P2-T9: keep the estimate the plan was approved on, so `usage check` can compare with it.
+        from .usage import for_project
+        estimate = for_project(contract, bundle)
         # Human-only (P2-T2): the owner confirms on the plan sheet before anything is locked.
         confirmation = confirm("approve-plan", str(self.root), digest,
                                plan_sheet(self.root, contract, bundle, digest, run_store(self.root)))
@@ -408,7 +413,7 @@ class Runner:
         sync_tree(initial)
         state = {"format": 1, "digest": digest, "approved_at": stamp(), "approval_id": approval_id,
                  "bundle": bundle, "snapshot_id": approval_id, "snapshot_digest": fingerprint(bundle["seed"]),
-                 "completed": [], "active": None, "attempts": []}
+                 "completed": [], "active": None, "attempts": [], "estimate": estimate}
         if proof:
             state["repair_reproduction"] = proof
         state["confirmation"] = {key: confirmation[key] for key in ("digest", "confirmer", "at")}
@@ -513,11 +518,18 @@ class Runner:
         else:
             phase = "ready"
         from .amendments import listed
-        return {"status": phase, "title": contract["title"], "delivery": contract["delivery"],
-                "digest": state["digest"], "snapshot": str(self.snapshot(state)),
-                "completed": state["completed"], "next_job": job and job["id"],
-                "active": state["active"], "attempts": state["attempts"],
-                "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state), **decisions}
+        result = {"status": phase, "title": contract["title"], "delivery": contract["delivery"],
+                  "digest": state["digest"], "snapshot": str(self.snapshot(state)),
+                  "completed": state["completed"], "next_job": job and job["id"],
+                  "active": state["active"], "attempts": state["attempts"],
+                  "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state), **decisions}
+        if phase == "complete":
+            # P2-T9: once the run's marked readings exist, show how its usage compared with the estimate.
+            from .usage import check_run, entries, has_marked_readings
+            rows = entries()
+            if has_marked_readings(self.root, state, rows):
+                result["usage_check"] = check_run(self.root, state, rows)
+        return result
 
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
@@ -785,7 +797,10 @@ class Runner:
             # The gates' raw folder may hold links or pipes; only the checked copy stays. A folder a
             # gate left unremovable must not reject the candidate (sync_tree skips non-files anyway).
             shutil.rmtree(directory / "artifacts", ignore_errors=True)
-        write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"])
+        # The code the change touches, which the reviewer sweeps too (P2-T8, finding 53).
+        packet["touched"] = touched_code(workspace / "base", workspace / "candidate", attempt["changed"])
+        write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"],
+                   packet["touched"])
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
         (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
         (workspace / "review.md").write_text(review_prompt(profile, packet), encoding="utf-8")
@@ -842,7 +857,8 @@ class Runner:
                 profile = state["bundle"]["team"][role_key]
                 (view / "review.json").write_text(json.dumps({key: value for key, value in packet.items()
                                                            if key not in ("workspace", "directory")}, indent=2))
-                write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"])
+                write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"],
+                           packet.get("touched"))
                 schema = report_schema(packet)
                 (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
                 (view / "review.md").write_text(review_prompt(profile, packet))
@@ -855,13 +871,19 @@ class Runner:
                               ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"})
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
-                output = response if response.is_file() else log
+                # An adapter whose log is an event stream has no reply without the file (P2-T10).
+                output = reply_path(brain, response, log, launcher)
+                require(output is not None, f"Reviewer brain {brain.name} wrote no reply file. "
+                        "Tested candidate remains pending.")
                 require(not output.is_symlink() and output.stat().st_size <= 256_000,
                         "Reviewer output was linked or exceeded the report limit")
                 reply = output.read_text(encoding="utf-8")
                 report = parse_result(brain, reply)
                 launched = {"provider": brain.name, "adapter": brain.adapter.name}
-                spent = usage(brain, reply)
+                # The reply carries the usage, or else the call's log does (an event stream, P2-T10).
+                spent = usage(brain, reply) or (usage(brain, read_tail(log, limit=REPLY_LIMIT))
+                                                if output != log and log.is_file() and not log.is_symlink()
+                                                else None)
                 if spent:
                     launched["usage"] = spent
         require(len(json.dumps(report)) <= 256_000, "Reviewer output exceeded the report limit")
