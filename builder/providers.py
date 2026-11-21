@@ -5,6 +5,7 @@ diagnostic only."""
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 
 from .contracts import require, reviewed_text
@@ -36,6 +37,46 @@ SHELL_PROMPT = ("You can run commands inside your workspace. Run the project's o
                 "app before finishing. Report the exact commands and results.")
 
 
+# The worker's reasoning note (P3-T1, team/skills/critical-thinking): each field needs content.
+REASONING_FIELDS = ("Understanding", "Assumptions", "Options considered", "Choice and why", "Pre-mortem",
+                    "How I'd know I'm wrong")
+REASONING_LIMIT = 8000
+REASONING_HEADING = re.compile(r"^[ \t]*#{2,3}[ \t]*reasoning note[ \t]*:?[ \t]*$", re.I | re.M)
+ANY_HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]", re.M)
+NOTE_PROMPT = ("Start your final message with the '## Reasoning note' the critical-thinking skill describes, "
+               "every field filled, then your summary with each factual claim labelled [verified], [inferred] "
+               "or [assumed]. Vesper keeps the note with this attempt and gives it to the independent reviewer.")
+
+
+def reasoning_note(text):
+    """The last reasoning note in a worker's final message, as (note, None), or (None, why it
+    is missing). The note runs from its heading to the next heading."""
+    text = (text or "").replace("\u2019", "'")
+    starts = list(REASONING_HEADING.finditer(text))
+    if not starts:
+        return None, "no '## Reasoning note' section"
+    start = starts[-1]
+    following = ANY_HEADING.search(text, start.end())
+    body = text[start.end():following.start() if following else len(text)]
+    labels = []
+    for field in REASONING_FIELDS:
+        found = re.search(rf"^[ \t]*(?:[-*+][ \t]+)?[*_]*{re.escape(field)}[*_]*[ \t]*:[*_]*", body, re.I | re.M)
+        labels.append((found.start(), found.end(), field) if found else (None, None, field))
+    missing = [field for begin, _, field in labels if begin is None]
+    placed = sorted(item for item in labels if item[0] is not None)
+    for index, (_, end, field) in enumerate(placed):
+        stop = placed[index + 1][0] if index + 1 < len(placed) else len(body)
+        if not body[end:stop].strip(" \t\n*_-"):
+            missing.append(field)
+    if missing:
+        ordered = [field for field in REASONING_FIELDS if field in missing]
+        return None, "the reasoning note has no " + ", ".join(ordered)
+    note = (text[start.start():start.end()].strip() + "\n" + body.strip("\n")).strip()
+    if len(note) > REASONING_LIMIT:
+        note = note[:REASONING_LIMIT - 12].rstrip() + "\n[note cut]"
+    return note, None
+
+
 def gate_lines(gates):
     lines = []
     for check in gates:
@@ -63,6 +104,7 @@ def worker_prompt(contract, job, plans, manifest, failure, intake=None, speciali
         "Use workspace files as context. Keep secrets and external actions out of this job. "
         "The coordinator independently checks and publishes your changes. "
         "Finish with a short summary or explain the blocker.",
+        NOTE_PROMPT,
         *([SHELL_PROMPT] if shell else []),
         "Approved contract (task subset)\n" + json.dumps({
             "title": contract["title"], "delivery": contract["delivery"], "requirements": requirements,

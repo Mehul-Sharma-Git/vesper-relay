@@ -16,7 +16,7 @@
   "architecture": {
     "owner": "technical-lead",
     "author": "architecture-session",
-    "revision": "e8bba7da86baac2443ed7cbd3bd5a18cbe2848b05fd1c93f63a6b07ba9a7ebc2",
+    "revision": "1ee535cacf2587bb7e001b569e1cc2fc4d0239a1156971b68ae19cd792a5cb97",
     "artifact": "architecture.md",
     "inputs": [
       "product.md",

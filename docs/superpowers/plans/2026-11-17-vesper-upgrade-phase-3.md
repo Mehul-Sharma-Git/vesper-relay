@@ -13,13 +13,13 @@ No third-party imports in the runner; never weaken plan digests, scope checks, r
 ## Task P3-T1: Shared agent foundation (reasoning note, claim labels, self-critique)
 Depends on: P2-G · Size: M · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T1
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P3-T1 and every file under its "Read first"
-- [ ] Create branch `plan/p3-t1`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T1 and every file under its "Read first"
+- [x] Create branch `plan/p3-t1`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P3-T2: Knowledge pack structure and `vesper kb` search
 Depends on: P2-G · Size: M · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T2

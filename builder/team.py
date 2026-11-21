@@ -12,6 +12,9 @@ TOOLS = ("read", "edit", "write", "search", "shell")
 WRITER_TOOLS = TOOLS
 REVIEWER_TOOLS = ("read", "search", "shell")
 CONSULT_TOOLS = ("read", "search")
+# Core skills every role loads ahead of its own default (P3-T1): reasoning note, claim labels,
+# self-critique. They are part of each role's revision, so a frozen run keeps the version it had.
+SHARED_SKILLS = ("critical-thinking",)
 PROFILES = {
     "planner": ("consult", "discovery", (), CONSULT_TOOLS),
     "designer": ("consult", "interaction-design", ("webgl-motion",), CONSULT_TOOLS),
@@ -24,7 +27,8 @@ PROFILES = {
 
 
 def catalog():
-    return {role: {"access": access, "default_skill": core, "optional_skills": list(extra), "tools": list(granted)}
+    return {role: {"access": access, "default_skill": core, "core_skills": [*SHARED_SKILLS, core],
+                   "optional_skills": list(extra), "tools": list(granted)}
             for role, (access, core, extra, granted) in PROFILES.items()}
 
 
@@ -47,7 +51,7 @@ def profile(role, selected=()):
         "role": role, "access": access,
         "instructions": (ROOT / "roles" / (role + ".md")).read_text(encoding="utf-8"),
         "skills": {skill: (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
-                   for skill in (core, *selected)},
+                   for skill in (*SHARED_SKILLS, core, *selected)},
     }
     return {**result, "revision": fingerprint(result)}
 
