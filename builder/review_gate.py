@@ -154,14 +154,19 @@ def merge(reports, packet):
                 findings.append(seen[key])
                 continue
             kept = seen[key]
-            if lens not in kept["lenses"]:
-                kept["lenses"].append(lens)
+            previous = dict(kept)
+            lenses = kept["lenses"] + ([lens] if lens not in kept["lenses"] else [])
             if item["severity"] == "blocking" and kept["severity"] != "blocking":
-                kept.update({name: item[name] for name in item}, lenses=kept["lenses"])
-            if not nonempty(kept.get("repro")) and nonempty(item.get("repro")):
-                kept["repro"] = item["repro"]
-            if rank.get(item.get("confidence"), 9) < rank.get(kept.get("confidence"), 9):
-                kept["confidence"] = item["confidence"]
+                # A real blocker replaces the copy whole: nothing of a downgraded copy (its
+                # suspected mark and evidence note) survives (review round 1 of PR 60).
+                kept.clear()
+                kept.update(item)
+            kept["lenses"] = lenses
+            for other in (previous, item):
+                if not nonempty(kept.get("repro")) and nonempty(other.get("repro")):
+                    kept["repro"] = other["repro"]
+                if rank.get(other.get("confidence"), 9) < rank.get(kept.get("confidence"), 9):
+                    kept["confidence"] = other["confidence"]
     areas = evidence_areas(packet)
     return {**{key: packet[key] for key in BINDING},
             "verdict": "request_changes" if any(item["severity"] == "blocking" for item in findings) else "approve",

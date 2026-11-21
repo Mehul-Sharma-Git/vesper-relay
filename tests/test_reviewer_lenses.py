@@ -114,6 +114,19 @@ class MergeTests(unittest.TestCase):
         backwards = dict(reversed(list(reports.items())))
         self.assertEqual(review_gate.merge(reports, PACKET), review_gate.merge(backwards, PACKET))
 
+    def test_a_proven_blocker_replaces_an_earlier_lens_suspected_copy_whole(self):
+        # Review round 1 of PR 60: the suspected mark of the downgraded copy must not survive.
+        suspected, _ = review_gate.downgrade(report([finding()]))
+        proven = report([finding(repro=REPRO, confidence="medium")])
+        merged = review_gate.merge({"correctness": suspected, "security": proven,
+                                    "performance": report(), "readability": report()}, PACKET)
+        [item] = merged["findings"]
+        self.assertEqual((item["severity"], item["lenses"], item["repro"]), ("blocking", ["correctness", "security"],
+                                                                            REPRO))
+        self.assertNotIn("suspected", item)
+        self.assertNotIn("Suspected blocker", item["evidence"])
+        self.assertEqual(item["confidence"], "high")  # the strongest confidence of the two is kept
+
     def test_no_blockers_left_means_approve(self):
         merged = review_gate.merge({lens: report() for lens in review_gate.LENSES}, PACKET)
         self.assertEqual((merged["verdict"], merged["findings"]), ("approve", []))
