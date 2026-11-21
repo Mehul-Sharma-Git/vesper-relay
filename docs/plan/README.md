@@ -192,7 +192,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P2-G | Phase 2 gate (rerun the two failed criteria; the 20 Nov run's other five stand) | P2-T1..T10 | S | done |
 | P3-T1 | Shared agent foundation (reasoning note, claim labels, self-critique) | P2-G | M | done |
 | P3-T2 | Knowledge pack structure and `vesper kb` search | P2-G | M | done |
-| P3-T3 | QA owns checks; prove-it-fails self-test | P3-T1 | L | doing |
+| P3-T3 | QA owns checks; prove-it-fails self-test | P3-T1 | L | done |
 | P3-T4 | Reviewer: evidence-backed, multi-lens, calibration | P3-T1 | L | todo |
 | P3-T5 | Exploratory QA session | P3-T3, P1-T10 | M | todo |
 | P3-G | Phase 3 gate | P3-T1..T5 | S | todo |

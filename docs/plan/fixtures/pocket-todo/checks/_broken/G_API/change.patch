@@ -1,0 +1,13 @@
+--- a/server.py
++++ b/server.py
+@@ -250,10 +250,6 @@
+             if not (hostname == "localhost" or re.fullmatch(r"[0-9]{1,3}(\.[0-9]{1,3}){3}", hostname)
+                     or re.fullmatch(r"\[[0-9a-fA-F:.]+\]", hostname)):
+                 raise ApiError(403, "unknown host")
+-            if method in ("POST", "PATCH", "DELETE"):
+-                origin = self.headers.get("Origin")
+-                if origin is not None and origin != "http://" + host:
+-                    raise ApiError(403, "foreign origin")
+             if method in ("POST", "PATCH"):
+                 ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                 if ctype != "application/json":

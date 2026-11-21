@@ -81,6 +81,19 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   plain-language approval sheet (`review --json` gives the raw bundle for tools). Run
   `vesper --project PATH approve --digest DIGEST` only after authorization; the owner
   then confirms it (see Approvals).
+- **QA owns the checks.** Before approval, `vesper --project PATH draft-checks --brain NAME`
+  runs QA as a writer over a copy of `plan/` and `checks/` (the seed is read-only): it writes
+  every acceptance check, `checks/test-strategy.md` and a broken variant per check. What it
+  changed reaches the run like any plan change, so `review` shows it and the critique and
+  proof run again. Each check may have `checks/_broken/<CHECK_ID>/` (`change.patch` in Git's
+  diff format, or `files/` replacements, plus `note.md`). `vesper --project PATH prove-checks
+  [--against DIR]` runs each such check on a copy of the seed (or of a known-good tree such as
+  a fixture solution) and on the same copy broken: `proven` passes then fails;
+  `passes_broken` and `unusable` refuse approval; `fails_on_base` and `missing` are reported
+  per check. It exits 1 when the proof does not pass. At `focused` and `full` depth `approve`
+  needs a passing proof of the exact plan and stores it in the approval. A check with
+  `"blocking": false` (a mutation score) records its result and never rejects a job; no
+  requirement may rest on one.
 - **Execute.** Run `vesper --project PATH prepare`, read the returned job brief,
   and edit only its work copy within the assigned scope. Run
   `vesper --project PATH submit ATTEMPT_ID` to run the approved checks, then

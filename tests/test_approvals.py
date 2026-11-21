@@ -227,10 +227,12 @@ class PocketTodoSheetTests(unittest.TestCase):
         self.critique(project)
         folder = self.root / "sheets"
         self.env["VESPER_TEST_SHEETS"] = str(folder)
+        # P3-T3: full depth proves the checks first, here against the known-good reference app.
+        self.cli("--project", project, "prove-checks", "--against", FIXTURE / "reference", "--sandbox", "none")
         self.cli("--project", project, "approve", "--digest", self.cli("--project", project, "review", "--json")["digest"])
         approved = sheets(folder, "approve-plan")[-1]
         self.assertIn("What changed: first approval", approved)
-        for field in ("Requirements", "Jobs", "Critique: approve, 0 blockers", "Digest:"):
+        for field in ("Requirements", "Jobs", "Critique: approve, 0 blockers", "Digest:", "Checks proven to fail:"):
             self.assertIn(field, approved)
         api = project / "checks" / "api.py"
         before = len(api.read_text().splitlines())

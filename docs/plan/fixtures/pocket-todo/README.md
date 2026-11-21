@@ -16,7 +16,11 @@ The real artifacts from the 9 Nov 2026 test run.
   when a task needs it.
 - `checks/`: the three approved gates (`api.py`, `ui.py`, `browser.py`). `browser.py`
   needs Python Playwright and contains a hardcoded browser-path fallback that P1-T4
-  makes unnecessary.
+  makes unnecessary. `checks/_broken/` (P3-T3) holds one broken variant per gate, a patch
+  against `reference/` with a `note.md`: G_API without the Origin check on writes (the CSRF
+  hole `solution/` shipped with), G_UI without the "New todo" label, G_BROWSER rendering
+  titles with `innerHTML`. `prove-checks --against reference` must report all three
+  `proven`; regenerate a patch when `reference/` changes.
 - `solution/`: the app accepted and exported on 9 Nov (Go was not the stack then: this is
   stdlib Python + static files). It passed the 9 Nov checks only; it fails the checks
   revised during the P1-G gate (no `rev`, Host, Origin or security headers, ASCII-only

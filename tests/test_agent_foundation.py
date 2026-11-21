@@ -205,6 +205,7 @@ class DepthRuleTests(unittest.TestCase):
     def approve_full(self):
         self.full()
         review_plan(self.runner, report=self.report(), external_attested=True)
+        self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
         self.runner.approve(self.runner.review()["digest"])
 
     def approve_skip(self):
@@ -263,6 +264,7 @@ class DepthRuleTests(unittest.TestCase):
         self.stand_in(note=False)
         self.focused()
         review_plan(self.runner, report=self.report(), external_attested=True)
+        self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
         self.runner.approve(self.runner.review()["digest"])
         self.assertEqual(self.runner.review()["files"]["planning"]["depth"], "focused")
         self.assertEqual(self.run_once()["status"], "complete")

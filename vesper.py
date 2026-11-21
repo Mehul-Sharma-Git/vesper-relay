@@ -25,7 +25,7 @@ from builder.team import catalog, profile, render
 
 ROOT = Path(__file__).resolve().parent
 CORE = {"init", "brief", "review", "approve", "prepare", "submit", "abandon", "retry",
-        "status", "export", "run", "review-candidate", "estimate", "add-check", "decide"}
+        "status", "export", "run", "review-candidate", "estimate", "add-check", "decide", "prove-checks"}
 MODES = ("build", "feature", "bug", "design", "frontend", "backend", "maintenance")
 MARK = "Vesper Relay managed installation"
 
@@ -204,6 +204,11 @@ def main():
     boundary_options(plan_review)
     review_limit_options(plan_review)
     plan_review.set_defaults(review_timeout=PLAN_REVIEW_TIMEOUT)
+    drafting = commands.add_parser("draft-checks", help="QA writes the checks over a copy of plan/ and checks/")
+    brain_options(drafting)
+    boundary_options(drafting)
+    drafting.add_argument("--timeout", type=int, default=600, metavar="SECONDS",
+                          help="QA's wall-time limit, 1 to 1800 seconds (default %(default)s)")
     commands.add_parser("incidents")
     boundary_options(commands.add_parser("repair-reproduce"))
     commands.add_parser("repair-commit").add_argument("--digest", required=True)
@@ -317,6 +322,14 @@ def main():
                                      external_attested=args.attest_independent, brain=brain,
                                      launcher=launcher, trust_host=trust_host,
                                      review_timeout=args.review_timeout, review_max_turns=args.review_max_turns)
+        elif args.command == "draft-checks":
+            from builder.qa import draft_checks
+            require(args.project, "Pass --project PATH before the command")
+            runner = Runner(args.project.resolve())
+            with runner.lock():
+                brain = Selection(worker=chosen(args)).worker("qa")
+                launcher, trust_host = resolve_boundary(args)
+                result = draft_checks(runner, brain, launcher, trust_host, timeout=args.timeout)
         elif args.command == "incidents":
             require(args.project, "Pass --project PATH before the command")
             result = incident_report(Runner(args.project.resolve()))
