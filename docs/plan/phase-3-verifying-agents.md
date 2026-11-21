@@ -129,6 +129,40 @@ are present for every job.
   400-line note, and calibration records; a stand-in review of the Pocket Todo solution
   (no CSRF/Origin checks in `server.py`) yields a security blocker with a repro.
 
+## P3-T3b — Fold P2-G's accepted findings into the Pocket Todo gates
+
+- **Why:** during P2-G the plan critiques and job reviews kept raising Pocket Todo hardening
+  gaps outside the fixture's gates, and the owner accepted each as a risk to fold into the
+  gates later (`appendix-b`, findings 60 and 62, and both P2-G "Follow-ups"). Until they are
+  checks, every gate run re-finds them, and reviewers' convergence can't be judged. Added by
+  the owner on 21 Nov 2026, to run after P3-T4.
+- **Read first:** `fixtures/pocket-todo/p2g-accepted-findings.json` (the 169 findings the
+  owner accepted in the four P2-G Pocket Todo runs, exported from their backlogs),
+  `fixtures/pocket-todo/plan/acceptance.md`, `architecture.md`, `decisions.md` (D3, the
+  threat model), `planning.json`, `checks/`, `checks/_broken/`, `reference/`, and P3-T3.
+- **Change:**
+  1. Triage every finding in the export into one of: **check** (a promise the plan makes,
+     or a plausible wrong build, that no assertion catches: add or strengthen an assertion),
+     **covered** (name the existing assertion that already fails on it), or **risk** (outside
+     the threat model or the plan's scope: cite the decision or plan item; it stays an
+     accepted risk). The runs overlap heavily: group duplicates and decide each group once.
+     Record the table in `fixtures/pocket-todo/findings-triage.md`: run and finding ID, group,
+     decision, and the assertion (gate and failure message) or the reason.
+  2. For each **check**: add the assertion to G_API, G_UI or G_BROWSER (prefer extending
+     these over new check IDs), a row in `plan/acceptance.md`, and any list item it changes in
+     `planning.json`; update `reference/` so it passes. (P2-G rerun R2's F1, the `list_id`
+     injection, was in that run's seed, not here: `reference/server.py` already binds every
+     `list_id`; triage it as **covered** or **risk**, not as a change to `reference/`.)
+  3. Keep each gate's broken variant failing; regenerate a patch when `reference/` moves
+     under it. A new check ID gets its own `checks/_broken/` variant.
+- **Do not:** change `solution/` (it stays the app that shipped with the CSRF hole); weaken
+  or remove an existing assertion; add gate dependencies beyond the standard library and
+  Python Playwright; stretch the threat model (D3) to make a finding a check.
+- **Acceptance:** a test that every finding in the export appears exactly once in the triage
+  table; `prove-checks --against reference` in the Docker sandbox reports every check
+  `proven`, and the sandbox and host fixture tests pass; `reference/` passes all three gates
+  in the sandbox; the fixture plan still passes `review`.
+
 ## P3-T5 — Exploratory QA session
 
 - **Change:** after a frontend job passes its gates (`focused` and `full` depth), the runner

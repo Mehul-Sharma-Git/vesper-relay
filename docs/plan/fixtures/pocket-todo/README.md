@@ -29,6 +29,9 @@ The real artifacts from the 9 Nov 2026 test run.
   G_BROWSER in the sandbox image, 19 Nov 2026). Use it as the known-good candidate for
   `prove-checks` (P3-T3); during P1-G each broken variant of it failed at the assertion
   `plan/acceptance.md` names for it. Update it with any change to `checks/`.
+- `p2g-accepted-findings.json`: the 169 findings the owner accepted as risks in the four P2-G
+  Pocket Todo runs (20 Nov runs 1 and 3, 21 Nov runs C and R1), exported from their backlogs
+  for P3-T3b, which folds those that matter into the gates.
 - `reviewer-replies/`: raw Claude reviewer outputs (`--output-format json`) whose
   `result` has a sentence before a fenced JSON block, which the current parser rejects;
   `approved-report.json` is the unwrapped verdict that was accepted.
