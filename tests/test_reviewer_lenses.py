@@ -127,6 +127,19 @@ class MergeTests(unittest.TestCase):
         self.assertNotIn("Suspected blocker", item["evidence"])
         self.assertEqual(item["confidence"], "high")  # the strongest confidence of the two is kept
 
+    def test_a_suspected_copy_outranks_a_plain_advisory_in_either_order(self):
+        # Review round 2 of PR 60: a suspected blocker must still reach the owner.
+        plain = report([finding(severity="advisory", category="correctness", path="app.js")])
+        suspected, _ = review_gate.downgrade(report([finding(category="correctness", path="app.js")]))
+        for first, second in ((plain, suspected), (suspected, plain)):
+            merged = review_gate.merge({"correctness": first, "security": second,
+                                        "performance": report(), "readability": report()}, PACKET)
+            [item] = merged["findings"]
+            self.assertEqual((item["severity"], item.get("suspected")), ("advisory", True))
+            self.assertIn("Suspected blocker", item["evidence"])
+            self.assertEqual(item["lenses"], ["correctness", "security"])
+            self.assertEqual(merged["verdict"], "approve")
+
     def test_no_blockers_left_means_approve(self):
         merged = review_gate.merge({lens: report() for lens in review_gate.LENSES}, PACKET)
         self.assertEqual((merged["verdict"], merged["findings"]), ("approve", []))

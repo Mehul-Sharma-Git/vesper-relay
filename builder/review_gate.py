@@ -135,6 +135,12 @@ def downgrade(report):
     return {**report, "findings": findings, "verdict": verdict}, count
 
 
+def strength(item):
+    """How strongly a finding counts in a merge: a blocker, then a suspected blocker (an advisory
+    that waits for the owner), then a plain advisory."""
+    return 2 if item["severity"] == "blocking" else 1 if item.get("suspected") else 0
+
+
 def normalised(text):
     return " ".join(re.findall(r"[a-z0-9]+", str(text).lower()))
 
@@ -142,8 +148,9 @@ def normalised(text):
 def merge(reports, packet):
     """One report from the lens reports ({lens: report}), the same whatever order they arrived in:
     every finding in lens order, a duplicate (same path, category and normalised recommendation)
-    folded into the first with its lenses listed and the strongest severity, confidence and repro
-    kept; the verdict asks for changes when any blocker remains."""
+    folded into the first with its lenses listed and the strongest copy (blocking, then suspected,
+    then advisory), confidence and repro kept; the verdict asks for changes when any blocker
+    remains."""
     findings, seen = [], {}
     rank = {name: index for index, name in enumerate(CONFIDENCE)}
     for lens in LENSES:
@@ -156,9 +163,10 @@ def merge(reports, packet):
             kept = seen[key]
             previous = dict(kept)
             lenses = kept["lenses"] + ([lens] if lens not in kept["lenses"] else [])
-            if item["severity"] == "blocking" and kept["severity"] != "blocking":
-                # A real blocker replaces the copy whole: nothing of a downgraded copy (its
-                # suspected mark and evidence note) survives (review round 1 of PR 60).
+            if strength(item) > strength(kept):
+                # The stronger copy replaces the kept one whole: a real blocker leaves nothing of a
+                # suspected copy, and a suspected copy keeps its mark over a plain advisory, so it
+                # still waits for the owner (review rounds 1 and 2 of PR 60).
                 kept.clear()
                 kept.update(item)
             kept["lenses"] = lenses
