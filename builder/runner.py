@@ -14,6 +14,7 @@ from uuid import uuid4
 from .amendments import package as checks_package  # the approved checks plus any added after (P2-T6)
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract, safe_path)
+from .knowledge import MOUNT as KNOWLEDGE_MOUNT, write_pack
 from .process import run_process
 from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
     tools as brain_tools, usage
@@ -535,7 +536,7 @@ class Runner:
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
 
-    def begin(self, state, contract, provider, adapter=None, shell=False):
+    def begin(self, state, contract, provider, adapter=None, shell=False, sandboxed=False):
         from .decisions import open_decisions
         job = self.ready(state, contract)
         previous = self.attempts_for(state, job) if job else []
@@ -584,11 +585,17 @@ class Runner:
                       "keep what works and fix what failed." if carried else
                       "Your workspace starts from the accepted version: no earlier attempt left a checked "
                       "candidate that is still intact.")
+        specialist = state["bundle"].get("team", {}).get("jobs", {}).get(job["id"])
+        knowledge_path = None
+        if specialist and specialist.get("knowledge"):
+            # The role's frozen pack (P3-T2), read-only beside the workspace; the sandbox mounts it
+            # at /knowledge. The approval bound these exact files, whatever team/knowledge/ now says.
+            folder = write_pack(specialist["knowledge"], specialist["role"], directory / "knowledge")
+            knowledge_path = KNOWLEDGE_MOUNT if sandboxed else str(folder)
         prompt = worker_prompt(contract, job, self.approval(state) / "plan", state["bundle"]["plan"],
-                               attempt_history(previous),
-                               state["bundle"].get("intake"),
-                               state["bundle"].get("team", {}).get("jobs", {}).get(job["id"]),
-                               state["bundle"].get("planning"), shell=shell, gates=gates, origin=origin)
+                               attempt_history(previous), state["bundle"].get("intake"), specialist,
+                               state["bundle"].get("planning"), shell=shell, gates=gates, origin=origin,
+                               knowledge_path=knowledge_path)
         if "repair" in state["bundle"]:
             proof = state["repair_reproduction"]
             incident = state["bundle"]["repair"].get("source_incident")
@@ -1115,7 +1122,9 @@ class Runner:
                 brain_command(reviewer, "reviewer", launcher, trust_host, max_turns=review_max_turns)
             # Shell only inside a real sandbox backend (P1-T10); the prompt says so only then.
             shell = "shell" in brain_tools(brain, "worker", ready["role"], isinstance(launcher, Sandbox))
-            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell)
+            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell,
+                                                         sandboxed=isinstance(launcher, Sandbox))
+            pack_copy = self.attempt_dir(attempt) / "knowledge"
             log = self.attempt_dir(attempt) / "worker.log"
             print(f"{job['id']} | {brain.name} | attempt {attempt['id'][:8]}", file=sys.stderr, flush=True)
 
@@ -1125,7 +1134,8 @@ class Runner:
 
             code = launch(brain, "worker", launcher, trust_host, work=workspace, input_text=prompt, log=log,
                           timeout=job.get("timeout", 180), on_start=record_child, role=job["role"],
-                          ledger={"run": self.root, "job": job["id"], "role": job["role"]})
+                          ledger={"run": self.root, "job": job["id"], "role": job["role"]},
+                          knowledge=pack_copy if pack_copy.is_dir() else None)
             attempt["worker_log"] = str(log.relative_to(self.root))
             if code != 0:
                 said = brain.adapter.summary(read_tail(log, limit=200_000))

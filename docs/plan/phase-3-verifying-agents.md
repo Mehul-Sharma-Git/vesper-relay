@@ -58,7 +58,9 @@ are present for every job.
      `vesper kb search --role ROLE "query"` prints the top passages with file and heading.
   3. The runner appends the top 5 passages for the job goal to the worker prompt, and the
      sandbox mounts `team/knowledge/` read-only at `/knowledge` so agents can search more
-     (document the path in the prompt).
+     (document the path in the prompt). As built: the mount holds the role's pack as frozen
+     at approval (`/knowledge/<role>/`, written read-only into the attempt), so a pack edited
+     after approval never reaches the run (item 4).
   4. Pack files are part of the frozen role fingerprint (`team.profile` revision), so a
      run's approval binds the exact knowledge used.
   5. A test fails if any pack file's `last_checked` is older than 180 days (warning

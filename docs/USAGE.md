@@ -194,6 +194,15 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   attempt fails. `none` and `--trust-host` run on the host and warn every time; `--launcher
   PATH` keeps a custom launcher. Sandboxed brains log in from the macOS Keychain (service
   `vesper-relay`) or `~/.config/vesper/secrets.env` (mode 600); see START-HERE.md.
+- **Knowledge packs.** Each role can have a pack of checklists, failure catalogues and
+  guides in `team/knowledge/<role>/*.md` (QA and reviewer so far). Every file starts with
+  front matter: `title`, `tags`, `last_checked` (a date), `sources` (URLs) and `licence`.
+  `vesper kb search --role ROLE "query"` prints the best-matching paragraphs (BM25), each
+  with its file and heading (`--limit N`, default 5). A pack is part of its role's revision,
+  so an approved run keeps the exact pack it was approved with. A launched worker's brief
+  carries the top 5 passages for its job goal, and the sandbox mounts the role's frozen pack
+  read-only at `/knowledge/<role>/`. The tests warn about any pack file not rechecked in 180
+  days.
 - **Gate evidence.** A gate can save evidence (screenshots, traces) in the folder named
   by `VESPER_ARTIFACTS`. The independent reviewer's copy holds the approved gate scripts
   (`checks/`), each gate's log (`logs/<ID>.log`, the last 256 KB when longer) and what
