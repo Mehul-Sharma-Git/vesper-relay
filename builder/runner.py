@@ -389,6 +389,9 @@ class Runner:
             waiting = undecided_plan_blockers(self.root, critique)
             require(not waiting, "Independent plan critique must approve this exact packet before implementation, "
                                  "or the owner must decide each blocker: " + "; ".join(waiting))
+        # P3-T3: at focused and full depth every check must fail against its broken variant.
+        from .qa import approval_proof
+        check_proof = approval_proof(self, bundle)
         proof = None
         if "repair" in bundle:
             from .repair import reproduction_record
@@ -418,6 +421,8 @@ class Runner:
                  "completed": [], "active": None, "attempts": [], "estimate": estimate}
         if proof:
             state["repair_reproduction"] = proof
+        if check_proof:
+            state["check_proof"] = check_proof
         state["confirmation"] = {key: confirmation[key] for key in ("digest", "confirmer", "at")}
         if critique:
             from .decisions import accepted_by_approval
@@ -448,6 +453,11 @@ class Runner:
         from .amendments import apply
         # Checks added after approval (P2-T6), each verified against its confirmed digest.
         return apply(self, state, reviewed_contract(approval / "plan", bundle["plan"], bundle["checks"]))
+
+    def prove_checks(self, against=None, launcher=None):
+        """Prove each check fails against its broken variant (P3-T3); `approve` reads the record."""
+        from .qa import prove
+        return prove(self, against=against, launcher=launcher)
 
     def decide(self, finding_id, *, fix=False, accept=False, reason=None):
         """The owner's decision on a finding (P2-T7); accepting a risk is a protected action."""
@@ -704,7 +714,7 @@ class Runner:
                 return self.stage_review(state, job, candidate, directory, proposed)
             return self.accept_candidate(state, job["id"], candidate, proposed)
         except BuilderError as exc:
-            if any(item["exit_code"] or item.get("evidence_error")
+            if any((item["exit_code"] and item.get("blocking", True)) or item.get("evidence_error")
                    for item in attempt["checks"] + attempt.get("setup", [])):
                 kind = "check"
             elif str(exc).startswith("Changes outside job scope:"):
@@ -1053,10 +1063,12 @@ class Runner:
             code, intact = execute_check(check["script"], package, manifest, candidate, inventory(candidate), log,
                                          launcher, timeout=limit, gate_env=gate_env, artifacts=artifacts)
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
+        if check.get("blocking", True) is False:
+            result["blocking"] = False  # recorded only, such as a mutation score (P3-T3)
         state["active"]["checks"].append(result)
         self.save(state)
         require(intact, f"Check {check['id']} modified the candidate or check package")
-        require(code == 0, f"Check {check['id']} exited {code}\n{read_tail(log)}")
+        require(code == 0 or not result.get("blocking", True), f"Check {check['id']} exited {code}\n{read_tail(log)}")
         failure_id = state["bundle"].get("repair", {}).get("failure_id")
         if check["id"] == "VESPER_REPRO" and failure_id:
             from .repair import read_repro_result

@@ -311,6 +311,16 @@ class Handler(BaseHTTPRequestHandler):
     do_GET = do_HEAD = do_POST = do_PATCH = do_DELETE = do_PUT = _handle
 
 
+class LocalServer(ThreadingHTTPServer):
+    """Binds without HTTPServer's reverse-DNS lookup (socket.getfqdn), which can hold startup past
+    the gates' 8 s readiness wait on some macOS hosts (found on GitHub's macOS runner, P3-T3)."""
+
+    def server_bind(self):
+        import socketserver
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
@@ -319,7 +329,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     os.umask(0o077)
     init_db(args.db)
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    httpd = LocalServer((args.host, args.port), Handler)
     httpd.daemon_threads = True
     httpd.db_path = args.db
     print(f"READY http://{args.host}:{httpd.server_address[1]}", flush=True)

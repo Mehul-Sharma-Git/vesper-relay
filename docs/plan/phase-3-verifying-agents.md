@@ -91,10 +91,14 @@ are present for every job.
   3. **Prove-it-fails:** each check may have `checks/_broken/<CHECK_ID>/` holding a small
      patch or replacement files that break the behaviour it guards.
      `vesper --project RUN prove-checks` applies each broken variant to a copy of the seed
-     (or the fixture solution when given) and requires the check to fail. Standard and full
+     (or the fixture solution when given) and requires the check to fail. `focused` and `full`
      depths must pass `prove-checks` before `approve`; results are stored in the approval.
+     (Built in `builder/qa.py`: each check with a variant runs on the unbroken copy first, so
+     a check that fails there too is reported as proving little rather than counted as proven;
+     a variant that passes, or cannot be applied, refuses approval.)
   4. Mutation testing at `full` depth as optional command gates: evaluate Gremlins (Go) and
-     StrykerJS (TypeScript); record the score, don't block on it yet.
+     StrykerJS (TypeScript); record the score, don't block on it yet. (Built as checks with
+     `"blocking": false`, which record and never reject; no requirement may rest on one.)
 - **Acceptance:** tests that `approve` is refused when a check passes against its broken
   variant; that a missing `_broken` entry is reported per check; that the Pocket Todo
   fixture's three checks all fail against their broken variants (add them under

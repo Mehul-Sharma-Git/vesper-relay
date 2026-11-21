@@ -73,6 +73,12 @@ def plan_sheet(root, contract, bundle, digest, store):
     if planning:
         lines.append(f"Planning: {planning['depth']} depth, manifest version {manifest.get('version')}")
     lines.append(verdict)
+    from .qa import sheet_lines
+    from .runner import Runner
+    lines += sheet_lines(Runner(Path(root)), bundle)  # P3-T3: which checks are proven to fail
+    recorded = [item["id"] for item in contract["checks"] if item.get("blocking", True) is False]
+    if recorded:
+        lines.append("Recorded only, never blocking (such as mutation scores): " + ", ".join(recorded))
     advisories = [item for item in findings if item.get("severity") == "advisory" and item not in risks]
     for item in blockers + advisories[:TOP_FINDINGS]:
         lines.append(f"  {item['severity']}: {item.get('path', '')}: {one_line(item.get('recommendation', ''))}")

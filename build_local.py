@@ -120,6 +120,11 @@ def main():
     gate.add_argument("--command", dest="gate_command", help='A command gate, for example "go test ./..."')
     add_check.add_argument("--jobs", help="Comma-separated unfinished jobs that must pass it")
     add_check.add_argument("--reason", help="Why the check is added (shown to the owner and recorded)")
+    prove_checks = commands.add_parser(
+        "prove-checks", help="Prove each check fails against its broken variant in checks/_broken/ (before approval)")
+    prove_checks.add_argument("--against", type=Path, metavar="DIR",
+                              help="A known-good tree to break instead of the seed, such as a fixture solution")
+    boundary_options(prove_checks)
     commands.add_parser("status")
     commands.add_parser("estimate").add_argument("--json", action="store_true", help="Print the estimate as JSON")
     commands.add_parser("export").add_argument("destination", type=Path)
@@ -167,6 +172,9 @@ def main():
                         result = engine.review_candidate(brain=brain, launcher=launcher, trust_host=trust_host,
                                                          review_timeout=args.review_timeout,
                                                          review_max_turns=args.review_max_turns)
+                elif args.command == "prove-checks":
+                    # Gates run sandboxed: the config's backend unless a flag chooses (like submit).
+                    result = engine.prove_checks(against=args.against, launcher=resolve_boundary(args)[0])
                 elif args.command == "abandon":
                     result = engine.abandon(args.attempt)
                 elif args.command == "retry":
@@ -209,6 +217,8 @@ def main():
             print("builder: waiting for the owner's decision on " + ", ".join(result.get("awaiting_decision") or
                   engine.status().get("awaiting_decision", [])) + ": run decide FINDING_ID --fix, or "
                   '--accept-risk --reason "..." (status lists each finding)', file=sys.stderr)
+        if args.command == "prove-checks":
+            return int(not result["passed"])
         return int(result.get("outcome") in ("rejected", "awaiting_decision")
                    or result.get("status") in ("blocked", "awaiting_decision"))
     except (BuilderError, OSError, UnicodeError) as exc:

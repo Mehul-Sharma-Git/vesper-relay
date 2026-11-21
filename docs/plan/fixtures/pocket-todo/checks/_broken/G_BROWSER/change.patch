@@ -1,0 +1,11 @@
+--- a/app.js
++++ b/app.js
+@@ -75,7 +75,7 @@
+       cb.type = 'checkbox'; cb.id = 'todo-' + t.id; cb.checked = t.done;
+       cb.addEventListener('change', function () { toggle(t, cb); });
+       var lab = document.createElement('label');
+-      lab.htmlFor = cb.id; lab.textContent = t.title;
++      lab.htmlFor = cb.id; lab.innerHTML = t.title;
+       var del = document.createElement('button');
+       del.type = 'button'; del.textContent = 'Delete';
+       del.setAttribute('aria-label', 'Delete ' + t.title);
