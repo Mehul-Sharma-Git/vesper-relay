@@ -150,8 +150,9 @@ are present for every job.
      decision, and the assertion (gate and failure message) or the reason.
   2. For each **check**: add the assertion to G_API, G_UI or G_BROWSER (prefer extending
      these over new check IDs), a row in `plan/acceptance.md`, and any list item it changes in
-     `planning.json`; update `reference/` so it passes. Also parameterize the `list_id`
-     queries in `reference/server.py` (P2-G rerun R2's F1).
+     `planning.json`; update `reference/` so it passes. (P2-G rerun R2's F1, the `list_id`
+     injection, was in that run's seed, not here: `reference/server.py` already binds every
+     `list_id`; triage it as **covered** or **risk**, not as a change to `reference/`.)
   3. Keep each gate's broken variant failing; regenerate a patch when `reference/` moves
      under it. A new check ID gets its own `checks/_broken/` variant.
 - **Do not:** change `solution/` (it stays the app that shipped with the CSRF hole); weaken

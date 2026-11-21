@@ -484,7 +484,8 @@ check compares (finding 59).
 - Decided findings to fold into the Pocket Todo fixture's gates with P3-T3: C critique
   F1–F32, C jobs F57–F62 and F71–F77; R1 critique F1–F28, R1 jobs F49–F54 and F66–F70.
 - R2's F1 (accepted: reachable only by callers trusted under D3, out of J_FIX's scope):
-  parameterize the `list_id` queries in a separate change to the reference app.
+  parameterize the `list_id` queries in a separate change to the reference app. (Checked 21 Nov:
+  `reference/` already binds every `list_id`; the injection was in R2's seed only.)
 - Check token ranges too, and tell a 0-point rise on a small run from a sample (finding 59).
 - Codex job reviews still don't converge in two attempts (finding 60); batch decisions are
   still one dialog per finding, 85 this rerun (finding 55).

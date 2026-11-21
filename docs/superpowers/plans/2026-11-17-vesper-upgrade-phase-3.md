@@ -77,7 +77,7 @@ Depends on: P3-T3, P1-T10 · Size: M · Spec: `docs/plan/phase-3-verifying-agent
 - [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P3-G: Phase 3 gate
-Depends on: P3-T1..T5 · Size: S · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-G
+Depends on: P3-T1..T5, P3-T3b · Size: S · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-G
 
 - [ ] Confirm every task this gate depends on is `done` on the board
 - [ ] Run the gate exactly as written in `docs/plan/phase-3-verifying-agents.md`
