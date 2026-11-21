@@ -298,27 +298,50 @@ class RecordOnlyCheckTests(unittest.TestCase):
             validate(only_recorded, checks)
 
 
+def sandbox_ready():
+    """Docker and the built sandbox image (it has Python Playwright with Chromium for G_BROWSER)."""
+    from builder.sandbox import Docker
+    try:
+        return bool(shutil.which("docker")) and bool(Docker().check().image_id)
+    except BuilderError:
+        return False
+
+
+def prove_fixture(test, only, launcher=None):
+    """Prove the named fixture checks against the reference app and require each one proven."""
+    contract = json.loads((FIXTURE / "plan" / "contract.json").read_text())
+    with tempfile.TemporaryDirectory() as temp:
+        results = qa.prove_tree(contract, FIXTURE / "checks", inventory(FIXTURE / "checks"),
+                                FIXTURE / "reference", Path(temp), launcher=launcher, only=only)
+        # On a failure, show why: the end of each log of a check that was not proven.
+        why = "\n".join(f"{item['id']} {key}: " + path.read_text(errors="replace")[-1500:]
+                        for item in results if item["outcome"] != "proven"
+                        for key, path in item.get("logs", {}).items())
+    test.assertEqual({item["id"]: item["outcome"] for item in results}, dict.fromkeys(only, "proven"), why)
+
+
 @unittest.skipUnless(os.name == "posix", "the fixture gates start a local server")
 class PocketTodoFixtureTests(unittest.TestCase):
-    """The fixture's three checks each fail against their broken variant (checks/_broken/), and
-    pass on the known-good reference app. G_BROWSER needs Python Playwright: it runs here when
-    Playwright is installed, and in the sandbox image otherwise (the PR's acceptance command)."""
+    """The fixture's three checks each fail against their broken variant (checks/_broken/) and
+    pass on the known-good reference app. G_API and G_UI need only Python; G_BROWSER needs Python
+    Playwright, so it is proven here when Playwright is installed and in the sandbox image below."""
 
-    def test_each_fixture_check_fails_against_its_broken_variant(self):
-        contract = json.loads((FIXTURE / "plan" / "contract.json").read_text())
+    def test_the_fixture_has_one_broken_variant_per_check(self):
         broken = FIXTURE / "checks" / "_broken"
         self.assertEqual(sorted(path.name for path in broken.iterdir()), ["G_API", "G_BROWSER", "G_UI"])
-        only = ["G_API", "G_UI"]
-        if importlib.util.find_spec("playwright"):
-            only.append("G_BROWSER")
-        with tempfile.TemporaryDirectory() as temp:
-            results = qa.prove_tree(contract, FIXTURE / "checks", inventory(FIXTURE / "checks"),
-                                    FIXTURE / "reference", Path(temp), launcher=None, only=only)
-            # On a failure, show why: the end of each log of a check that was not proven.
-            why = "\n".join(f"{item['id']} {key}: " + path.read_text(errors="replace")[-1500:]
-                            for item in results if item["outcome"] != "proven"
-                            for key, path in item.get("logs", {}).items())
-        self.assertEqual({item["id"]: item["outcome"] for item in results}, dict.fromkeys(only, "proven"), why)
+
+    def test_api_and_ui_checks_fail_against_their_broken_variants(self):
+        prove_fixture(self, ["G_API", "G_UI"])
+
+    @unittest.skipUnless(importlib.util.find_spec("playwright"), "Python Playwright is not installed here; "
+                         "the sandbox test below proves G_BROWSER")
+    def test_browser_check_fails_against_its_broken_variant_on_this_machine(self):
+        prove_fixture(self, ["G_BROWSER"])
+
+    @unittest.skipUnless(sandbox_ready(), "Docker and the sandbox image are needed (vesper sandbox build)")
+    def test_every_fixture_check_fails_against_its_broken_variant_in_the_sandbox(self):
+        from builder.sandbox import Docker
+        prove_fixture(self, ["G_API", "G_UI", "G_BROWSER"], launcher=Docker().check())
 
 
 # A stand-in `claude` CLI acting as QA: it drafts a strategy and a broken variant, and edits the

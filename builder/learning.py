@@ -58,7 +58,8 @@ def record(runner):
     for attempt in status["attempts"]:
         if attempt["job"] not in accepted or attempt["outcome"] != "rejected":
             continue
-        if any(result["exit_code"] != 0 for result in attempt["checks"]):
+        # A record-only check (blocking false, P3-T3) never rejects, so it is no signal either.
+        if any(result["exit_code"] != 0 and result.get("blocking", True) for result in attempt["checks"]):
             found.add("reproduce-first")
         if attempt.get("reason", "").startswith("Changes outside job scope:"):
             found.add("confirm-file-scope")
