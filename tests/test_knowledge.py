@@ -76,7 +76,14 @@ class FrontMatterTests(unittest.TestCase):
         with self.assertRaisesRegex(BuilderError, "bad.md.*unknown"):
             knowledge.front_matter(page("x", owner="me"), "bad.md")
         with self.assertRaisesRegex(BuilderError, "bad.md.*future"):
-            knowledge.front_matter(page("x", last_checked=(date.today() + timedelta(days=2)).isoformat()), "bad.md")
+            knowledge.front_matter(page("x", last_checked=(date.today() + timedelta(days=3)).isoformat()), "bad.md")
+
+    def test_a_date_a_day_or_two_ahead_is_a_time_zone_not_the_future(self):
+        # Review of PR #57: the author's "today" is tomorrow for a runner behind them.
+        for days in (1, 2):
+            ahead = (date.today() + timedelta(days=days)).isoformat()
+            self.assertEqual(knowledge.front_matter(page("x", last_checked=ahead), "a.md")[0]["last_checked"],
+                             date.fromisoformat(ahead))
 
     def test_a_pack_folder_is_read_sorted_and_refuses_links_and_bad_pages(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -142,8 +149,9 @@ class PromptTests(unittest.TestCase):
         self.assertIn("Knowledge passages", brief)
         self.assertIn("csrf.md > CSRF and Origin", brief)
         self.assertIn("Check the Origin header against an allow list", brief)
-        self.assertIn("/knowledge/backend/", brief)
-        section = brief[brief.index("Knowledge passages"):]
+        self.assertIn("Knowledge packs for every role, as approved for this run, are read-only in /knowledge/",
+                      brief)
+        section = brief[brief.index("Knowledge passages"):brief.index("Knowledge packs for every role")]
         self.assertLessEqual(section.count("\n- "), knowledge.PROMPT_PASSAGES)
 
     def test_at_most_five_passages_and_none_without_a_pack(self):
@@ -155,6 +163,19 @@ class PromptTests(unittest.TestCase):
         unrelated = {"x.md": page("# Fonts\n\nPick two typefaces.\n")}
         self.assertNotIn("Knowledge passages", self.brief({**team.profile("backend"), "knowledge": unrelated},
                                                           knowledge_path="/knowledge"))
+
+    def test_a_role_without_a_pack_still_learns_where_the_packs_are(self):
+        # Review of PR #57: a backend worker can read the reviewer's failure catalogue too.
+        brief = self.brief(team.profile("backend"), knowledge_path="/knowledge")
+        self.assertNotIn("Knowledge passages", brief)
+        self.assertIn("read-only in /knowledge/", brief)
+        self.assertNotIn("/knowledge", self.brief(team.profile("backend")))
+
+    def test_the_reviewer_prompt_names_the_packs_only_when_mounted(self):
+        from builder.review_gate import prompt
+        packet = {"attempt_id": "a", "base_digest": "b", "candidate_digest": "c", "checks": []}
+        self.assertIn("read-only in /knowledge/", prompt(team.profile("reviewer"), packet, "/knowledge"))
+        self.assertNotIn("/knowledge", prompt(team.profile("reviewer"), packet))
 
     def test_the_sandbox_mounts_the_pack_read_only_at_knowledge(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -194,10 +215,20 @@ class FingerprintTests(unittest.TestCase):
         self.assertEqual(team.profile("technical-lead")["revision"], before["revision"])
         self.assertIn("a.md", team.profile("designer")["knowledge"])
 
-    def test_the_frozen_team_binds_the_reviewer_pack(self):
+    def test_the_frozen_team_binds_every_pack(self):
         contract = {"team": 1, "jobs": [{"id": "J", "role": "backend", "paths": ["a.py"], "checks": []}]}
         frozen = team.freeze_team(contract)
         self.assertEqual(frozen["reviewer"]["knowledge"], knowledge.pack("reviewer", self.team / "knowledge"))
+        # The whole team/knowledge/ tree, as approved, for the /knowledge mount (item 3).
+        self.assertEqual(frozen["knowledge"], knowledge.tree(self.team / "knowledge"))
+        self.assertGreaterEqual(set(frozen["knowledge"]), {"qa", "reviewer"})
+        shutil.rmtree(self.team / "knowledge")
+        self.assertNotIn("knowledge", team.freeze_team(contract))
+
+    def test_the_tree_refuses_a_linked_pack_folder(self):
+        (self.team / "knowledge" / "designer").symlink_to(self.team / "knowledge" / "qa")
+        with self.assertRaisesRegex(BuilderError, "designer"):
+            knowledge.tree(self.team / "knowledge")
 
 
 class ShippedPackTests(unittest.TestCase):
@@ -278,10 +309,14 @@ class RunTests(unittest.TestCase):
         self.assertIn("Knowledge passages", brief)
         self.assertIn("refuse an old one", brief)
         attempt = self.runner.state()["attempts"][0]
-        copy = self.runner.attempt_dir(attempt) / "knowledge" / "backend" / "versions.md"
+        packs = self.runner.attempt_dir(attempt) / "knowledge"
+        copy = packs / "backend" / "versions.md"
         self.assertIn("refuse an old one", copy.read_text())
         self.assertFalse(stat.S_IMODE(copy.stat().st_mode) & 0o222)
-        self.assertIn(str(copy.parent), brief)  # on the host the brief names the host copy
+        self.assertTrue((packs / "reviewer" / "failure-modes.md").is_file())  # every role's pack
+        self.assertIn(f"read-only in {packs}/", brief)  # on the host the brief names the host copy
+        # The launched reviewer is told where the packs are; they sit outside its review copy.
+        self.assertIn("Knowledge packs for every role", (bin_dir / "review.md").read_text())
 
 
 if __name__ == "__main__":

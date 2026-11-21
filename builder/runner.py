@@ -14,7 +14,7 @@ from uuid import uuid4
 from .amendments import package as checks_package  # the approved checks plus any added after (P2-T6)
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract, safe_path)
-from .knowledge import MOUNT as KNOWLEDGE_MOUNT, write_pack
+from .knowledge import MOUNT as KNOWLEDGE_MOUNT, write_tree
 from .process import run_process
 from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
     tools as brain_tools, usage
@@ -586,12 +586,8 @@ class Runner:
                       "Your workspace starts from the accepted version: no earlier attempt left a checked "
                       "candidate that is still intact.")
         specialist = state["bundle"].get("team", {}).get("jobs", {}).get(job["id"])
-        knowledge_path = None
-        if specialist and specialist.get("knowledge"):
-            # The role's frozen pack (P3-T2), read-only beside the workspace; the sandbox mounts it
-            # at /knowledge. The approval bound these exact files, whatever team/knowledge/ now says.
-            folder = write_pack(specialist["knowledge"], specialist["role"], directory / "knowledge")
-            knowledge_path = KNOWLEDGE_MOUNT if sandboxed else str(folder)
+        folder = self.knowledge_copy(state, directory / "knowledge")
+        knowledge_path = (KNOWLEDGE_MOUNT if sandboxed else str(folder)) if folder else None
         prompt = worker_prompt(contract, job, self.approval(state) / "plan", state["bundle"]["plan"],
                                attempt_history(previous), state["bundle"].get("intake"), specialist,
                                state["bundle"].get("planning"), shell=shell, gates=gates, origin=origin,
@@ -606,6 +602,14 @@ class Runner:
         state["active"] = attempt
         self.save(state)
         return job, attempt, workspace, prompt
+
+    @staticmethod
+    def knowledge_copy(state, directory):
+        """Write the run's frozen knowledge packs (team/knowledge/ as approved, P3-T2) read-only into
+        ``directory`` for an agent to read; the sandbox mounts it at /knowledge. None when the run
+        froze no packs (older runs, or no packs at all)."""
+        packs = state["bundle"].get("team", {}).get("knowledge")
+        return write_tree(packs, directory) if packs else None
 
     def carried_candidate(self, state, job, previous, base):
         """The newest earlier candidate of this job that passed the scope check, as
@@ -873,14 +877,19 @@ class Runner:
                            packet.get("touched"))
                 schema = report_schema(packet)
                 (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
-                (view / "review.md").write_text(review_prompt(profile, packet))
+                # The approved packs sit beside the review copy, never inside it (P3-T2).
+                packs = self.knowledge_copy(state, session / "knowledge")
+                knowledge_path = (KNOWLEDGE_MOUNT if isinstance(launcher, Sandbox) else str(packs)) if packs else None
+                text = review_prompt(profile, packet, knowledge_path)
+                (view / "review.md").write_text(text)
                 view_digest = fingerprint(inventory(view))
                 response = session / "response.json"
                 log = directory / ("reviewer-" + uuid4().hex + ".log")
                 code = launch(brain, "reviewer", launcher, trust_host, work=view,
-                              input_text=review_prompt(profile, packet), log=log, timeout=review_timeout,
+                              input_text=text, log=log, timeout=review_timeout,
                               response=response, schema=schema, max_turns=review_max_turns,
-                              ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"})
+                              ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"},
+                              knowledge=packs)
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
                 # An adapter whose log is an event stream has no reply without the file (P2-T10).

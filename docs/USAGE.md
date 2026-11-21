@@ -199,10 +199,11 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   front matter: `title`, `tags`, `last_checked` (a date), `sources` (URLs) and `licence`.
   `vesper kb search --role ROLE "query"` prints the best-matching paragraphs (BM25), each
   with its file and heading (`--limit N`, default 5). A pack is part of its role's revision,
-  so an approved run keeps the exact pack it was approved with. A launched worker's brief
-  carries the top 5 passages for its job goal, and the sandbox mounts the role's frozen pack
-  read-only at `/knowledge/<role>/`. The tests warn about any pack file not rechecked in 180
-  days.
+  and approval freezes the whole `team/knowledge/` tree, so a run keeps the exact packs it
+  was approved with. A launched worker's brief carries the top 5 passages of its role's pack
+  for its job goal; the sandbox mounts the frozen tree read-only at `/knowledge` for workers
+  and reviewers, and their prompts say so. The tests warn about any pack file not rechecked
+  in 180 days.
 - **Gate evidence.** A gate can save evidence (screenshots, traces) in the folder named
   by `VESPER_ARTIFACTS`. The independent reviewer's copy holds the approved gate scripts
   (`checks/`), each gate's log (`logs/<ID>.log`, the last 256 KB when longer) and what

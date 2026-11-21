@@ -420,7 +420,10 @@ def gate_evidence(packet):
             + ". Read them; the evidence lines in review.json are only their last lines.\n")
 
 
-def prompt(role, packet):
+def prompt(role, packet, knowledge_path=None):
+    """The reviewer's prompt. ``knowledge_path`` is where the run's approved knowledge packs are
+    readable (P3-T2), when they are."""
+    from .knowledge import where
     from .team import render
 
     return (
@@ -443,4 +446,5 @@ def prompt(role, packet):
                       "verdict": "approve", "summary": "Explain what was reviewed.",
                       "evidence": dict.fromkeys(evidence_areas(packet), "Replace with actual evidence."), "findings": []}, indent=2)
         + "\n" + STRICT_ENDING
+        + ("\n" + where(knowledge_path) if knowledge_path else "")
     )

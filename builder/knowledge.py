@@ -6,7 +6,7 @@ Each file starts with front matter (``title``, ``tags``, ``last_checked``, ``sou
 approval binds the exact knowledge it used. Search is a standard-library BM25 index over the
 pack's paragraphs; a worker's brief gets the top passages for its job goal, and the pack is
 mounted read-only at /knowledge in the sandbox."""
-from datetime import date
+from datetime import date, timedelta
 import math
 from pathlib import Path
 import re
@@ -15,6 +15,9 @@ from .contracts import require
 
 FIELDS = ("title", "tags", "last_checked", "sources", "licence")
 STALE_DAYS = 180          # older facts should be rechecked (a test warns; P5-T3 refreshes them)
+# Clocks differ by up to 26 hours across time zones: a file checked "today" by its author can be
+# dated tomorrow, or the day after, on the runner (review of PR #57).
+FUTURE_SLACK_DAYS = 2
 PROMPT_PASSAGES = 5       # passages appended to a worker's brief
 FILE_LIMIT = 200_000      # bytes in one pack file
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.md")
@@ -93,7 +96,8 @@ def check_fields(meta, name):
         meta["last_checked"] = date.fromisoformat(checked)
     except ValueError:
         check(False, f"last_checked is not a real date: {checked}")
-    check(meta["last_checked"] <= date.today(), f"last_checked {checked} is in the future")
+    check(meta["last_checked"] <= date.today() + timedelta(days=FUTURE_SLACK_DAYS),
+          f"last_checked {checked} is in the future")
     return meta
 
 
@@ -185,20 +189,49 @@ def search(files, query, limit=PROMPT_PASSAGES):
     return [item for _, _, item in sorted(scored, key=lambda entry: entry[:2])[:limit]]
 
 
-def prompt_section(files, goal, role, path=None):
-    """The brief's knowledge section: the top passages for the job goal, and where the whole pack
-    is (``path``), or None when nothing in the pack matches."""
+def prompt_section(files, goal, role):
+    """The brief's knowledge section: the top passages for the job goal from the role's pack, or
+    None when nothing in the pack matches."""
     hits = search(files, goal)
     if not hits:
         return None
-    where = (f" The whole pack is read-only in {path}/{role}/ ({len(files)} files); search it with grep when "
-             "you need more." if path else "")
     lines = [f"Knowledge passages for this job from the {role} knowledge pack (approved reference, best "
-             f"match first).{where}"]
+             "match first)."]
     for hit in hits:
         body = "\n".join("  " + line for line in hit["text"].split("\n"))
         lines.append(f"- {hit['file']} > {hit['heading']}\n{body}")
     return "\n".join(lines)
+
+
+def where(path):
+    """The line that tells an agent where the approved knowledge packs are readable."""
+    return (f"Knowledge packs for every role, as approved for this run, are read-only in {path}/ (one folder "
+            "per role, Markdown files with front matter); search them with grep when you need a checklist or "
+            "failure catalogue.")
+
+
+def tree(root=None):
+    """Every role's pack as {role: {name: text}}: the team/knowledge/ tree that an approval freezes
+    and the sandbox mounts at /knowledge."""
+    root = Path(root) if root is not None else default_root()
+    if not root.is_dir():
+        return {}
+    found = {}
+    for folder in sorted(root.iterdir(), key=lambda item: item.name):
+        if folder.is_dir() or folder.is_symlink():
+            require(NAME.fullmatch(folder.name + ".md"), f"Bad knowledge folder name {folder.name!r}")
+            files = pack(folder.name, root)
+            if files:
+                found[folder.name] = files
+    return found
+
+
+def write_tree(packs, directory):
+    """Write frozen packs ({role: files}) into ``directory`` with read-only files; returns it."""
+    Path(directory).mkdir(parents=True)
+    for role, files in packs.items():
+        write_pack(files, role, directory)
+    return Path(directory)
 
 
 def write_pack(files, role, directory):
@@ -207,6 +240,7 @@ def write_pack(files, role, directory):
     require(isinstance(role, str) and NAME.fullmatch(role + ".md"), f"Bad knowledge role {role!r}")
     folder = Path(directory) / role
     folder.mkdir(parents=True)
+    require(isinstance(files, dict), f"Bad frozen knowledge pack {role!r}")
     for name, text in files.items():
         require(isinstance(name, str) and NAME.fullmatch(name) and isinstance(text, str),
                 f"Bad frozen knowledge file {name!r}")
