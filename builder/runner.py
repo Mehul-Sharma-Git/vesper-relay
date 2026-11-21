@@ -14,6 +14,7 @@ from uuid import uuid4
 from .amendments import package as checks_package  # the approved checks plus any added after (P2-T6)
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract, safe_path)
+from .knowledge import MOUNT as KNOWLEDGE_MOUNT, write_tree
 from .process import run_process
 from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
     tools as brain_tools, usage
@@ -535,7 +536,7 @@ class Runner:
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
 
-    def begin(self, state, contract, provider, adapter=None, shell=False):
+    def begin(self, state, contract, provider, adapter=None, shell=False, sandboxed=False):
         from .decisions import open_decisions
         job = self.ready(state, contract)
         previous = self.attempts_for(state, job) if job else []
@@ -584,11 +585,13 @@ class Runner:
                       "keep what works and fix what failed." if carried else
                       "Your workspace starts from the accepted version: no earlier attempt left a checked "
                       "candidate that is still intact.")
+        specialist = state["bundle"].get("team", {}).get("jobs", {}).get(job["id"])
+        folder = self.knowledge_copy(state, directory / "knowledge")
+        knowledge_path = (KNOWLEDGE_MOUNT if sandboxed else str(folder)) if folder else None
         prompt = worker_prompt(contract, job, self.approval(state) / "plan", state["bundle"]["plan"],
-                               attempt_history(previous),
-                               state["bundle"].get("intake"),
-                               state["bundle"].get("team", {}).get("jobs", {}).get(job["id"]),
-                               state["bundle"].get("planning"), shell=shell, gates=gates, origin=origin)
+                               attempt_history(previous), state["bundle"].get("intake"), specialist,
+                               state["bundle"].get("planning"), shell=shell, gates=gates, origin=origin,
+                               knowledge_path=knowledge_path)
         if "repair" in state["bundle"]:
             proof = state["repair_reproduction"]
             incident = state["bundle"]["repair"].get("source_incident")
@@ -599,6 +602,14 @@ class Runner:
         state["active"] = attempt
         self.save(state)
         return job, attempt, workspace, prompt
+
+    @staticmethod
+    def knowledge_copy(state, directory):
+        """Write the run's frozen knowledge packs (team/knowledge/ as approved, P3-T2) read-only into
+        ``directory`` for an agent to read; the sandbox mounts it at /knowledge. None when the run
+        froze no packs (older runs, or no packs at all)."""
+        packs = state["bundle"].get("team", {}).get("knowledge")
+        return write_tree(packs, directory) if packs else None
 
     def carried_candidate(self, state, job, previous, base):
         """The newest earlier candidate of this job that passed the scope check, as
@@ -866,14 +877,19 @@ class Runner:
                            packet.get("touched"))
                 schema = report_schema(packet)
                 (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
-                (view / "review.md").write_text(review_prompt(profile, packet))
+                # The approved packs sit beside the review copy, never inside it (P3-T2).
+                packs = self.knowledge_copy(state, session / "knowledge")
+                knowledge_path = (KNOWLEDGE_MOUNT if isinstance(launcher, Sandbox) else str(packs)) if packs else None
+                text = review_prompt(profile, packet, knowledge_path)
+                (view / "review.md").write_text(text)
                 view_digest = fingerprint(inventory(view))
                 response = session / "response.json"
                 log = directory / ("reviewer-" + uuid4().hex + ".log")
                 code = launch(brain, "reviewer", launcher, trust_host, work=view,
-                              input_text=review_prompt(profile, packet), log=log, timeout=review_timeout,
+                              input_text=text, log=log, timeout=review_timeout,
                               response=response, schema=schema, max_turns=review_max_turns,
-                              ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"})
+                              ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"},
+                              knowledge=packs)
                 require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
                 require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
                 # An adapter whose log is an event stream has no reply without the file (P2-T10).
@@ -1115,7 +1131,9 @@ class Runner:
                 brain_command(reviewer, "reviewer", launcher, trust_host, max_turns=review_max_turns)
             # Shell only inside a real sandbox backend (P1-T10); the prompt says so only then.
             shell = "shell" in brain_tools(brain, "worker", ready["role"], isinstance(launcher, Sandbox))
-            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell)
+            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell,
+                                                         sandboxed=isinstance(launcher, Sandbox))
+            pack_copy = self.attempt_dir(attempt) / "knowledge"
             log = self.attempt_dir(attempt) / "worker.log"
             print(f"{job['id']} | {brain.name} | attempt {attempt['id'][:8]}", file=sys.stderr, flush=True)
 
@@ -1125,7 +1143,8 @@ class Runner:
 
             code = launch(brain, "worker", launcher, trust_host, work=workspace, input_text=prompt, log=log,
                           timeout=job.get("timeout", 180), on_start=record_child, role=job["role"],
-                          ledger={"run": self.root, "job": job["id"], "role": job["role"]})
+                          ledger={"run": self.root, "job": job["id"], "role": job["role"]},
+                          knowledge=pack_copy if pack_copy.is_dir() else None)
             attempt["worker_log"] = str(log.relative_to(self.root))
             if code != 0:
                 said = brain.adapter.summary(read_tail(log, limit=200_000))

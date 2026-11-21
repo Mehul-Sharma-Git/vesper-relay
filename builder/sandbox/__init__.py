@@ -12,7 +12,7 @@ home, SSH keys or the engine's socket, and never the host environment.
 
 | Operation | Mounts | Network |
 | --- | --- | --- |
-| ``worker`` | work copy read-write at /work | the brain's provider hosts only (egress proxy) |
+| ``worker`` | work copy read-write at /work; its role's knowledge pack read-only at /knowledge | the brain's provider hosts only (egress proxy) |
 | ``reviewer``, ``consult`` | review or baseline copy read-only at /work; /out for the reply | provider hosts only |
 | ``setup`` | work copy and dependency cache read-write | open |
 | ``check`` | gate dir (checks/ and candidate/) read-only | none (loopback works) |
@@ -71,12 +71,15 @@ def image_tag():
     return f"{IMAGE}:{digest}"
 
 
-def agent_job(operation, argv, work, *, out=None, login=None, hosts=(), env=(), login_help=""):
-    """A brain process: the worker edits /work; reviewers and consultants read it and reply in /out."""
+def agent_job(operation, argv, work, *, out=None, login=None, hosts=(), env=(), login_help="", knowledge=None):
+    """A brain process: the worker edits /work; reviewers and consultants read it and reply in /out.
+    ``knowledge`` is a folder holding the role's frozen knowledge pack, mounted read-only (P3-T2)."""
     require(operation in ("worker", "reviewer", "consult"), f"Not a brain operation: {operation}")
     mounts, names = [], ()
     if out is not None:
         mounts.append((Path(out), "/out", False))
+    if knowledge is not None:
+        mounts.append((Path(knowledge), "/knowledge", True))
     if login:
         kind, value = login
         if kind == "env":

@@ -142,11 +142,12 @@ def gate_lines(gates):
 
 
 def worker_prompt(contract, job, plans, manifest, failure, intake=None, specialist=None, planning=None,
-                  shell=False, gates=(), origin=None):
+                  shell=False, gates=(), origin=None, knowledge_path=None):
     """The job brief. ``shell`` (granted only inside a real sandbox) adds the run-your-code
     instruction. ``gates`` are the checks this job must pass, copied into the workspace under
     GATES_DIR; ``failure`` is every earlier failure of the job and ``origin`` says which files
-    the workspace starts from."""
+    the workspace starts from. The brief carries the top passages of the role's frozen pack for the
+    goal; ``knowledge_path`` is where the run's frozen packs are readable (/knowledge in the sandbox)."""
     ids = set(job["checks"])
     requirements = [item for item in contract["requirements"] if ids.intersection(item["checks"])]
     sections = [
@@ -165,6 +166,14 @@ def worker_prompt(contract, job, plans, manifest, failure, intake=None, speciali
     if specialist:
         from .team import render
         sections.append(render(specialist))
+        if specialist.get("knowledge"):
+            from .knowledge import prompt_section
+            found = prompt_section(specialist["knowledge"], job["goal"], specialist["role"])
+            if found:
+                sections.append(found)
+    if knowledge_path:
+        from .knowledge import where
+        sections.append(where(knowledge_path))
     artifacts = ["product.md", "design.md", "architecture.md", "decisions.md"]
     if planning:
         manifest_data = planning["manifest"]

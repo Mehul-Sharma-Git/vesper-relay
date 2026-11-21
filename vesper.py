@@ -222,6 +222,12 @@ def main():
     advice.add_argument("--task", required=True)
     brain_options(advice)
     boundary_options(advice)
+    kb = commands.add_parser("kb", help="Search the roles' knowledge packs").add_subparsers(dest="action",
+                                                                                         required=True)
+    found = kb.add_parser("search", help="Print the best passages of a role's pack, with file and heading")
+    found.add_argument("--role", choices=tuple(catalog()), required=True)
+    found.add_argument("--limit", type=int, default=5)
+    found.add_argument("query")
     commands.add_parser("learn").add_argument("--promote", choices=tuple(RULES))
     commands.add_parser("review-change")
     commands.add_parser("patch")
@@ -289,6 +295,11 @@ def main():
         elif args.command == "roles":
             require(args.role or not args.skill, "Select a role before selecting a skill")
             result = profile(args.role, args.skill) if args.role else {"roles": catalog()}
+        elif args.command == "kb":
+            from builder.knowledge import pack, search
+            require(1 <= args.limit <= 50, "--limit must be 1 to 50")
+            result = {"role": args.role, "query": args.query,
+                      "passages": search(pack(args.role), args.query, args.limit)}
         elif args.command == "consult":
             require(args.project, "Pass --project PATH before the command")
             result = consult(args.project.resolve(), args)

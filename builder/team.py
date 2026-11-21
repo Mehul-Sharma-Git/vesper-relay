@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from .contracts import fingerprint, nonempty, require
+from .knowledge import pack, tree
 
 ROOT = Path(__file__).resolve().parents[1] / "team"
 # The tools a role may use; each brain adapter translates them into its own flags. Shell is
@@ -53,6 +54,11 @@ def profile(role, selected=()):
         "skills": {skill: (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
                    for skill in (*SHARED_SKILLS, core, *selected)},
     }
+    # The role's knowledge pack (P3-T2) is part of its revision, so an approval binds the exact
+    # knowledge used. A role without a pack keeps the revision it had before packs existed.
+    files = pack(role, ROOT / "knowledge")
+    if files:
+        result["knowledge"] = files
     return {**result, "revision": fingerprint(result)}
 
 
@@ -65,8 +71,13 @@ def freeze_team(contract):
         require(job.get("review", "standard") in ("standard", "security"),
                 f"Unsupported review level for {job['id']}")
         jobs[job["id"]] = selected
-    return {"jobs": jobs, "reviewer": profile("reviewer"),
-            "security_reviewer": profile("reviewer", ["security-diff"])}
+    frozen = {"jobs": jobs, "reviewer": profile("reviewer"),
+              "security_reviewer": profile("reviewer", ["security-diff"])}
+    # Every role's pack as approved (P3-T2): mounted at /knowledge for workers and reviewers.
+    packs = tree(ROOT / "knowledge")
+    if packs:
+        frozen["knowledge"] = packs
+    return frozen
 
 
 def render(profile_data):
