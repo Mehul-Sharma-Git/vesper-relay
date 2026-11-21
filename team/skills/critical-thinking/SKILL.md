@@ -26,7 +26,7 @@ Pre-mortem: <how this could fail; what I did about each>
 How I'd know I'm wrong: <the observation that would disprove the choice>
 ```
 
-Fill every line. An assumption you cannot confirm stays in the list, marked
+Fill every line, then leave a blank line before your hand-off. An assumption you cannot confirm stays in the list, marked
 as unconfirmed. "Options considered" names real alternatives you rejected,
 not a straw man. The pre-mortem names concrete failures (an input, a race, a
 missing check), each with what you did about it.

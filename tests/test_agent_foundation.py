@@ -104,6 +104,29 @@ class ReasoningNoteTests(unittest.TestCase):
         self.assertEqual(len(many), CLAIMS_LIMIT)
         self.assertTrue(all(len(line) <= 500 for line in many))
 
+    def test_a_summary_without_a_heading_ends_the_note_at_its_last_field(self):
+        # Review round 2 on PR #56: plain summary lines after the note.
+        text = NOTE + "\nSummary: Restored the check [verified: ran checks/stale.py, exit 0].\n" \
+                      "- Old clients still work [inferred from unchanged route]\n"
+        note, problem = reasoning_note(text)
+        self.assertIsNone(problem)
+        self.assertEqual(note, NOTE.strip())
+        self.assertEqual(handoff_claims(text), ["Summary: Restored the check [verified: ran checks/stale.py, exit 0].",
+                                                "- Old clients still work [inferred from unchanged route]"])
+
+    def test_a_note_in_another_form_never_reaches_the_reviewer(self):
+        # Review round 2 on PR #56: a bold, #-level or "Reasoning note:" marker, or bare field lines.
+        body = NOTE.split("\n", 1)[1]
+        for marker in ("**Reasoning note**", "# Reasoning note", "Reasoning note:", "#### Reasoning Note", ""):
+            with self.subTest(marker=marker):
+                text = marker + "\n" + body + "\nDone [verified: ran tests].\n"
+                self.assertEqual(handoff_claims(text), ["Done [verified: ran tests]."])
+        stray = "Assumptions: the gate covers it [verified: read checks/a.py]\n  - and more [assumed]\n"
+        self.assertEqual(handoff_claims(stray), [])  # an unfinished note runs to the end: nothing leaks
+        note, problem = reasoning_note("**Reasoning note**\n" + body)
+        self.assertIsNone(problem)
+        self.assertTrue(note.startswith("**Reasoning note**\nUnderstanding:"))
+
     def test_the_last_note_wins_and_a_long_note_is_cut(self):
         first = NOTE.replace("Restore the stale-write version check.", "First draft.")
         note, _ = reasoning_note(first + "\n" + NOTE)
