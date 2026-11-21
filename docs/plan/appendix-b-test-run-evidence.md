@@ -453,8 +453,10 @@ inside the part, which gives no session sample (`usage check` on C: session `unc
 | R2 | chatgpt session | 0.7–4.8% | 0 | inside (one-point tolerance) |
 | R2 | chatgpt week | 0.0–2.4% | 0 | inside |
 
-R1's estimate was built from 2 calibrated Claude runs and 3 ChatGPT runs (confidence low).
-R2's came from 4 and 6 (low and medium). Ledger tokens per run: C claude 649,910, chatgpt
+Every marked pair in the usage ledger is from this rerun; the first is C's critique (no
+reading was marked before P2-T9). The estimate's "calibrated runs" count marked parts
+(samples): R1's estimate used 2 Claude and 3 ChatGPT parts, all from C (confidence low);
+R2's used 4 and 6, from C and R1 (low and medium). Ledger tokens per run: C claude 649,910, chatgpt
 1,343,315; R1 claude 862,485, chatgpt 1,310,578; R2 claude 50,306, chatgpt 105,012. R1's
 Claude total fell just above, and both of R2's below, the estimate's token ranges, which no
 check compares (finding 59).
