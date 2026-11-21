@@ -314,7 +314,11 @@ class PocketTodoFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             results = qa.prove_tree(contract, FIXTURE / "checks", inventory(FIXTURE / "checks"),
                                     FIXTURE / "reference", Path(temp), launcher=None, only=only)
-        self.assertEqual({item["id"]: item["outcome"] for item in results}, dict.fromkeys(only, "proven"))
+            # On a failure, show why: the end of each log of a check that was not proven.
+            why = "\n".join(f"{item['id']} {key}: " + path.read_text(errors="replace")[-1500:]
+                            for item in results if item["outcome"] != "proven"
+                            for key, path in item.get("logs", {}).items())
+        self.assertEqual({item["id"]: item["outcome"] for item in results}, dict.fromkeys(only, "proven"), why)
 
 
 # A stand-in `claude` CLI acting as QA: it drafts a strategy and a broken variant, and edits the
