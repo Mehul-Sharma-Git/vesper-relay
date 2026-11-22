@@ -65,13 +65,13 @@ class TriageTableTests(unittest.TestCase):
 
 
 def acceptance_rows():
-    """plan/acceptance.md: (items, gates) per matrix row, in order."""
+    """plan/acceptance.md: (items, scenario, assertion, gates) per matrix row, in order."""
     rows = []
     for line in (FIXTURE / "plan" / "acceptance.md").read_text().splitlines():
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
         if len(cells) == 4 and re.fullmatch(r"[RAC]\d+(, [RAC]\d+)*", cells[0]):
-            gates = re.findall(r"G_[A-Z]+", cells[2].rsplit("(", 1)[-1])
-            rows.append((cells[0].split(", "), gates))
+            assertion, _, gates = cells[2].rpartition("(")
+            rows.append((cells[0].split(", "), cells[1], assertion.strip(), re.findall(r"G_[A-Z]+", gates)))
     return rows
 
 
@@ -83,9 +83,12 @@ class MatrixTests(unittest.TestCase):
         manifest = json.loads((FIXTURE / "plan" / "planning.json").read_text())["failure_paths"]
         self.assertGreater(len(matrix), 30)
         self.assertEqual(len(manifest), len(matrix), "acceptance.md and failure_paths have different rows")
-        for number, ((items, gates), row) in enumerate(zip(matrix, manifest), 1):
-            self.assertEqual(sorted(row["gates"]), sorted(gates), f"row {number}: {row['scenario']}")
-            self.assertLessEqual(set(items), set(row["items"]), f"row {number}: {row['scenario']}")
+        self.assertEqual(len({row["scenario"] for row in manifest}), len(manifest), "a failure path is listed twice")
+        for number, ((items, scenario, assertion, gates), row) in enumerate(zip(matrix, manifest), 1):
+            self.assertEqual(row["scenario"], scenario, f"row {number}: the manifest describes another scenario")
+            self.assertEqual(row["assertion"], assertion, f"row {number}: {scenario}")
+            self.assertEqual(sorted(row["gates"]), sorted(gates), f"row {number}: {scenario}")
+            self.assertLessEqual(set(items), set(row["items"]), f"row {number}: {scenario}")
 
     def test_c1_names_the_list_rename(self):
         manifest = json.loads((FIXTURE / "plan" / "planning.json").read_text())
