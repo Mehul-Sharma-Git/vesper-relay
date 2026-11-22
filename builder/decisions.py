@@ -1,9 +1,12 @@
 """Advisory backlog and decision gate (P2-T7): reviewers find and explain, the owner decides.
 
-Every finding of a plan critique or a job review is listed in `<run>/.builder/backlog.json` with an
-ID (F1, F2, ...) and shown in `status`. A finding's status says what happens to it:
+Every finding of a plan critique, a job review or an exploratory QA session (P3-T5) is listed in
+`<run>/.builder/backlog.json` with an ID (F1, F2, ...) and shown in `status`. A finding's status says
+what happens to it:
 
-    noted              an advisory the owner can read; nothing waits for it
+    noted              an advisory the owner can read; nothing waits for it. Every exploratory finding
+                       is noted: the session never holds a candidate, and a bug that matters becomes a
+                       check only through add-check, which the owner confirms
     returned           a blocker the runner sent back to the worker automatically (attempts remained)
     awaiting_decision  the owner decides: a plan-critique blocker; a security or data advisory (also
                        on a rejected candidate); the blockers of a job whose attempts are used up
@@ -238,6 +241,20 @@ def record_review(root, attempt, findings, *, rejected, exhausted):
     return ids, waiting
 
 
+# Exploratory sessions ------------------------------------------------------------------------------
+
+def record_exploratory(root, attempt, session, findings):
+    """List an exploratory QA session's findings (P3-T5) as noted items with their category, severity,
+    probe and repro; return their IDs in report order. The attempt in the run's state keeps the IDs."""
+    data = load(root)
+    ids = [sync(data, f"explore:{session}:{index}", finding, "noted", source="exploratory", job=attempt["job"],
+                attempt=attempt["id"], session=session, probe=finding["probe"],
+                **({"proposed_check": finding["proposed_check"]} if "proposed_check" in finding else {}))["id"]
+           for index, finding in enumerate(findings)]
+    save(root, data)
+    return ids
+
+
 def open_decisions(attempt):
     """The findings on this attempt that still wait for the owner (from the run's state)."""
     decided = attempt.get("decisions", {})
@@ -360,4 +377,6 @@ def describe(item):
     """Where a finding came from, in plain words."""
     if item["source"] == "plan-critique":
         return "the independent plan critique"
+    if item["source"] == "exploratory":
+        return f"the exploratory QA session on job {item['job']}"
     return f"the independent review of job {item['job']}"

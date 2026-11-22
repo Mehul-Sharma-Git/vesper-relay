@@ -134,6 +134,9 @@ def main():
     run.add_argument("--start-after", metavar="HH:MM", type=clock_time,
                      help="Wait for this local time first, for example after a plan window resets")
     brain_options(run, reviewer=True)
+    run.add_argument("--explore", action="store_true",
+                     help="Give each frontend candidate that passes its gates (focused and full depth) an "
+                          "exploratory QA session before its review")
     boundary_options(run)
     review_limit_options(run)
     args = parser.parse_args()
@@ -195,7 +198,8 @@ def main():
                     launcher, trust_host = resolve_boundary(args)
                     result = engine.run(selection, launcher, trust_host=trust_host,
                                         review_timeout=args.review_timeout,
-                                        review_max_turns=args.review_max_turns, start_after=args.start_after)
+                                        review_max_turns=args.review_max_turns, start_after=args.start_after,
+                                        explore=args.explore)
                 else:
                     result = engine.prepare()
                 if args.command in {"submit", "run", "review-candidate", "decide"} and (

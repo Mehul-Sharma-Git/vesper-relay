@@ -1172,9 +1172,13 @@ class Runner:
                 raise
 
     def run(self, selection, launcher=None, *, trust_host=False, review_timeout=180, review_max_turns=20,
-            start_after=None, clock=None, sleep=None, reserve=None):
+            start_after=None, clock=None, sleep=None, reserve=None, explore=False):
         """Run every ready job unattended. ``selection`` (brains.Selection) picks each job's
         worker brain by role and the reviewer brain (by default the job's worker brain).
+
+        With ``explore`` (P3-T5), a frontend job's candidate that passes its gates at focused or
+        full depth gets an exploratory QA session (the qa brain) before its review; a session
+        that fails is a warning on the attempt, and the review goes on.
 
         Before a job's first attempt the plan limits are checked (P2-T4): a job that would cross
         the reserve is not started and the run returns ``paused_for_limits``; a started job is
@@ -1233,6 +1237,12 @@ class Runner:
             reviewer = reviewer_for(ready) if "team" in state["bundle"] else None
             if reviewer:
                 brain_command(reviewer, "reviewer", launcher, trust_host, max_turns=review_max_turns)
+            explorer = None
+            if explore and reviewer:
+                from .exploratory import why_not
+                if why_not(state, ready) is None:
+                    explorer = selection.worker("qa")
+                    brain_command(explorer, "worker", launcher, trust_host)
             # Shell only inside a real sandbox backend (P1-T10); the prompt says so only then.
             shell = "shell" in brain_tools(brain, "worker", ready["role"], isinstance(launcher, Sandbox))
             job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell,
@@ -1256,10 +1266,26 @@ class Runner:
                             f"Worker brain {brain.name} exited {code}\n{said[-3500:]}", "provider")
             elif self.keep_reasoning(state, job, brain, log):
                 result = self.verify(state, contract, job, workspace, launcher)
+                if result["outcome"] == "awaiting_review" and explorer:
+                    self.explore_candidate(state, explorer, launcher, trust_host)
                 if result["outcome"] == "awaiting_review":
                     self.review_candidate(brain=reviewer, launcher=launcher, trust_host=trust_host, **limits)
                     state = self.state()
         return {**self.status(), **({"limit_notes": notes} if notes else {})}
+
+    def explore_candidate(self, state, brain, launcher, trust_host):
+        """`run --explore`: one exploratory session on the tested candidate (P3-T5). It never holds
+        the candidate: a session that fails leaves a warning on the attempt."""
+        from .exploratory import explore
+        attempt = state["active"]
+        print(f"{attempt['job']} | {brain.name} | exploratory session", file=sys.stderr, flush=True)
+        try:
+            explore(self, brain, launcher, trust_host, state=state)
+        except BuilderError as exc:
+            warning = f"The exploratory session did not finish: {str(exc)[:1500]}"
+            attempt.setdefault("warnings", []).append(warning)
+            print(f"{attempt['job']} | warning: {warning}", file=sys.stderr, flush=True)
+            self.save(state)
 
     def export(self, destination):
         state = self.state()

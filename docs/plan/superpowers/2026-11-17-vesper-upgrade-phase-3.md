@@ -68,13 +68,13 @@ Depends on: P3-T3, P3-T4 · Size: L · Spec: `docs/plan/phase-3-verifying-agents
 ## Task P3-T5: Exploratory QA session
 Depends on: P3-T3, P1-T10 · Size: M · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T5
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P3-T5 and every file under its "Read first"
-- [ ] Create branch `plan/p3-t5`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T5 and every file under its "Read first"
+- [x] Create branch `plan/p3-t5`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P3-G: Phase 3 gate
 Depends on: P3-T1..T5, P3-T3b · Size: S · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-G

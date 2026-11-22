@@ -209,6 +209,12 @@ def main():
     boundary_options(drafting)
     drafting.add_argument("--timeout", type=int, default=600, metavar="SECONDS",
                           help="QA's wall-time limit, 1 to 1800 seconds (default %(default)s)")
+    exploring = commands.add_parser("explore", help="QA explores a frontend job's tested candidate "
+                                    "(focused and full depth) and reports bugs with repro steps")
+    brain_options(exploring)
+    boundary_options(exploring)
+    exploring.add_argument("--timeout", type=int, default=600, metavar="SECONDS",
+                           help="QA's wall-time limit, 1 to 1800 seconds (default %(default)s)")
     commands.add_parser("incidents")
     boundary_options(commands.add_parser("repair-reproduce"))
     commands.add_parser("repair-commit").add_argument("--digest", required=True)
@@ -330,6 +336,14 @@ def main():
                 brain = Selection(worker=chosen(args)).worker("qa")
                 launcher, trust_host = resolve_boundary(args)
                 result = draft_checks(runner, brain, launcher, trust_host, timeout=args.timeout)
+        elif args.command == "explore":
+            from builder.exploratory import explore
+            require(args.project, "Pass --project PATH before the command")
+            runner = Runner(args.project.resolve())
+            with runner.lock():
+                brain = Selection(worker=chosen(args)).worker("qa")
+                launcher, trust_host = resolve_boundary(args)
+                result = explore(runner, brain, launcher, trust_host, timeout=args.timeout)
         elif args.command == "incidents":
             require(args.project, "Pass --project PATH before the command")
             result = incident_report(Runner(args.project.resolve()))
