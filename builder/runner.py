@@ -672,12 +672,17 @@ class Runner:
         return attempt
 
     def abandon(self, attempt_id):
-        from .decisions import open_decisions
+        from .decisions import exploratory_waiting, open_decisions
         state = self.state()
         attempt = state["active"]
         require(attempt and attempt["id"] == attempt_id, "No matching attempt is active")
         require(not open_decisions(attempt), "This candidate awaits the owner's decision; only the owner sends it "
                                              "back, with decide FINDING_ID --fix")
+        # P3-T5: QA's findings that the owner decides join the candidate's decisions at its review;
+        # abandoning it first would leave them undecided.
+        waiting = exploratory_waiting(attempt) if "verdict" not in attempt.get("review", {}) else []
+        require(not waiting, f"The exploratory session's {', '.join(waiting)} wait for the owner: run "
+                             "review-candidate, then decide them; only the owner sends this candidate back")
         return self.finish(state, "interrupted", "Attempt abandoned by the operator")
 
     def submit(self, attempt_id, launcher=None):

@@ -238,6 +238,26 @@ class SessionTests(Base):
         self.decide(found["id"], dismiss=True, reason="Two tabs are not a supported use")
         self.assertEqual(self.backlog()[0]["status"], "dismissed")
 
+    def test_a_candidate_whose_findings_wait_cannot_be_abandoned_before_its_review(self):
+        self.approve()
+        attempt = self.submit()
+        self.stand_in(spec([finding(category="security", probe="long-text")]))
+        [found] = self.explore()["findings"]
+        with self.runner.lock(), self.assertRaisesRegex(BuilderError, f"{found['id']} wait for the owner"):
+            self.runner.abandon(attempt["id"])
+        self.assertEqual(self.review()["outcome"], "awaiting_decision")
+        self.decide(found["id"], fix=True)
+        self.assertEqual(self.runner.status()["status"], "ready")
+        self.assertEqual(self.backlog()[0]["status"], "fix")
+
+    def test_a_candidate_with_only_noted_findings_can_be_abandoned(self):
+        self.approve()
+        attempt = self.submit()
+        self.stand_in(spec([finding()]))
+        self.explore()
+        with self.runner.lock():
+            self.assertEqual(self.runner.abandon(attempt["id"])["outcome"], "interrupted")
+
     def test_a_bug_that_matters_comes_with_a_proposed_check_the_owner_adds(self):
         self.approve()
         self.submit()
