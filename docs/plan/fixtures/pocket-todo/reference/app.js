@@ -107,6 +107,13 @@
       renderTodos(true);
     } catch (e) {
       if (seq !== readSeq) return;
+      if (e.status === 404) {
+        // The list was deleted on another device: fall back to Inbox, say why, show Inbox's todos.
+        try { await refreshLists(); } catch (_) {}
+        say('That list was deleted on another device.', true);
+        if (state.current !== listId) { state.todos = []; renderTodos(false); loadTodos(); }
+        return;
+      }
       say(e.message, true);
     }
   }
