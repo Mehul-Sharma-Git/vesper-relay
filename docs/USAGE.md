@@ -106,10 +106,13 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   long text, emoji, double clicks, the back button, a slow network, two tabs and keyboard
   only. It writes `exploratory.md` (each bug's repro steps) and `exploratory.json`, kept
   under `.builder/attempts/<attempt>/exploratory/<session>/`. Its findings enter the backlog
-  as `noted` items with category, severity and probe; they never hold the candidate. A bug
-  that matters may come with a proposed gate script and the `add-check` command for it,
-  which only the owner runs and confirms. A session that fails under `run --explore` is a
-  warning on the attempt, and the review goes on.
+  with category, severity and probe: an advisory is `noted`; a blocker, or a security or data
+  finding, waits for you once the candidate's review finishes (`decide` it as any job finding;
+  QA's findings never send the job back without you). The session runs before the review,
+  never after it. A bug that matters may come with a proposed gate script and the
+  `add-check` command for it, which only the owner runs and confirms. A session that fails
+  under `run --explore` is a warning on the attempt, and the review goes on; `run --explore`
+  counts each session's QA call against your reserve.
 - **Add a check after approval.** `vesper --project PATH add-check --id G_X --script x.py
   --jobs J_X[,J_Y] --reason "..."` (or `--command "go test ./..."` in place of `--script`)
   adds a new gate without a full re-approval. It may only add: a new check ID, a new script

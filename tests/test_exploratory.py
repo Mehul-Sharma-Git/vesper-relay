@@ -4,8 +4,9 @@ After a frontend job's candidate passes its gates (focused and full depth), QA e
 throwaway copy of it: empty input, very long text, emoji, double clicks, the back button, a slow
 network, two tabs and keyboard only (with Playwright inside the sandbox). QA writes
 exploratory.md with each bug's repro steps; its findings enter the backlog (P2-T7) with category
-and severity; a bug that matters comes with a proposed check the owner adds with add-check
-(P2-T6), never automatically."""
+and severity, under P2-T7's rule (a blocker, or a security or data finding, waits for the owner once
+the candidate's review finishes); a bug that matters comes with a proposed check the owner adds with
+add-check (P2-T6), never automatically. `run --explore` counts the session against the reserve."""
 import json
 import os
 from pathlib import Path
@@ -17,7 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
-from builder import decisions, exploratory, review_gate
+from builder import decisions, exploratory, review_gate, usage
 from builder.brains import Selection
 from builder.contracts import BuilderError, fingerprint, inventory
 from builder.planning import review_plan
@@ -44,10 +45,11 @@ def finding(**changes):
 
 
 def spec(findings=(), proposed=None, markdown="# Exploratory session\n\n## F1\nRepro: 1. Open the app.\n",
-         touch_app=False, **report):
+         touch_app=False, bad_bytes=False, **report):
     data = {"summary": "Explored the add-todo journey.", "probes": probes(), "findings": list(findings)}
     data.update(report)
-    return {"report": data, "markdown": markdown, "proposed": proposed or {}, "touch_app": touch_app}
+    return {"report": data, "markdown": markdown, "proposed": proposed or {}, "touch_app": touch_app,
+            "bad_bytes": bad_bytes}
 
 
 # A stand-in `claude` CLI that plays the three roles it is launched as: the worker ships
@@ -73,6 +75,8 @@ elif role == 'qa':
     for name, text in spec['proposed'].items():
         Path('report/proposed-checks').mkdir(exist_ok=True)
         Path('report/proposed-checks', name).write_text(text)
+    if spec.get('bad_bytes'):
+        Path('report/exploratory.md').write_bytes(b'# Report\n\xff\n')
     if spec['touch_app']:
         Path('app/server.py').write_text('changed by QA')
     print(json.dumps({'type': 'result', 'result': 'Explored [verified: ran the journeys].'}))
@@ -135,6 +139,18 @@ class Base(unittest.TestCase):
         with self.runner.lock():
             return exploratory.explore(self.runner, self.brain(), None, True, timeout=60)
 
+    def review(self, findings=()):
+        packet = self.runner.state()["active"]["review"]
+        data = {**{key: packet[key] for key in review_gate.BINDING}, "summary": "Checked.",
+                "verdict": "request_changes" if any(item["severity"] == "blocking" for item in findings) else "approve",
+                "evidence": dict.fromkeys(review_gate.AREAS, "Read it."), "findings": list(findings)}
+        with self.runner.lock():
+            return self.runner.review_candidate(data, external_attested=True)
+
+    def decide(self, finding_id, **choice):
+        with self.runner.lock():
+            return self.runner.decide(finding_id, **choice)
+
     def backlog(self):
         return [item for item in decisions.load(self.root)["items"] if item["source"] == "exploratory"]
 
@@ -149,8 +165,11 @@ class SessionTests(Base):
         items = self.backlog()
         self.assertEqual([(item["severity"], item["category"], item["probe"]) for item in items],
                          [("advisory", "correctness", "emoji"), ("blocking", "data", "two-tabs")])
+        # P2-T7's rule: the advisory is noted; the data finding waits for the owner.
+        self.assertEqual([item["status"] for item in items], ["noted", "awaiting_decision"])
+        self.assertEqual(result["awaiting_decision"], [items[1]["id"]])
         for item in items:
-            self.assertEqual((item["status"], item["job"], item["attempt"]), ("noted", "J", attempt["id"]))
+            self.assertEqual((item["job"], item["attempt"]), ("J", attempt["id"]))
             self.assertIn("1. Open the app.", item["repro"])
         self.assertEqual([item["id"] for item in result["findings"]], [item["id"] for item in items])
         # The report is kept beside the attempt and recorded on it in the run's state.
@@ -159,9 +178,10 @@ class SessionTests(Base):
         self.assertIn("Repro", report.read_text())
         [session] = self.runner.state()["active"]["exploratory"]
         self.assertEqual(session["findings"], [item["id"] for item in items])
+        self.assertEqual(session["awaiting"], [items[1]["id"]])
         self.assertEqual(session["report"], result["report"])
         self.assertEqual(set(session["probes"]), set(exploratory.PROBES))
-        # Exploratory findings never stop the candidate: nothing waits for the owner.
+        # The waiting finding joins the candidate's decisions only when its review finishes.
         status = self.runner.status()
         self.assertEqual((status["status"], status["awaiting_decision"]), ("awaiting_review", []))
         self.assertEqual(decisions.describe(items[0]), "the exploratory QA session on job J")
@@ -170,6 +190,53 @@ class SessionTests(Base):
         brief = (bin_dir / "brief.md").read_text()
         for words in ("# QA engineer", "exploratory.md", "exploratory.json", "Playwright", *exploratory.PROBES):
             self.assertIn(words, brief)
+
+    def test_a_security_finding_makes_an_approved_candidate_wait_for_the_owner(self):
+        self.approve()
+        self.submit()
+        self.stand_in(spec([finding(severity="advisory", category="security", probe="long-text",
+                                    path="Todo list")]))
+        [found] = self.explore()["findings"]
+        with self.assertRaisesRegex(BuilderError, "run review-candidate first"):
+            self.decide(found["id"], accept=True, reason="Local app only")
+        self.assertEqual(self.review()["outcome"], "awaiting_decision")
+        status = self.runner.status()
+        self.assertEqual((status["status"], status["awaiting_decision"]), ("awaiting_decision", [found["id"]]))
+        with self.assertRaisesRegex(BuilderError, "awaits the owner's decision"):
+            self.review()
+        self.decide(found["id"], accept=True, reason="Only the owner uses this app")
+        state = self.runner.state()
+        self.assertEqual((state["completed"], state["attempts"][-1]["outcome"]), (["J"], "accepted"))
+        self.assertEqual(self.backlog()[0]["status"], "accepted")
+
+    def test_the_owner_can_send_an_exploratory_blocker_back_and_it_never_goes_back_alone(self):
+        self.approve()
+        self.submit()
+        self.stand_in(spec([finding(severity="blocking", probe="double-click", path="Add todo form",
+                                    recommendation="Ignore a second submit while the first is pending")]))
+        [found] = self.explore()["findings"]
+        # The reviewer approves; QA's blocker still waits for the owner instead of returning the job.
+        self.assertEqual(self.review()["outcome"], "awaiting_decision")
+        self.decide(found["id"], fix=True)
+        attempt = self.runner.state()["attempts"][-1]
+        self.assertEqual(attempt["outcome"], "rejected")
+        self.assertIn("Ignore a second submit while the first is pending", attempt["reason"])
+        self.assertEqual(self.backlog()[0]["status"], "fix")
+
+    def test_a_rejected_candidate_keeps_its_exploratory_decisions(self):
+        self.approve()
+        self.submit()
+        self.stand_in(spec([finding(category="data", probe="two-tabs")]))
+        [found] = self.explore()["findings"]
+        blocker = {"severity": "blocking", "category": "correctness", "path": "server.py", "scenario": "Save",
+                   "consequence": "Lost", "evidence": "Read it", "recommendation": "Keep the version",
+                   "repro": "POST twice -> 200"}
+        result = self.review([blocker])
+        self.assertEqual(result["outcome"], "rejected")
+        self.assertIn(found["id"], result["awaiting_decision"])
+        self.assertEqual(self.runner.status()["status"], "awaiting_decision")
+        self.decide(found["id"], dismiss=True, reason="Two tabs are not a supported use")
+        self.assertEqual(self.backlog()[0]["status"], "dismissed")
 
     def test_a_bug_that_matters_comes_with_a_proposed_check_the_owner_adds(self):
         self.approve()
@@ -214,7 +281,8 @@ class SessionTests(Base):
                  "two-tabs": spec(probes=partial),
                  "category": spec([finding(category="ux")]),
                  "G_MISSING": spec([finding(proposed_check="G_MISSING")]),
-                 "exploratory.md": spec(markdown="")}
+                 "exploratory.md": spec(markdown=""),
+                 "UTF-8": spec(bad_bytes=True)}
         for words, data in cases.items():
             with self.subTest(words):
                 self.stand_in(data)
@@ -228,6 +296,17 @@ class SessionTests(Base):
         with self.subTest("before a tested candidate"):
             self.approve()
             with self.assertRaisesRegex(BuilderError, "passes its gates"):
+                self.explore()
+        with self.subTest("after the review"):
+            self.submit()
+            self.review()
+            self.setUp()
+            self.stand_in(spec())
+            self.approve()
+            self.submit()
+            self.review([{"severity": "advisory", "category": "security", "path": "server.py", "scenario": "s",
+                          "consequence": "c", "evidence": "e", "recommendation": "r"}])
+            with self.assertRaisesRegex(BuilderError, "already reviewed"):
                 self.explore()
         for depth, role, words in (("skip", "frontend", "focused and full depth"),
                                    ("focused", "backend", "frontend job")):
@@ -264,14 +343,38 @@ class RunTests(Base):
                 self.assertNotIn("exploratory", attempt)
 
     def test_a_failed_session_is_a_warning_and_the_review_goes_on(self):
-        bin_dir = self.stand_in(spec([finding(repro="")]))
+        for name, data in (("no repro", spec([finding(repro="")])), ("not UTF-8", spec(bad_bytes=True))):
+            with self.subTest(name):
+                self.setUp()
+                bin_dir = self.stand_in(data)
+                self.approve()
+                self.runner.run(Selection(worker="claude-code", settings={}), trust_host=True, reserve=0,
+                                explore=True)
+                attempt = self.runner.state()["attempts"][-1]
+                self.assertEqual((bin_dir / "roles.txt").read_text().split(), ["worker", "qa", "reviewer"])
+                self.assertEqual(attempt["outcome"], "accepted")
+                self.assertTrue(any("exploratory session" in warning for warning in attempt["warnings"]))
+                self.assertEqual(self.backlog(), [])
+
+    def test_a_security_finding_holds_the_run_for_the_owner(self):
+        self.stand_in(spec([finding(category="security")]))
         self.approve()
-        self.runner.run(Selection(worker="claude-code", settings={}), trust_host=True, reserve=0, explore=True)
-        attempt = self.runner.state()["attempts"][-1]
-        self.assertEqual((bin_dir / "roles.txt").read_text().split(), ["worker", "qa", "reviewer"])
-        self.assertEqual(attempt["outcome"], "accepted")
-        self.assertTrue(any("exploratory session" in warning for warning in attempt["warnings"]))
-        self.assertEqual(self.backlog(), [])
+        result = self.runner.run(Selection(worker="claude-code", settings={}), trust_host=True, reserve=0,
+                                 explore=True)
+        [item] = self.backlog()
+        self.assertEqual((result["status"], result["awaiting_decision"]), ("awaiting_decision", [item["id"]]))
+
+
+class EstimateTests(unittest.TestCase):
+    def test_run_explore_counts_a_qa_call_per_attempt_against_the_reserve(self):
+        def calls(role, depth, explore):
+            contract = {"jobs": [{"id": "J", "role": role, "max_attempts": 2}]}
+            bundle = {"team": 1, "planning": {"depth": depth}, "plan_critique": True}
+            return usage.estimate(contract, bundle, [], brains=lambda name: None, explore=explore)["calls"]
+        self.assertEqual(calls("frontend", "focused", False), [2, 4])
+        self.assertEqual(calls("frontend", "focused", True), [3, 6])
+        self.assertEqual(calls("frontend", "skip", True), [2, 4])
+        self.assertEqual(calls("backend", "focused", True), [2, 4])
 
 
 # A stand-in QA on the Pocket Todo solution: it starts the candidate's server.py and runs the

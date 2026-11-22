@@ -931,7 +931,9 @@ class Runner:
                 "Tested candidate changed after verification")
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
                              "reported_verdict": reported, "downgraded": downgraded, **launched}
-        from .decisions import record_review
+        from .decisions import exploratory_waiting, record_review
+        # P3-T5: the exploratory session's blockers and security or data findings wait for the owner too.
+        explored = exploratory_waiting(attempt)
         if blockers:
             result = self.finish(state, "rejected", "Review blockers: " + "; ".join(
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
@@ -942,6 +944,7 @@ class Runner:
                                          exhausted=len(self.attempts_for(state, job)) >= self.budget_for(state, job))
             result["finding_ids"] = ids
             self.calibrate_review(result, report["findings"], ids)
+            waiting += explored
             if waiting:
                 result["awaiting_decision"] = waiting
             self.save(state)
@@ -950,6 +953,7 @@ class Runner:
             ids, waiting = record_review(self.root, attempt, report["findings"], rejected=False, exhausted=False)
             attempt["finding_ids"] = ids
             self.calibrate_review(attempt, report["findings"], ids)
+            waiting += explored
             if waiting:
                 attempt["awaiting_decision"] = waiting
                 self.save(state)
@@ -1225,7 +1229,7 @@ class Runner:
             if not self.attempts_for(state, ready):
                 current = ready
                 pause, found = plan_usage.limit_check(
-                    contract, state["bundle"], ready, plan_usage.entries(), reserve=reserve,
+                    contract, state["bundle"], ready, plan_usage.entries(), reserve=reserve, explore=explore,
                     brains=lambda role: reviewer_for(current) if role == "reviewer" else selection.worker(role),
                     now=clock() if clock else datetime.now(timezone.utc))
                 notes += found
@@ -1240,7 +1244,7 @@ class Runner:
             explorer = None
             if explore and reviewer:
                 from .exploratory import why_not
-                if why_not(state, ready) is None:
+                if why_not(state["bundle"], ready) is None:
                     explorer = selection.worker("qa")
                     brain_command(explorer, "worker", launcher, trust_host)
             # Shell only inside a real sandbox backend (P1-T10); the prompt says so only then.
@@ -1281,7 +1285,7 @@ class Runner:
         print(f"{attempt['job']} | {brain.name} | exploratory session", file=sys.stderr, flush=True)
         try:
             explore(self, brain, launcher, trust_host, state=state)
-        except BuilderError as exc:
+        except (BuilderError, OSError, UnicodeError) as exc:
             warning = f"The exploratory session did not finish: {str(exc)[:1500]}"
             attempt.setdefault("warnings", []).append(warning)
             print(f"{attempt['job']} | warning: {warning}", file=sys.stderr, flush=True)

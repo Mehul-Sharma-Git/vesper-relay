@@ -18,8 +18,11 @@ categories), probe, path (a screen or file), scenario, evidence, recommendation,
 steps), optionally consequence and proposed_check (a check ID with its script in
 proposed-checks/).
 
-Findings enter the backlog (P2-T7) as `noted` items with their category and severity: the session
-never rejects or holds a candidate (its gates and the independent review decide). A bug that matters
+Findings enter the backlog (P2-T7) with their category, severity, probe and repro, under P2-T7's
+rule: an advisory is `noted`; a blocker, or a security or data finding, waits for the owner. Such a
+finding joins the candidate's decisions when its independent review finishes (the session runs
+before the review and cannot be run after it), so a candidate the reviewer approves still waits for
+`decide`; QA's findings are never returned to the worker without the owner. A bug that matters
 becomes a check only through `add-check` (P2-T6), which the owner confirms; the session keeps the
 proposed script and prints the command. The report and proposals are kept under
 `.builder/attempts/<attempt>/exploratory/<session>/` and recorded on the attempt in the run's state.
@@ -86,12 +89,12 @@ NO_SHELL = ("You have no shell in this session (no sandbox backend), so you cann
             "code, label what you find [inferred], and say for each probe that it was not run.\n")
 
 
-def why_not(state, job):
-    """Why this job's candidate gets no exploratory session, or None."""
+def why_not(bundle, job):
+    """Why this job's candidate (in a run approved with ``bundle``) gets no exploratory session, or None."""
     if job["role"] != "frontend":
         return (f"The exploratory session explores a frontend job's candidate; job {job['id']} is a "
                 f"{job['role']} job")
-    depth = state["bundle"].get("planning", {}).get("depth")
+    depth = bundle.get("planning", {}).get("depth")
     if depth not in DEPTHS:
         return ("The exploratory session runs at focused and full depth; this run is at "
                 + (f"{depth} depth" if depth else "no planning depth"))
@@ -106,8 +109,10 @@ def target(runner, state):
             "gates (submit it, or use run --explore)")
     contract = runner.frozen_contract(state)
     job = next(item for item in contract["jobs"] if item["id"] == attempt["job"])
-    reason = why_not(state, job)
+    reason = why_not(state["bundle"], job)
     require(not reason, reason)
+    require("verdict" not in attempt["review"],
+            "This candidate was already reviewed: the exploratory session runs between its gates and its review")
     candidate, _ = runner.reviewed_candidate(state, attempt)
     return job, attempt, candidate
 
@@ -169,11 +174,14 @@ def read_report(folder):
         require(name in files, f"QA wrote no report/{name}")
     for name in (REPORT, FINDINGS):
         require((folder / name).stat().st_size <= REPORT_LIMIT, f"report/{name} is larger than {REPORT_LIMIT} bytes")
-    markdown = (folder / REPORT).read_text(encoding="utf-8")
+    try:
+        markdown = (folder / REPORT).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise BuilderError(f"report/{REPORT} is not readable UTF-8 text: {exc}") from exc
     require(markdown.strip(), f"report/{REPORT} is empty")
     try:
         data = json.loads((folder / FINDINGS).read_text(encoding="utf-8"))
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:  # UnicodeDecodeError is a ValueError
         raise BuilderError(f"report/{FINDINGS} is not valid JSON: {exc}") from exc
     scripts = {}
     for path in files:
@@ -234,7 +242,7 @@ def explore(runner, brain, launcher, trust_host, timeout=TIMEOUT, state=None):
     runner.reviewed_candidate(state, attempt)
     require(fingerprint(inventory(candidate)) == attempt["review"]["candidate_digest"],
             "Tested candidate changed during the exploratory session")
-    ids = record_exploratory(runner.root, attempt, session, data["findings"])
+    ids, waiting = record_exploratory(runner.root, attempt, session, data["findings"])
     by_check = {item["proposed_check"]: finding_id for item, finding_id in zip(data["findings"], ids)
                 if "proposed_check" in item}
     relative = lambda path: str(path.relative_to(runner.root))
@@ -244,7 +252,9 @@ def explore(runner, brain, launcher, trust_host, timeout=TIMEOUT, state=None):
                  for check, path in kept.items()]
     record = {"session": session, "at": stamp(), "brain": brain.name, "boundary": boundary(launcher), "shell": shell,
               "report": relative(folder / REPORT), "report_digest": sha256(markdown.encode("utf-8")).hexdigest(),
-              "summary": data["summary"], "probes": data["probes"], "findings": ids,
+              "summary": data["summary"], "probes": data["probes"], "findings": ids, "awaiting": waiting,
+              # The digest-bound text of each finding: decide reads it from here, never from the backlog.
+              "items": data["findings"],
               "proposed_checks": {item["check"]: item["script"] for item in proposals}}
     attempt.setdefault("exploratory", []).append(record)
     runner.save(state)
@@ -252,10 +262,12 @@ def explore(runner, brain, launcher, trust_host, timeout=TIMEOUT, state=None):
             "boundary": record["boundary"], "shell": shell, "summary": data["summary"],
             "findings": [{"id": finding_id, **{key: item[key] for key in ("severity", "category", "probe", "path")}}
                          for item, finding_id in zip(data["findings"], ids)],
-            "proposed_checks": proposals,
-            "next": ("Findings are noted in the backlog (status lists them); none holds the candidate. To make a "
-                     "bug that matters a check, the owner runs the add-check command shown, after this "
-                     "candidate's review.")}
+            "awaiting_decision": waiting, "proposed_checks": proposals,
+            "next": ("Findings are in the backlog (status lists them). "
+                     + (f"{', '.join(waiting)} wait for the owner: they join the candidate's decisions when its "
+                        "review finishes (review-candidate), then decide each. " if waiting else "")
+                     + ("To make a bug that matters a check, the owner runs the add-check command shown, after "
+                        "this candidate's review." if proposals else ""))}
 
 
 __all__ = ["PROBES", "explore", "why_not"]

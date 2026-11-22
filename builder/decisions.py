@@ -4,12 +4,12 @@ Every finding of a plan critique, a job review or an exploratory QA session (P3-
 `<run>/.builder/backlog.json` with an ID (F1, F2, ...) and shown in `status`. A finding's status says
 what happens to it:
 
-    noted              an advisory the owner can read; nothing waits for it. Every exploratory finding
-                       is noted: the session never holds a candidate, and a bug that matters becomes a
-                       check only through add-check, which the owner confirms
+    noted              an advisory the owner can read; nothing waits for it
     returned           a blocker the runner sent back to the worker automatically (attempts remained)
     awaiting_decision  the owner decides: a plan-critique blocker; a security or data advisory (also
-                       on a rejected candidate); the blockers of a job whose attempts are used up
+                       on a rejected candidate); the blockers of a job whose attempts are used up; an
+                       exploratory blocker or security or data finding, which joins the candidate's
+                       decisions when its review finishes (P3-T5; never returned without the owner)
     fix                the owner sent the plan or the job back for correction
     accepted           the owner accepted it as a risk, with a reason (a protected action), or the
                        owner's confirmed plan approval accepted it from the plan sheet
@@ -244,15 +244,27 @@ def record_review(root, attempt, findings, *, rejected, exhausted):
 # Exploratory sessions ------------------------------------------------------------------------------
 
 def record_exploratory(root, attempt, session, findings):
-    """List an exploratory QA session's findings (P3-T5) as noted items with their category, severity,
-    probe and repro; return their IDs in report order. The attempt in the run's state keeps the IDs."""
+    """List an exploratory QA session's findings (P3-T5) with their category, severity, probe and
+    repro; return (their IDs in report order, the IDs the owner decides). P2-T7's rule applies: a
+    blocker or a security or data finding awaits the owner. The attempt in the run's state keeps both."""
     data = load(root)
-    ids = [sync(data, f"explore:{session}:{index}", finding, "noted", source="exploratory", job=attempt["job"],
-                attempt=attempt["id"], session=session, probe=finding["probe"],
-                **({"proposed_check": finding["proposed_check"]} if "proposed_check" in finding else {}))["id"]
-           for index, finding in enumerate(findings)]
+    ids, waiting = [], []
+    for index, finding in enumerate(findings):
+        decides = owner_decides(finding)
+        item = sync(data, f"explore:{session}:{index}", finding, "awaiting_decision" if decides else "noted",
+                    source="exploratory", job=attempt["job"], attempt=attempt["id"], session=session,
+                    probe=finding["probe"],
+                    **({"proposed_check": finding["proposed_check"]} if "proposed_check" in finding else {}))
+        ids.append(item["id"])
+        if decides:
+            waiting.append(item["id"])
     save(root, data)
-    return ids
+    return ids, waiting
+
+
+def exploratory_waiting(attempt):
+    """The exploratory findings on this attempt that the owner decides (from the run's state)."""
+    return [name for session in attempt.get("exploratory", []) for name in session.get("awaiting", [])]
 
 
 def open_decisions(attempt):
@@ -262,9 +274,14 @@ def open_decisions(attempt):
 
 
 def job_item(attempt, finding_id):
-    """A job finding as the state's review recorded it."""
-    finding = attempt["review"]["findings"][attempt["finding_ids"].index(finding_id)]
-    return {"id": finding_id, "source": "job-review", "job": attempt["job"], "attempt": attempt["id"],
+    """A job finding as the state recorded it: from the review, or from an exploratory session (P3-T5)."""
+    if finding_id in attempt.get("finding_ids", []):
+        finding, source = attempt["review"]["findings"][attempt["finding_ids"].index(finding_id)], "job-review"
+    else:
+        finding = next(session["items"][session["findings"].index(finding_id)]
+                       for session in attempt.get("exploratory", []) if finding_id in session["findings"])
+        source = "exploratory"
+    return {"id": finding_id, "source": source, "job": attempt["job"], "attempt": attempt["id"],
             **{name: finding[name] for name in FIELDS if name in finding}}
 
 
@@ -331,7 +348,8 @@ def decide_job(runner, state, attempt, finding_id, fix, reason, dismiss=False):
     runner.save(state)
     mark(runner.root, {finding_id}, "dismissed" if dismiss else "accepted", decisions)
     keep()
-    if dismiss:
+    if dismiss and item["source"] == "job-review":
+        # Calibration measures the reviewer; an exploratory finding is QA's (P3-T5).
         from . import calibration
         found = calibration.outcomes(calibration.rows(runner.root)).get(finding_id)
         calibration.append(runner.root, [{**{key: value for key, value in (found or {}).items() if key != "at"},
@@ -362,6 +380,9 @@ def decide(runner, finding_id, *, fix=False, accept=False, dismiss=False, reason
         if attempt is None:
             listed = next((item for item in load(runner.root)["items"] if item["id"] == finding_id), None)
             require(listed, f"Unknown finding {finding_id}; `status` lists the backlog")
+            require(not (listed["source"] == "exploratory" and listed["status"] == "awaiting_decision"),
+                    f"{finding_id} joins the candidate's decisions when its review finishes: run review-candidate "
+                    "first, then decide it")
             raise_not_waiting(finding_id, listed)
         return decide_job(runner, state, attempt, finding_id, fix, reason, dismiss)
     require(not dismiss, "--dismiss is for job review findings; decide a plan critique finding with --fix or "
