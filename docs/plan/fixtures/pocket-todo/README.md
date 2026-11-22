@@ -21,17 +21,22 @@ The real artifacts from the 9 Nov 2026 test run.
   hole `solution/` shipped with), G_UI without the "New todo" label, G_BROWSER rendering
   titles with `innerHTML`. `prove-checks --against reference` must report all three
   `proven`; regenerate a patch when `reference/` changes.
+  P3-T3b folded P2-G's accepted findings in (`findings-triage.md`): G_API also checks the bind (with
+  127.0.0.2, so on Linux only), every method and response path, the parser's own replies, malformed framing and
+  bodies, exact revisions and row shapes, the stored data, racing writes and the documented deployment layout;
+  G_UI local assets and no inline code; G_BROWSER labels, focus, touch targets, the 720px breakpoint, a failed Add,
+  stale actions, markup on every surface, the filter reply race and the laptop's list actions.
 - `solution/`: the app accepted and exported on 9 Nov (Go was not the stack then: this is
   stdlib Python + static files). It passed the 9 Nov checks only; it fails the checks
   revised during the P1-G gate (no `rev`, Host, Origin or security headers, ASCII-only
   case folding). Keep it as the app that really shipped with the CSRF hole (phase 3).
 - `reference/`: a hand-written app that passes the current `checks/` (G_API, G_UI,
-  G_BROWSER in the sandbox image, 19 Nov 2026). Use it as the known-good candidate for
+  G_BROWSER in the sandbox image, 19 Nov 2026). P3-T3b fixed what the folded-in checks found in it (finding 63). Use it as the known-good candidate for
   `prove-checks` (P3-T3); during P1-G each broken variant of it failed at the assertion
   `plan/acceptance.md` names for it. Update it with any change to `checks/`.
 - `p2g-accepted-findings.json`: the 169 findings the owner accepted as risks in the four P2-G
   Pocket Todo runs (20 Nov runs 1 and 3, 21 Nov runs C and R1), exported from their backlogs
-  for P3-T3b, which folds those that matter into the gates.
+  for P3-T3b, which decided each one in `findings-triage.md` (check or risk) and folded the checks into the gates.
 - `reviewer-replies/`: raw Claude reviewer outputs (`--output-format json`) whose
   `result` has a sentence before a fenced JSON block, which the current parser rejects;
   `approved-report.json` is the unwrapped verdict that was accepted.

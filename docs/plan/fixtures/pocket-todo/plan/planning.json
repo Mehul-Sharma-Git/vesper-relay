@@ -201,7 +201,7 @@
   "concurrency": [
     {
       "id": "C1",
-      "item": "Device A confirms Delete list while device B adds, completes, deletes or renames one of its todos",
+      "item": "Device A confirms Delete list while device B adds, completes or deletes one of its todos, or renames the list",
       "gates": [
         "G_API",
         "G_BROWSER"
@@ -316,7 +316,20 @@
     },
     {
       "items": [
-        "C1"
+        "R1",
+        "R2"
+      ],
+      "scenario": "A 40-character name, a 200-character title, a rename to \"  Spaced  \" and to 41 characters; names and titles with quotes, apostrophes and SQL-looking text",
+      "assertion": "accepted, accepted, trimmed, 400; every text round-trips exactly",
+      "catches": "Exclusive limits, a rename that skips the create rules, or SQL built from strings",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "C1",
+        "R1"
       ],
       "scenario": "Note rev, delete one todo and add another (same count), delete with the old rev",
       "assertion": "409",
@@ -332,6 +345,52 @@
       "scenario": "Complete, reopen and re-send the same done value; each time delete with the rev from before",
       "assertion": "rev rises each time; 409 each time",
       "catches": "A revision that ignores completion or a no-op PATCH",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "C1"
+      ],
+      "scenario": "Complete, reopen, and re-send the same done value; each time delete with the `rev` from before",
+      "assertion": "`rev` rises each time; 409 each time",
+      "catches": "A revision that ignores completion or a no-op PATCH",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "C1"
+      ],
+      "scenario": "Delete one todo alone; then a duplicate rename, a blank name, a bad done, a blank title and a repeat delete",
+      "assertion": "the delete raises `rev`; the refused writes change no record and no `rev`",
+      "catches": "A delete that skips the revision, or a refused write that bumps it",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R1",
+        "C1"
+      ],
+      "scenario": "Read the revisions around each change",
+      "assertion": "Inbox and a new list start at 1; each add, PATCH, todo delete and rename adds exactly 1; a PATCH's done value is stored",
+      "catches": "A revision starting at 0, raised twice, or a PATCH that is not saved",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "C1",
+        "C9"
+      ],
+      "scenario": "25 rounds each: an add racing a delete that carries the revision from before it; two devices creating one name",
+      "assertion": "never 201 and 204 together, no orphan rows; one 201 and one 409",
+      "catches": "A revision read before the write lock, or a name check outside the transaction",
       "gates": [
         "G_API"
       ]
@@ -360,6 +419,29 @@
     },
     {
       "items": [
+        "R2"
+      ],
+      "scenario": "Every list and todo in every reply; a 204 reply",
+      "assertion": "the contract's fields and types (done is true or false); an empty body",
+      "catches": "Rows missing fields, or done as 0 and 1",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "R2",
+        "A8"
+      ],
+      "scenario": "Malformed ids and parameters (`abc`, 30 digits, `(1)OR(inbox=0)`, no list, unknown routes, PUT); bodies that are empty, invalid UTF-8, nested 20,000 deep, a lone surrogate or a 5,000-digit integer; chunked, doubled, short or negative lengths; a fragment or a malformed request target",
+      "assertion": "a 4xx each, never a 5xx; nothing changed",
+      "catches": "A crash (500) on input the contract calls wrong, or a short body taken as complete",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
         "R3"
       ],
       "scenario": "Delete a list with a todo, then restart the server",
@@ -371,10 +453,22 @@
     },
     {
       "items": [
-        "C3"
+        "C3",
+        "R3"
       ],
       "scenario": "Delete the newest list and todo, then create new ones",
       "assertion": "New ids are larger than the deleted ones",
+      "catches": "Ids reused after a delete",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "C3"
+      ],
+      "scenario": "Delete the newest list and todo, then create new ones",
+      "assertion": "new ids are larger than the deleted ones",
       "catches": "Ids reused after a delete",
       "gates": [
         "G_API"
@@ -394,6 +488,17 @@
     },
     {
       "items": [
+        "A7"
+      ],
+      "scenario": "Run a copy with `--db todos.sqlite3` next to `server.py` and other files there; GET and HEAD each file",
+      "assertion": "404 for all but `/`, `/app.js` and `/styles.css`; HEAD with a foreign Host 403",
+      "catches": "A static handler that serves the folder with a few names excluded",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
         "R6",
         "A8"
       ],
@@ -406,12 +511,57 @@
     },
     {
       "items": [
+        "A8"
+      ],
+      "scenario": "A 64,000-byte body, a 65,537-byte body and a 30-digit Content-Length; a request stalled mid-body while another device calls",
+      "assertion": "201, 413, 413; the other device is served",
+      "catches": "A limit off by a few bytes, or a single-threaded server",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
         "R6",
         "A3"
       ],
       "scenario": "Foreign, malformed, empty, missing or doubled Host headers on every route and method",
       "assertion": "403 each",
       "catches": "No Host check, a prefix or unanchored match, or one that reads only the first header",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "A3"
+      ],
+      "scenario": "`Host` `localhost`, `localhost:PORT`, `127.0.0.1:PORT`, `[::1]`, `[::1]:PORT`",
+      "assertion": "served",
+      "catches": "A Host check that refuses legitimate addresses",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "A3"
+      ],
+      "scenario": "Host `1.2.3.4.5`, `256.1.1.1`, `1.2.3`, `[1::2::3]` or `[::1`; OPTIONS, PUT, TRACE, `FOO-BAR`, `get` and HEAD with a foreign or no Host; a malformed header line before a second Host",
+      "assertion": "403 each; a 4xx for the hidden second Host",
+      "catches": "Digit-shaped text taken as an address, a check only in the known handlers, or headers read only up to a defect",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "A1",
+        "A3"
+      ],
+      "scenario": "Host `192.168.1.20:8080`, `localhost:000080` or `[fe80::1]:PORT`; a write with that LAN Host and its Origin",
+      "assertion": "served; 201",
+      "catches": "A Host check that allows only loopback names, which breaks the phone",
       "gates": [
         "G_API"
       ]
@@ -442,6 +592,28 @@
     },
     {
       "items": [
+        "A2"
+      ],
+      "scenario": "Writes from the app's own origin, JSON with `charset`",
+      "assertion": "succeed",
+      "catches": "An Origin check that blocks the app itself",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "A2"
+      ],
+      "scenario": "Two `Origin` headers, the app's own then a foreign one, on all six write routes",
+      "assertion": "403",
+      "catches": "An Origin check that reads only the first header",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
         "R6",
         "A4"
       ],
@@ -466,11 +638,45 @@
     },
     {
       "items": [
+        "A4",
+        "A5"
+      ],
+      "scenario": "Assets, reads, 201, 200, 204, 409, a preflight, PUT, an unknown method, and replies the HTTP parser writes (a bad request line or version, a huge header)",
+      "assertion": "one CSP of exactly `default-src 'self'; frame-ancestors 'none'`, one DENY, one nosniff, no `Access-Control-*`, framed HTTP; 4xx errors are JSON `{\"error\"}`",
+      "catches": "Headers added only in the app's handlers, or a CSP with an extra source",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
         "A10"
       ],
       "scenario": "Start the server on a new database",
       "assertion": "The database and journal files have no group or other permissions",
       "catches": "A database file created with the default umask",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "A10"
+      ],
+      "scenario": "Write, then restart on the database with its mode set to 644",
+      "assertion": "the database and journals stay owner-only; the server makes the existing file owner-only",
+      "catches": "A umask that covers only new files",
+      "gates": [
+        "G_API"
+      ]
+    },
+    {
+      "items": [
+        "A1"
+      ],
+      "scenario": "Start with defaults, then with `--host 0.0.0.0`, where 127.0.0.2 is loopback (Linux)",
+      "assertion": "default: 127.0.0.2 refused; with the flag: reachable",
+      "catches": "A server that binds every interface by default, or ignores `--host`",
       "gates": [
         "G_API"
       ]
@@ -500,6 +706,28 @@
     },
     {
       "items": [
+        "R4"
+      ],
+      "scenario": "The served page",
+      "assertion": "only local `src`, `href` and `action`; no inline script, style or handlers; All, Active and Done with one pressed; a labelled `#rename-list`; no remote CSS",
+      "catches": "A CDN or font link, inline code the CSP blocks, or missing filters",
+      "gates": [
+        "G_UI"
+      ]
+    },
+    {
+      "items": [
+        "R5"
+      ],
+      "scenario": "Phone at 320×740 in a real browser",
+      "assertion": "labels visible; the menu starts closed and opens from the keyboard; a visible focus ring; 44px targets; requests only to the app",
+      "catches": "Hidden labels, `outline: none`, small targets, or assets loaded from elsewhere",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
         "R5"
       ],
       "scenario": "Phone at 320x740: add, complete, filter, choose, rename and delete lists (cancel first), Escape",
@@ -523,12 +751,82 @@
     },
     {
       "items": [
+        "R5"
+      ],
+      "scenario": "Widths 719 and 720",
+      "assertion": "the toggle below 720px, the sidebar from 720px",
+      "catches": "A breakpoint other than design.md's 720px",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R5"
+      ],
+      "scenario": "Laptop at 1280×800: choose a list in the sidebar, add and complete a todo there",
+      "assertion": "each visible effect",
+      "catches": "A sidebar that shows lists but cannot switch them",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R5"
+      ],
+      "scenario": "Laptop: Active and Done filters, reopen and delete a todo, rename the list, delete it (cancel, then accept)",
+      "assertion": "each visible effect and the server's state; no dialog for a todo delete",
+      "catches": "Laptop styles that hide filters or list actions, or a save shown but not sent",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R5",
+        "A6"
+      ],
+      "scenario": "Add a todo titled `<img src=x onerror=\"window.__xss=1\">` and a list named `<b>Bold</b>`",
+      "assertion": "both shown as text; `window.__xss` stays undefined",
+      "catches": "Rendering with `innerHTML`",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R5",
+        "A6"
+      ],
+      "scenario": "Rename a list to `<img src=x onerror=window.__xss=2>` and choose it",
+      "assertion": "text in the picker, toggle, heading and status; no element parsed from it",
+      "catches": "One surface (toggle, heading, status) built with `innerHTML`",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
         "R7",
-        "C1"
+        "C1",
+        "R5"
       ],
       "scenario": "While the delete dialog is open, another device adds a todo; accept",
       "assertion": "409; the status says another device; the list stays",
       "catches": "A UI that sends no guard or ignores the 409",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "R5",
+        "C1"
+      ],
+      "scenario": "Open the delete dialog under the Active filter, with the list's one todo done",
+      "assertion": "the dialog names the list's total, 1",
+      "catches": "A count of the visible rows",
       "gates": [
         "G_BROWSER"
       ]
@@ -547,12 +845,89 @@
     },
     {
       "items": [
+        "C4"
+      ],
+      "scenario": "Another device deletes a todo; click its checkbox",
+      "assertion": "the todo disappears and the status says \"another device\"",
+      "catches": "A UI that ignores a 404 and keeps a dead todo",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "C4"
+      ],
+      "scenario": "Another device deletes a todo and adds another; click the first one's Delete",
+      "assertion": "it disappears, the status says \"another device\" and the new todo shows",
+      "catches": "A 404 on Delete taken as success, or a recovery that removes the row without reloading",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
         "R7",
         "C7"
       ],
       "scenario": "Hold Inbox's todo reply, switch to another list, then release it",
       "assertion": "Only the current list's todos show",
       "catches": "A UI that renders whichever reply arrives last",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "C7"
+      ],
+      "scenario": "Hold the Active reply, choose Done, then release it",
+      "assertion": "only done todos show; Done stays pressed",
+      "catches": "A UI that renders whichever filter reply arrives last",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "C9"
+      ],
+      "scenario": "Another device deletes the current list; then Rename list, or Delete list",
+      "assertion": "Inbox becomes current; the status says \"another device\"",
+      "catches": "A UI that ignores a 404 on list actions",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "C9"
+      ],
+      "scenario": "Another device creates \"Garage\"; this device adds a list named \"garage\"",
+      "assertion": "the status says \"already\"; the name stays in `#new-list`",
+      "catches": "A UI that drops a 409 or the typed name",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "C9"
+      ],
+      "scenario": "Another device deletes a list still in the picker; choose it. Another device deletes the current list; tick its todo",
+      "assertion": "Inbox current, the status says \"another device\", Inbox's todos show",
+      "catches": "A UI that ignores a 404 when choosing a list, or on a todo in a deleted list",
+      "gates": [
+        "G_BROWSER"
+      ]
+    },
+    {
+      "items": [
+        "C9"
+      ],
+      "scenario": "Rename to a name another device just took; rename a list another device deleted",
+      "assertion": "the status says \"already\" or \"another device\"; the typed name stays in `#rename-list`",
+      "catches": "A rename that drops the typed text",
       "gates": [
         "G_BROWSER"
       ]

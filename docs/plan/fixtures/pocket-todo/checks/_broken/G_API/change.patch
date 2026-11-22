@@ -1,13 +1,13 @@
 --- a/server.py
 +++ b/server.py
-@@ -250,10 +250,6 @@
-             if not (hostname == "localhost" or re.fullmatch(r"[0-9]{1,3}(\.[0-9]{1,3}){3}", hostname)
-                     or re.fullmatch(r"\[[0-9a-fA-F:.]+\]", hostname)):
+@@ -284,10 +284,6 @@
+             host = self.headers.get("Host") or ""
+             if not allowed_host(host):
                  raise ApiError(403, "unknown host")
 -            if method in ("POST", "PATCH", "DELETE"):
--                origin = self.headers.get("Origin")
--                if origin is not None and origin != "http://" + host:
+-                origins = self.headers.get_all("Origin") or []
+-                if len(origins) > 1 or (origins and origins[0] != "http://" + host):
 -                    raise ApiError(403, "foreign origin")
-             if method in ("POST", "PATCH"):
-                 ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-                 if ctype != "application/json":
+             if "#" in self.path:
+                 raise ApiError(400, "a request target has no fragment")
+             try:
