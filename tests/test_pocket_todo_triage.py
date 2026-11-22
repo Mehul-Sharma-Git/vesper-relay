@@ -7,8 +7,13 @@ cites the decision or plan item that keeps it out of the gates. The plan's two f
 (`plan/acceptance.md` and `planning.json`'s `failure_paths`) stay row for row in step."""
 from collections import Counter
 import json
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,6 +99,22 @@ class MatrixTests(unittest.TestCase):
         manifest = json.loads((FIXTURE / "plan" / "planning.json").read_text())
         c1 = next(item for item in manifest["concurrency"] if item["id"] == "C1")
         self.assertIn("renames the list", c1["item"])
+
+
+@unittest.skipUnless(os.name == "posix", "the fixture gates start a local server")
+class GateMessageTests(unittest.TestCase):
+    """A wrong build fails a folded-in check with the message the triage cites, not a traceback."""
+
+    def test_an_inline_handler_fails_g_ui_with_its_message(self):
+        with tempfile.TemporaryDirectory() as temp:
+            candidate = Path(temp) / "candidate"
+            shutil.copytree(FIXTURE / "reference", candidate)
+            page = candidate / "index.html"
+            page.write_text(page.read_text().replace("<button ", '<button onclick="go()" ', 1))
+            done = subprocess.run([sys.executable, "-B", str(FIXTURE / "checks" / "ui.py"), str(candidate)],
+                                  capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("AssertionError: No inline style or handlers: ['button onclick']", done.stderr)
 
 
 if __name__ == "__main__":

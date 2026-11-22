@@ -40,7 +40,7 @@ class Surface(HTMLParser):
         self.loads += [(tag, name, value or "") for name, value in attrs.items() if name in LOADS]
         self.inline_scripts += tag == "script" and not attrs.get("src")
         self.inline_styles += [tag] if tag == "style" or "style" in attrs else []
-        self.inline_styles += [f"{tag} {name}"] if any(name.startswith("on") for name in attrs) else []
+        self.inline_styles += [f"{tag} {name}" for name in attrs if name.startswith("on")]
         if tag == "button":
             self.open_button = [attrs, ""]
             self.buttons.append(self.open_button)
