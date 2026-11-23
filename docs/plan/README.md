@@ -196,7 +196,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P3-T4 | Reviewer: evidence-backed, multi-lens, calibration | P3-T1 | L | done |
 | P3-T3b | Fold P2-G's accepted findings into the Pocket Todo gates | P3-T3, P3-T4 | L | done |
 | P3-T5 | Exploratory QA session | P3-T3, P1-T10 | M | done |
-| P3-G | Phase 3 gate | P3-T1..T5, P3-T3b | S | todo |
+| P3-G | Phase 3 gate | P3-T1..T5, P3-T3b | S | blocked (criterion 3: the P3-T1 worker brief is refused by Claude's reasoning_extraction safeguard; P3-T1's design needs an owner decision, appendix B finding 65) |
 | P4-T1 | Designer knowledge pack (content) | P3-T2 | L | todo |
 | P4-T2 | Designer tools and design artifacts | P4-T1 | M | todo |
 | P4-T3 | Design gates (tokens, anti-patterns, accessibility, fidelity) | P4-T2 | L | todo |
