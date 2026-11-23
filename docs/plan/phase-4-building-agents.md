@@ -217,3 +217,45 @@ Background for every task here: `appendix-a-research.md` sections 1 and 2.
   command gates pass out of the box inside the sandbox.
 - **Acceptance:** `vesper start --mode build --seed vite-app` produces a seed that passes its
   gates; the same for the other two seeds.
+
+## P4-T9 — Typed worker hand-off over MCP (`submit_handoff`)
+
+- **Why:** a worker's hand-off is free text in its final message, and the runner finds the
+  labelled claims with regular expressions (`handoff_claims`, `builder/providers.py`).
+  Each brain also has its own output mode (Claude `--output-format json`, Codex `--json`,
+  Gemini `-o json`). All three CLIs can call MCP tools, so one local tool gives every brain
+  the same typed hand-off. The owner's decision (23 Nov 2026, after P3-G); `00-context.md`,
+  "Reuse before building", names MCP.
+- **Read first:** `builder/providers.py` (`handoff_claims`, `worker_prompt`),
+  `builder/brains/*.py` (today's MCP flags: Claude `--strict-mcp-config`, Gemini
+  `NO_MCP`), `builder/runner.py` (where `claims` are collected for `review.json`),
+  `builder/review_gate.py`, P3-T1b, P4-T2 step 2 (MCP per role), P5-T1 (the connector,
+  which may reuse this JSON-RPC code; its scope does not change here).
+- **Change:**
+  1. `builder/handoff_mcp.py`: a standard-library MCP server over stdio (JSON-RPC 2.0:
+     `initialize`, `tools/list`, `tools/call`) with one tool, `submit_handoff`. Input
+     schema: `summary` (string, bounded), `claims` (array of `{text, label, evidence}`,
+     `label` one of `verified`, `inferred`, `assumed`; bounded count and length), optional
+     `changed` (paths) and `blocked` (a reason). It validates the input and writes
+     `handoff.json` to the one output path it was started with. It has no other tool, reads
+     no files, and opens no network connection.
+  2. Each adapter whose CLI supports MCP declares a `typed_handoff` capability and starts
+     this server for workers only, inside the sandbox; reviewer, QA and plan-critique calls
+     keep today's empty MCP config. Check every flag against each CLI's `--help` at
+     implementation time, and add them to `vesper doctor`'s flag check.
+  3. The brief asks the worker to call `submit_handoff` once, at the end. The runner reads
+     `handoff.json`; its claims fill `claims` in `review.json` in the same shape as today.
+     A missing or invalid hand-off falls back to `handoff_claims` on the final message,
+     with a warning on the attempt.
+  4. Adapters without the capability keep the text path unchanged.
+- **Do not:** give the tool any power beyond writing that one file; add a reasoning,
+  thinking or notes field to the schema (P3-T1b, finding 65); let the reviewer see anything
+  but the claims; add a third-party MCP library to the runner (standard library only);
+  widen the MCP servers a worker gets beyond this one (P4-T2 owns per-role servers).
+- **Acceptance:** unit tests for the server (`initialize`, `tools/list`, a valid call
+  writing `handoff.json`, each invalid input refused with a JSON-RPC error, nothing written
+  outside the output path); per-adapter command tests for the worker's MCP config, and
+  that reviewer calls stay MCP-free; a stand-in worker that calls the tool end to end, its
+  claims in `review.json`; the fallback with its warning. Live: one launched Claude Code
+  worker in the Docker sandbox hands off through the tool, and Codex too when its sandbox
+  login is set up.

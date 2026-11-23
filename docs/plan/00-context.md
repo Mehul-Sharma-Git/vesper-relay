@@ -138,7 +138,7 @@ Dates are 2026. "Owner" is the repository owner.
 
 | Agent | Key decisions |
 | --- | --- |
-| All | Reasoning note, claim labels, self-critique, knowledge packs, tools inside the sandbox, top model only for judgement roles, postmortems feed checklists, per-role evaluation |
+| All | Claim labels, self-critique, knowledge packs, tools inside the sandbox, top model only for judgement roles, postmortems feed checklists, per-role evaluation. No worker reasoning note: the design rationale lives in the plan (`options` and the architecture handoff), and a worker hands off labelled claims (owner, 23 Nov 2026, after P3-G; P3-T1b). A typed hand-off over MCP comes in P4-T9 |
 | Planner | Depth scales with job size; push back once; options memo; pre-mortem; assumption list; phases; independent plan critique (`review-plan`, done); plan-limit estimate before every approval; asks about stack and system design |
 | Tech lead (System Design Engineer) | Owns the architecture handoff at `full`/`focused` depth (done in b7da4d1); simple now, scale later; component decision table (cache, queue, CDN, realtime, search, storage); decision records; library rubric; prototypes only after asking the owner; ops plan; free-hosting knowledge pack |
 | Designer | Top priority. Direction brief, 3 real directions, locked design system, knowledge base, render-and-see tools, blocking design gate |

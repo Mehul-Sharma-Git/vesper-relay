@@ -98,8 +98,19 @@ Depends on: P1-T6 · Size: M · Spec: `docs/plan/phase-4-building-agents.md`, se
 - [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
 - [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
+## Task P4-T9: Typed worker hand-off over MCP (`submit_handoff`)
+Depends on: P3-G · Size: M · Spec: `docs/plan/phase-4-building-agents.md`, section P4-T9
+
+- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [ ] Read `docs/plan/00-context.md`, then task P4-T9 and every file under its "Read first"
+- [ ] Create branch `plan/p4-t9-typed-handoff`
+- [ ] Write the failing tests listed under "Acceptance" and watch them fail
+- [ ] Implement "Change"; respect "Do not"
+- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+
 ## Task P4-G: Phase 4 gate
-Depends on: P4-T1..T8 · Size: M · Spec: `docs/plan/phase-4-building-agents.md`, section P4-G
+Depends on: P4-T1..T9 · Size: M · Spec: `docs/plan/phase-4-building-agents.md`, section P4-G
 
 - [ ] Confirm every task this gate depends on is `done` on the board
 - [ ] Run the gate exactly as written in `docs/plan/phase-4-building-agents.md`
