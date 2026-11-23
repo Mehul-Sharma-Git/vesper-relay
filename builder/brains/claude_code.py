@@ -56,7 +56,7 @@ class ClaudeCode(Adapter):
     def summary(self, text):
         """The result text of ``--output-format json``. The log holds stderr too, so a whole-log
         parse failing falls back to the last line that is a result object (P3-T1: the worker's
-        reasoning note is read from it)."""
+        hand-off's labelled claims are read from it)."""
         for candidate in (text, *reversed(text.splitlines())):
             try:
                 data = json.loads(candidate)

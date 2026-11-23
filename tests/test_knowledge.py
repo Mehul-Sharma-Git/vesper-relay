@@ -285,12 +285,12 @@ class CommandTests(unittest.TestCase):
 
 class RunTests(unittest.TestCase):
     """A launched worker gets the passages and a read-only copy of its role's frozen pack."""
-    setUp = foundation.DepthRuleTests.setUp
-    write = foundation.DepthRuleTests.write
-    report = foundation.DepthRuleTests.report
-    stand_in = foundation.DepthRuleTests.stand_in
-    approve_skip = foundation.DepthRuleTests.approve_skip
-    run_once = foundation.DepthRuleTests.run_once
+    setUp = foundation.HandoffRunTests.setUp
+    write = foundation.HandoffRunTests.write
+    report = foundation.HandoffRunTests.report
+    stand_in = foundation.HandoffRunTests.stand_in
+    approve_skip = foundation.HandoffRunTests.approve_skip
+    run_once = foundation.HandoffRunTests.run_once
 
     def test_the_brief_has_the_passages_and_the_attempt_keeps_the_frozen_pack(self):
         fake = Path(self.temp.name) / "team"

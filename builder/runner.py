@@ -18,7 +18,7 @@ from .knowledge import MOUNT as KNOWLEDGE_MOUNT, write_tree
 from .process import run_process
 from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
     tools as brain_tools, usage
-from .providers import GATES_DIR, NOTE_PROMPT, handoff_claims, reasoning_note, review_limits, worker_prompt
+from .providers import GATES_DIR, handoff_claims, review_limits, worker_prompt
 from .review_gate import (LENSES, LENS_FOCUS, LENS_PASSAGES, changed_line_count, downgrade, merge as merge_lenses,
                           needs_security, prompt as review_prompt, report_schema, size_note, touched_code,
                           validate_report, write_diff)
@@ -809,8 +809,8 @@ class Runner:
         if state["bundle"].get("design_review") and job["role"] == "frontend":
             packet["design_review"] = True
         if "adapter" in attempt:
-            # A launched worker's labelled claims, never its reasoning note (P3-T1; 00-context,
-            # "One AI is enough": the reviewer has no access to the worker's reasoning).
+            # A launched worker's labelled claims, never a note-shaped section (P3-T1, P3-T1b;
+            # 00-context, "One AI is enough": the reviewer has no access to the worker's reasoning).
             packet["claims"] = attempt.get("claims", [])
         workspace = directory / "review"
         workspace.mkdir()
@@ -1067,32 +1067,19 @@ class Runner:
             row.pop("at", None)
         calibration.append(self.root, rows)
 
-    def keep_reasoning(self, state, job, brain, log):
-        """Keep a launched worker's reasoning note from its final message in reasoning.md, and the
-        labelled claims of its hand-off for the reviewer (P3-T1). Without a note, a full-depth job
-        is rejected as a process failure; at any other depth the attempt carries a warning and
-        continues. Returns False when the attempt was rejected."""
+    def keep_claims(self, state, job, brain, log):
+        """Keep the labelled claims of a launched worker's hand-off for the reviewer (P3-T1). Workers
+        write no reasoning note (P3-T1b, finding 65), so nothing else is kept and nothing is
+        rejected here: a hand-off with no labelled claim gives the attempt a warning at any depth."""
         attempt = state["active"]
         said = brain.adapter.summary(read_tail(log, limit=200_000) if log.is_file() else "")  # may keep no log
         attempt["claims"] = handoff_claims(said)
-        note, problem = reasoning_note(said)
-        if note:
-            path = self.attempt_dir(attempt) / "reasoning.md"
-            path.write_text(note + "\n", encoding="utf-8")
-            attempt["reasoning_note"] = str(path.relative_to(self.root))
-            self.save(state)
-            return True
-        depth = state["bundle"].get("planning", {}).get("depth")
-        if depth == "full":
-            self.finish(state, "rejected", f"The worker's final message gave no usable reasoning note ({problem}); "
-                                           "a full-depth job needs one. " + NOTE_PROMPT, "process")
-            return False
-        warning = (f"No usable reasoning note ({problem}): required at full depth, a warning at "
-                   f"{depth + ' depth' if depth else 'a run without planning depth'}")
-        attempt.setdefault("warnings", []).append(warning)
-        print(f"{job['id']} | warning: {warning}", file=sys.stderr, flush=True)
+        if not attempt["claims"]:
+            warning = ("The worker's final message labelled no claims ([verified], [inferred] or [assumed]); "
+                       "the reviewer treats everything it says as unverified")
+            attempt.setdefault("warnings", []).append(warning)
+            print(f"{job['id']} | warning: {warning}", file=sys.stderr, flush=True)
         self.save(state)
-        return True
 
     def run_gates(self, state, contract, job, candidate, proposed, directory, launcher):
         """The job's gates (every gate on the final job). Build setup runs once, before the
@@ -1273,7 +1260,8 @@ class Runner:
                 said = brain.adapter.summary(read_tail(log, limit=200_000))
                 self.finish(state, "worker_failed",
                             f"Worker brain {brain.name} exited {code}\n{said[-3500:]}", "provider")
-            elif self.keep_reasoning(state, job, brain, log):
+            else:
+                self.keep_claims(state, job, brain, log)
                 result = self.verify(state, contract, job, workspace, launcher)
                 if result["outcome"] == "awaiting_review" and explorer:
                     self.explore_candidate(state, explorer, launcher, trust_host)
