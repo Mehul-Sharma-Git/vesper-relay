@@ -81,6 +81,7 @@ reported about $1.26 at list price (informational; the owner's plans are fixed-f
 | 62 | P3-T3 (21 Nov 2026): `prove-checks --against reference --sandbox docker` on the Pocket Todo fixture took 17 s and reported all three gates `proven`: each passed on `reference/` and failed on its broken variant at the matrix row it guards (G_API `POST /api/lists http://evil.example`, A2; G_UI `Inputs need visible labels`, R4; G_BROWSER at `browser.py:112`, the markup title not shown as text, A6). On this Mac's host (no Python Playwright) G_BROWSER fails on the unbroken base too, which the control run reports as `fails_on_base` instead of counting the ImportError as proof. On GitHub's macOS runner (Python 3.11) `reference/server.py` never printed READY within the gates' 8 s wait, base and broken alike (G_API, G_UI `fails_on_base`): `HTTPServer.server_bind` calls `socket.getfqdn`, a reverse-DNS lookup; the reference app now binds without it (`LocalServer`). Finding 60's fold-in of P2-G's decided findings into the fixture's gates was not part of P3-T3's spec and is not done | Finding 60's fold-in: done in P3-T3b (finding 63) |
 | 63 | P3-T3b (23 Nov 2026): the 169 findings the owner accepted in P2-G's four Pocket Todo runs were triaged in `fixtures/pocket-todo/findings-triage.md`, by group: 92 (27 groups) became checks the plan already promises and a plausible wrong build passed, 77 (23 groups) stay risks (trusted or out-of-scope actors, or behaviour the plan does not specify: pending writes, unknown outcomes, focus after removal, storage failure). The new assertions found these defects in `reference/`, the hand-written known-good app, now fixed: the HTTP parser's own error replies had no status line or headers (`default_request_version` HTTP/0.9), OPTIONS and unknown methods skipped the Host check (a stdlib 501), digit-shaped hosts such as `256.1.1.1` passed as IPv4, a second Origin header was ignored, a malformed header line hid a second Host, a body shorter than its Content-Length was accepted, nested JSON or a lone surrogate gave a 500, a fragment in a DELETE target still deleted, an existing mode-644 database stayed readable by others, choosing a list another device deleted left an error instead of falling back to Inbox, and a 40-character name scrolled the phone sideways. A mutation sweep, one defect each, fails every wrong build: 31 servers in G_API (in the image; on macOS the two bind mutants pass, as the bind checks need 127.0.0.2, which Linux has and macOS does not) and 20 UIs (19 in G_BROWSER, a remote preconnect link in G_UI); a server that logs every request still passes. G_API takes about 3 s, G_BROWSER about 16 s in the image. G_BROWSER's markup step clicked Delete while the reference UI was still refreshing, which its busy guard drops (1 run in 4 failed `fails_on_base`); the gate now waits for the page's requests first | Done; pending-write behaviour (T26) needs a design decision before it can be gated |
 | 64 | P3-T5 (23 Nov 2026): a stand-in QA explored the Pocket Todo solution over HTTP (no browser in a stand-in): empty and 201-character titles were refused with 400 and an emoji title stored with 201, but the same create sent twice in a row made two identical todos (201 then 201). The UI's busy guard stops a double click, so only a retry, a second tab or a script reaches it; the plan does not say whether duplicates are allowed. The session's findings do not reach the candidate's independent reviewer (the review copy is digest-bound at staging, before the session); instead its blockers and security or data findings join the candidate's owner decisions when the review finishes. No live sandboxed Playwright session has been run yet | Open: the duplicate-create question is a plan decision for Pocket Todo (with T26's pending writes); showing the session to the reviewer is a follow-up; a live session belongs in P3-G or P5-T4 |
+| 65 | P3-G (23 Nov 2026): the first live Claude Code worker on the P3-T1 brief (Pocket Todo J_API, sandbox docker) was refused on its first request: "API Error: Sonnet 5.5's safeguards flagged this message … [reasoning_extraction]". Probing the same 31 KB brief on the Mac (`claude -p`, one turn, no tools): Opus 5.5 refused it 3 runs in 3. Without the critical-thinking skill's note section it was refused 0 in 3, and with no note request at all 0 in 3; renaming the note "Decision record" still left 3 in 3 refused (one renamed variant passed 1 in 3, which first looked like a fix), and dropping the "the reviewer never sees your reasoning" sentences left 2 in 3. The trigger is the request itself, a structured account of the worker's own thinking written before it acts and kept from the reviewer, not its name. Every test before this used a stand-in CLI, so none could see it. Searching for wording that passes the safeguard was stopped (owner, 23 Nov 2026): it would be working around a safety filter | Open: P3-T1's design and P3-G's criterion 3 need an owner decision (see Gate P3-G, "Next") |
 
 What worked and must be kept: plan digests, scope enforcement, the final full-gate rerun,
 export, the Claude adapter flags, and reviewers that traced every fetch against the
@@ -491,3 +492,53 @@ check compares (finding 59).
 - Check token ranges too, and tell a 0-point rise on a small run from a sample (finding 59).
 - Codex job reviews still don't converge in two attempts (finding 60); batch decisions are
   still one dialog per finding, 85 this rerun (finding 55).
+
+## Gate P3-G — 2026-11-23 11:17
+
+Result: **FAILED** on criterion 3. Criteria 1 and 2 passed. Criterion 3 could not pass: the
+first live Claude Code worker on the P3-T1 brief was refused by Claude's
+`reasoning_extraction` safeguard, so no job produced a note (finding 65).
+
+Setup: owner's Mac, sandbox image `vesper-sandbox:acbcacc59f3b` (rebuilt this session,
+Claude Code 2.1.327; host CLI 2.1.311). Runner code: `dev` at `b2389ed` (P3-T5 merged).
+Brains from the owner's config: `[brains.strong]` and `[brains.reviewer]` both
+`claude-code`, `reserve_percent = 25`, macOS-dialog confirmer. Two run folders under
+`~/.local/state/vesper-relay/gates/p3-g/`, each with the fixture's managed intake in
+`.vesper.json` (a planning depth needs it):
+
+- **P** (criterion 1): the fixture's plan and real checks, `prove-checks --against
+  reference --sandbox docker`.
+- **G** (criteria 2 and 3): the fixture's plan with stand-in gates that only check the
+  files exist and parse, so a known-bad build passes the gates and reaches review. The
+  plan critique ran (13 findings, request_changes); the owner decided the three blocking
+  findings by dialog and approved. J_API's first attempt was manual (`prepare`, then
+  `submit` of `fixtures/pocket-todo/solution/server.py`); its review was the multi-lens
+  review. J_API's second attempt and J_UI (with `run --explore`) were to be launched
+  workers.
+
+### Criteria
+
+| Criterion | Result | Evidence |
+| --- | --- | --- |
+| Every check fails against its broken variant | **Pass** | P, 11:22, 28 s, `boundary: sandbox docker`, `passed: true`: G_API, G_UI and G_BROWSER each exit 0 on `reference/` and 1 on its broken variant, all `proven`. G_API refused nothing from `Origin: http://evil.example` (A2), G_UI found no label on the add field (R4), G_BROWSER saw the `<img onerror>` title run as markup (A6) |
+| Reviewing `solution/` with the multi-lens review yields a security blocker with a repro | **Pass** | G, attempt `8428d22a` (11:24–11:27, 2 min 48 s): four lenses (correctness, security and performance request_changes, readability approve), merged to 11 findings: 8 blocking (2 security, 5 correctness, 1 data), 3 advisory, 0 downgraded. Security-lens blocker on `server.py`, repro: "`python3 server.py --db /tmp/t.db --port 18099`, then `curl -si -X POST localhost:18099/api/lists -H 'Host: evil.example' -H 'Origin: https://evil.example' -H 'Content-Type: text/plain' -d '{"name":"Pwn"}'`. Observed: HTTP/1.1 201 Created … Expected 403. The response also has no Content-Security-Policy or X-Frame-Options header." The correctness lens raised the same hole with its own repro |
+| Reasoning notes are present for every job | **Fail** | G, J_API attempt `087025bd` (11:28), launched Claude Code worker in the sandbox: exit 1 on its first request, "API Error: Sonnet 5.5's safeguards flagged this message … [reasoning_extraction]". J_API was then out of attempts and the run `blocked`; J_UI never ran. No job has a `reasoning.md`. Probing the brief on the host (finding 65): Opus 5.5 refused it 3 in 3, and 0 in 3 without the note request |
+
+Not reached because of criterion 3: a live sandboxed exploratory session (`run --explore`
+on J_UI, finding 64).
+
+Elapsed: 11:17 to 17:02 (5 h 45 min). The gate's runs ended at 11:28; the rest went to
+diagnosing the refusal, a rename that did not fix it, and the probes. Plan usage (owner's `/usage`, session /
+weekly): 8 / 37 before, 27 / 58 after. The weekly +21 includes the probes (each a 31 KB
+brief to Opus or Sonnet) and the diagnosis, not only the gate's runs.
+
+### Next
+
+- P3-T1's design needs an owner decision before criterion 3 can pass. Recommended: stop
+  asking a worker for a structured account of its own thinking. The design rationale
+  already lives in the plan stage (the technical lead's `architecture.md`, its options and
+  choices); a worker hands off its labelled claims and a short summary of what it changed.
+  This changes P3-T1, P3-G's criterion 3 and `00-context.md`, so it is the owner's call;
+  the runner's full-depth rejection of a missing note must change with it, or every
+  full-depth job on Claude fails as this one did.
+- After that, rerun criterion 3 and the live exploratory session (finding 64) on run G.
