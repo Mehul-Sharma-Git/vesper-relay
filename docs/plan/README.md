@@ -197,7 +197,7 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P3-T3b | Fold P2-G's accepted findings into the Pocket Todo gates | P3-T3, P3-T4 | L | done |
 | P3-T5 | Exploratory QA session | P3-T3, P1-T10 | M | done |
 | P3-T1b | Worker hand-off without a reasoning note (P3-G finding 65) | P3-T1 | S | done |
-| P3-G | Phase 3 gate (rerun the third criterion after P3-T1b; the 23 Nov run's first two stand) | P3-T1..T5, P3-T3b, P3-T1b | S | todo |
+| P3-G | Phase 3 gate (rerun the third criterion after P3-T1b; the 23 Nov run's first two stand) | P3-T1..T5, P3-T3b, P3-T1b | S | doing |
 | P4-T1 | Designer knowledge pack (content) | P3-T2 | L | todo |
 | P4-T2 | Designer tools and design artifacts | P4-T1 | M | todo |
 | P4-T3 | Design gates (tokens, anti-patterns, accessibility, fidelity) | P4-T2 | L | todo |
