@@ -1,6 +1,6 @@
 # Phase 3 — Agents that verify (shared foundation, QA, reviewer)
 
-**Goal:** every agent thinks in writing before acting and labels its claims; QA owns
+**Goal:** every agent labels its claims and critiques its own work; QA owns
 checks that are proven to fail; the reviewer's blockers come with evidence and nothing
 risky gets lost.
 
@@ -9,12 +9,22 @@ measurable. Phase 4 changes are judged by the tools built here.
 
 **Phase gate (P3-G):** on the Pocket Todo fixture: every check fails against its broken
 variant; reviewing `fixtures/pocket-todo/solution/` (which really shipped without CSRF/Origin
-checks) with the multi-lens review yields a security blocker with a repro; reasoning notes
-are present for every job.
+checks) with the multi-lens review yields a security blocker with a repro; every job runs
+as a launched Claude Code worker in the sandbox, with no safeguard refusal, and its
+hand-off's labelled claims reach its review packet (`claims` in `review.json`).
+
+**P3-G rerun (owner, 23 Nov 2026):** the 23 Nov run passed the first two criteria, and
+they stand. Its third criterion was "reasoning notes are present for every job"; a model
+safeguard refused the note request (appendix B, finding 65), and P3-T1b replaced the note.
+After P3-T1b, the rerun measures the third criterion only, on the same plan and stand-in
+gates as the 23 Nov run G, and runs J_UI with `--explore` (finding 64).
 
 ---
 
 ## P3-T1 — Shared agent foundation
+
+> **Superseded in part by P3-T1b (owner, 23 Nov 2026):** workers no longer write the
+> reasoning note below; claim labels, self-critique and the claims-only review packet stay.
 
 - **Read first:** `team/roles/*.md`, `team/skills/*/SKILL.md`, `builder/team.py`,
   `builder/providers.py` (`worker_prompt`), `builder/review_gate.py` (`prompt`).
@@ -175,3 +185,48 @@ are present for every job.
   additive checks (P2-T6).
 - **Acceptance:** stand-in test that exploratory findings land in the backlog; on the
   Pocket Todo fixture the session produces a report.
+
+## P3-T1b — Worker hand-off without a reasoning note
+
+- **Why:** at P3-G the first launched Claude Code worker on P3-T1's brief was refused by
+  Claude's `reasoning_extraction` safeguard (appendix B, finding 65 and Gate P3-G). The
+  trigger is the request itself: a structured account of the worker's own thinking,
+  written before it acts and kept from the reviewer. The owner's decision (23 Nov 2026):
+  workers write no reasoning note. The design rationale lives in the plan stage, where
+  `full` depth already requires `options` (2–3 approaches with trade-offs and a
+  recommendation, `builder/planning.py`) and the technical lead's architecture handoff. A
+  worker hands off a short summary with labelled claims; self-critique stays.
+- **Read first:** `team/skills/critical-thinking/SKILL.md`, `builder/providers.py`
+  (`REASONING_FIELDS`, `NOTE_MARKER`, `NOTE_PROMPT`, `note_spans`, `reasoning_note`,
+  `handoff_claims`, `worker_prompt`), `builder/runner.py` (`keep_reasoning` and its
+  caller), `builder/review_gate.py` (`prompt`), `tests/test_agent_foundation.py`,
+  `docs/plan/verify-facts.sh` (the P3-T1 check), appendix B finding 65 and
+  "Gate P3-G — 2026-11-23 11:17".
+- **Change:**
+  1. `critical-thinking` skill: remove the reasoning note section and its template. Keep
+     claim labels and self-critique. The skill's description and every role prompt ask for
+     no written account of the model's reasoning or thinking, under any name.
+  2. Brief: replace `NOTE_PROMPT` with a hand-off line: finish with a short summary of
+     what changed, each factual claim labelled `[verified]`, `[inferred]` or `[assumed]`.
+  3. Runner: no note extraction, no `reasoning.md`, no depth rule for a note; remove the
+     `full`-depth rejection. The review packet still gets only the labelled claims of the
+     final message (`claims` in `review.json`). A final message with no labelled claim
+     gives the attempt a warning at every depth; the reviewer's existing "labelled no
+     claims" handling stays.
+  4. Reviewer independence is unchanged: if a worker writes a note-shaped section anyway,
+     none of it reaches the reviewer (keep the `note_spans` exclusion in `handoff_claims`).
+  5. State and evidence from earlier runs still load: an attempt with `reasoning_note` or
+     a `reasoning.md` file is read without error and not migrated.
+  6. Update the P3-T1 line in `verify-facts.sh` and P3-T1's own section to say what
+     P3-T1b replaced.
+- **Do not:** rename the note and keep asking for it (a "decision record" with the same
+  fields is the same request); try wordings against a model's safety filters; weaken the
+  reviewer's no-access rule; drop claim labels or self-critique.
+- **Acceptance:** tests that the skill and the brief name no note (none of "Reasoning
+  note", "Decision record" or the six field labels); a launched stand-in worker at `full`
+  depth with labelled claims and no note is accepted, and its claims reach `review.json`;
+  a note-shaped section in the final message stays out of `review.json` and the reviewer
+  prompt; a final message without labelled claims warns; an old state with
+  `reasoning_note` loads. Live: one launched Claude Code worker on the Pocket Todo J_API
+  brief, in the Docker sandbox, completes without a safeguard refusal. If it is refused,
+  stop and report to the owner; do not reword to get past the filter.
