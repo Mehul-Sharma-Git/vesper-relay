@@ -25,7 +25,7 @@ from builder.team import catalog, profile, render
 
 ROOT = Path(__file__).resolve().parent
 CORE = {"init", "brief", "review", "approve", "prepare", "submit", "abandon", "retry",
-        "status", "export", "run", "review-candidate", "estimate", "add-check", "decide"}
+        "status", "export", "run", "review-candidate", "estimate", "add-check", "decide", "prove-checks"}
 MODES = ("build", "feature", "bug", "design", "frontend", "backend", "maintenance")
 MARK = "Vesper Relay managed installation"
 
@@ -204,6 +204,17 @@ def main():
     boundary_options(plan_review)
     review_limit_options(plan_review)
     plan_review.set_defaults(review_timeout=PLAN_REVIEW_TIMEOUT)
+    drafting = commands.add_parser("draft-checks", help="QA writes the checks over a copy of plan/ and checks/")
+    brain_options(drafting)
+    boundary_options(drafting)
+    drafting.add_argument("--timeout", type=int, default=600, metavar="SECONDS",
+                          help="QA's wall-time limit, 1 to 1800 seconds (default %(default)s)")
+    exploring = commands.add_parser("explore", help="QA explores a frontend job's tested candidate "
+                                    "(focused and full depth) and reports bugs with repro steps")
+    brain_options(exploring)
+    boundary_options(exploring)
+    exploring.add_argument("--timeout", type=int, default=600, metavar="SECONDS",
+                           help="QA's wall-time limit, 1 to 1800 seconds (default %(default)s)")
     commands.add_parser("incidents")
     boundary_options(commands.add_parser("repair-reproduce"))
     commands.add_parser("repair-commit").add_argument("--digest", required=True)
@@ -222,6 +233,12 @@ def main():
     advice.add_argument("--task", required=True)
     brain_options(advice)
     boundary_options(advice)
+    kb = commands.add_parser("kb", help="Search the roles' knowledge packs").add_subparsers(dest="action",
+                                                                                         required=True)
+    found = kb.add_parser("search", help="Print the best passages of a role's pack, with file and heading")
+    found.add_argument("--role", choices=tuple(catalog()), required=True)
+    found.add_argument("--limit", type=int, default=5)
+    found.add_argument("query")
     commands.add_parser("learn").add_argument("--promote", choices=tuple(RULES))
     commands.add_parser("review-change")
     commands.add_parser("patch")
@@ -289,6 +306,11 @@ def main():
         elif args.command == "roles":
             require(args.role or not args.skill, "Select a role before selecting a skill")
             result = profile(args.role, args.skill) if args.role else {"roles": catalog()}
+        elif args.command == "kb":
+            from builder.knowledge import pack, search
+            require(1 <= args.limit <= 50, "--limit must be 1 to 50")
+            result = {"role": args.role, "query": args.query,
+                      "passages": search(pack(args.role), args.query, args.limit)}
         elif args.command == "consult":
             require(args.project, "Pass --project PATH before the command")
             result = consult(args.project.resolve(), args)
@@ -306,6 +328,22 @@ def main():
                                      external_attested=args.attest_independent, brain=brain,
                                      launcher=launcher, trust_host=trust_host,
                                      review_timeout=args.review_timeout, review_max_turns=args.review_max_turns)
+        elif args.command == "draft-checks":
+            from builder.qa import draft_checks
+            require(args.project, "Pass --project PATH before the command")
+            runner = Runner(args.project.resolve())
+            with runner.lock():
+                brain = Selection(worker=chosen(args)).worker("qa")
+                launcher, trust_host = resolve_boundary(args)
+                result = draft_checks(runner, brain, launcher, trust_host, timeout=args.timeout)
+        elif args.command == "explore":
+            from builder.exploratory import explore
+            require(args.project, "Pass --project PATH before the command")
+            runner = Runner(args.project.resolve())
+            with runner.lock():
+                brain = Selection(worker=chosen(args)).worker("qa")
+                launcher, trust_host = resolve_boundary(args)
+                result = explore(runner, brain, launcher, trust_host, timeout=args.timeout)
         elif args.command == "incidents":
             require(args.project, "Pass --project PATH before the command")
             result = incident_report(Runner(args.project.resolve()))

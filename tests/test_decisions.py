@@ -24,7 +24,9 @@ def finding(severity, category, path="app.js"):
 
 def job_report(preview, *findings):
     data = test_rc1.verdict(preview)
-    data["findings"] = list(findings)
+    # A job-review blocker comes with a repro, or it is only suspected (P3-T4).
+    data["findings"] = [{**item, "repro": f"Reproduced: {item['evidence']}"} if item["severity"] == "blocking"
+                        else item for item in findings]
     data["verdict"] = "request_changes" if any(item["severity"] == "blocking" for item in findings) else "approve"
     return data
 
@@ -281,6 +283,7 @@ class PlanDecisionTests(unittest.TestCase):
         plan_sheet = self.runner.review_sheet()
         for field in ("F1", "The retry identity is a later phase", "F2", "Data loss on two devices is accepted"):
             self.assertIn(field, plan_sheet)
+        self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
         self.runner.approve(digest)
         state = self.runner.state()
         self.assertEqual([item["id"] for item in state["accepted_risks"]], ["F1", "F2"])
@@ -294,6 +297,7 @@ class PlanDecisionTests(unittest.TestCase):
         risks = sheet.split("Risks you accept by approving:")[1]
         self.assertIn("Fix the security problem in plan/architecture.md", risks)
         self.assertNotIn("performance", risks)
+        self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
         self.runner.approve(self.runner.review()["digest"])
         items = {item["id"]: item for item in self.runner.status()["backlog"]}
         self.assertEqual((items["F1"]["status"], items["F1"]["decision"]["by"]), ("accepted", "plan approval"))
@@ -343,6 +347,7 @@ class PlanDecisionTests(unittest.TestCase):
         self.critique()
         items = self.runner.status()["backlog"]
         self.assertEqual([item["status"] for item in items], ["superseded"])
+        self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
         self.runner.approve(self.runner.review()["digest"])
 
 

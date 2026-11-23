@@ -1,0 +1,10 @@
+--- a/index.html
++++ b/index.html
+@@ -36,7 +36,6 @@
+       <button type="button" data-status="done" aria-pressed="false">Done</button>
+     </div>
+     <form id="add-form" class="row">
+-      <label for="new-todo">New todo</label>
+       <div class="field"><input id="new-todo" type="text" maxlength="200" autocomplete="off"><button type="submit">Add</button></div>
+     </form>
+     <div id="status" role="status" aria-live="polite"></div>

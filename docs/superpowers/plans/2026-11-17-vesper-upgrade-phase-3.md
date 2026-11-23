@@ -13,60 +13,82 @@ No third-party imports in the runner; never weaken plan digests, scope checks, r
 ## Task P3-T1: Shared agent foundation (reasoning note, claim labels, self-critique)
 Depends on: P2-G · Size: M · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T1
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P3-T1 and every file under its "Read first"
-- [ ] Create branch `plan/p3-t1`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T1 and every file under its "Read first"
+- [x] Create branch `plan/p3-t1`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P3-T2: Knowledge pack structure and `vesper kb` search
 Depends on: P2-G · Size: M · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T2
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P3-T2 and every file under its "Read first"
-- [ ] Create branch `plan/p3-t2`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T2 and every file under its "Read first"
+- [x] Create branch `plan/p3-t2`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P3-T3: QA owns checks; prove-it-fails self-test
 Depends on: P3-T1 · Size: L · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T3
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P3-T3 and every file under its "Read first"
-- [ ] Create branch `plan/p3-t3`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T3 and every file under its "Read first"
+- [x] Create branch `plan/p3-t3`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P3-T4: Reviewer: evidence-backed, multi-lens, calibration
 Depends on: P3-T1 · Size: L · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T4
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P3-T4 and every file under its "Read first"
-- [ ] Create branch `plan/p3-t4`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T4 and every file under its "Read first"
+- [x] Create branch `plan/p3-t4`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+
+## Task P3-T3b: Fold P2-G's accepted findings into the Pocket Todo gates
+Depends on: P3-T3, P3-T4 · Size: L · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T3b
+
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T3b and every file under its "Read first"
+- [x] Create branch `plan/p3-t3b-fold-findings`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P3-T5: Exploratory QA session
 Depends on: P3-T3, P1-T10 · Size: M · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T5
 
-- [ ] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
-- [ ] Read `docs/plan/00-context.md`, then task P3-T5 and every file under its "Read first"
-- [ ] Create branch `plan/p3-t5`
-- [ ] Write the failing tests listed under "Acceptance" and watch them fail
-- [ ] Implement "Change"; respect "Do not"
-- [ ] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
-- [ ] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T5 and every file under its "Read first"
+- [x] Create branch `plan/p3-t5`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
+
+## Task P3-T1b: Worker hand-off without a reasoning note
+Depends on: P3-T1 · Size: S · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-T1b
+
+- [x] Run `sh docs/plan/verify-facts.sh`; handle any DRIFT as `docs/plan/README.md` describes
+- [x] Read `docs/plan/00-context.md`, then task P3-T1b and every file under its "Read first"
+- [x] Create branch `plan/p3-t1b-handoff-without-note`
+- [x] Write the failing tests listed under "Acceptance" and watch them fail
+- [x] Implement "Change"; respect "Do not"
+- [x] Run the README step-6 commands and the task's own acceptance commands; paste results in the PR
+- [x] Update the status board (and `verify-facts.sh` if a checked fact changed on purpose)
 
 ## Task P3-G: Phase 3 gate
-Depends on: P3-T1..T5 · Size: S · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-G
+Depends on: P3-T1..T5, P3-T3b, P3-T1b · Size: S · Spec: `docs/plan/phase-3-verifying-agents.md`, section P3-G
 
 - [ ] Confirm every task this gate depends on is `done` on the board
 - [ ] Run the gate exactly as written in `docs/plan/phase-3-verifying-agents.md`

@@ -198,6 +198,8 @@ def validate_check(item, checks_inventory):
     if "timeout" in item:
         require(type(item["timeout"]) is int and 1 <= item["timeout"] <= 1800,
                 f"Invalid timeout for check {name}: use whole seconds, 1 to 1800")
+    # P3-T3: a check may only record its result (a mutation score), never block the job.
+    require(type(item.get("blocking", True)) is bool, f"Invalid blocking for check {name}: use true or false")
 
 
 def validate(data, checks_inventory):
@@ -215,6 +217,9 @@ def validate(data, checks_inventory):
         require(nonempty(item.get("description")), f"Missing description for {item['id']}")
         require(set(id_list(item.get("checks"), "requirement checks")) <= gate_ids,
                 f"Unknown check for {item['id']}")
+        recorded = [name for name in item["checks"] if checks[name].get("blocking", True) is False]
+        require(not recorded, f"Requirement {item['id']} names {', '.join(recorded)}, which records only "
+                              "(blocking false): a promise needs a check that blocks")
     used_checks = set()
     for job in jobs.values():
         require(nonempty(job.get("role")) and nonempty(job.get("goal")),
@@ -227,6 +232,8 @@ def validate(data, checks_inventory):
                 f"Unknown dependency for {job['id']}")
         assigned = set(id_list(job.get("checks"), "job checks"))
         require(assigned <= gate_ids, f"Unknown job check for {job['id']}")
+        require(any(checks[name].get("blocking", True) is not False for name in assigned),
+                f"Job {job['id']} needs a check that blocks, not only checks that record (blocking false)")
         used_checks.update(assigned)
         for key, default, low, high in (("max_attempts", 2, 1, 5), ("timeout", 180, 1, 1800)):
             value = job.get(key, default)
@@ -305,7 +312,8 @@ def review_bundle(root, *, include_critique=True, estimating=False):
 
 def validate_maintenance(root, contract, checks, seed):
     require(any(item["id"] == "VESPER_REGRESSION" and item.get("script") == "vesper_regression.py"
-                for item in contract["checks"]), "Maintenance requires the VESPER_REGRESSION check")
+                and item.get("blocking", True) for item in contract["checks"]),
+            "Maintenance requires the VESPER_REGRESSION check")
     require(reviewed_text(root / "checks", "vesper_regression.py", checks) == MAINTENANCE_GATE,
             "Maintenance regression script changed")
     baseline = {path.removeprefix("tests/"): value for path, value in seed.items()

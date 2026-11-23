@@ -14,12 +14,14 @@ from uuid import uuid4
 from .amendments import package as checks_package  # the approved checks plus any added after (P2-T6)
 from .contracts import (BuilderError, fingerprint, inventory, owned, read_json,
                         require, review_bundle, reviewed_contract, safe_path)
+from .knowledge import MOUNT as KNOWLEDGE_MOUNT, write_tree
 from .process import run_process
 from .brains import REPLY_LIMIT, command as brain_command, launch, parse_result, reply_path, \
     tools as brain_tools, usage
-from .providers import GATES_DIR, review_limits, worker_prompt
-from .review_gate import (needs_security, prompt as review_prompt, report_schema, touched_code, validate_report,
-                          write_diff)
+from .providers import GATES_DIR, handoff_claims, review_limits, worker_prompt
+from .review_gate import (LENSES, LENS_FOCUS, LENS_PASSAGES, changed_line_count, downgrade, merge as merge_lenses,
+                          needs_security, prompt as review_prompt, report_schema, size_note, touched_code,
+                          validate_report, write_diff)
 from .sandbox import Sandbox, check_job, command_job
 
 # VESPER_REGRESSION runs Vesper's whole baseline suite; 300 s stopped fitting on a Mac at P1-G.
@@ -34,7 +36,8 @@ EARLIER_EVIDENCE_LIMIT = 600
 HISTORY_LIMIT = 12_000
 FAILURE_LABELS = {"check": "failed a gate", "review": "rejected by the independent reviewer",
                   "provider": "the worker failed or timed out", "scope": "changed files outside the job's paths",
-                  "integrity": "failed an integrity check", "environment": "hit a runner error"}
+                  "integrity": "failed an integrity check", "environment": "hit a runner error",
+                  "process": "skipped a required step"}
 
 
 def scope_changes(base, proposed, paths):
@@ -387,6 +390,9 @@ class Runner:
             waiting = undecided_plan_blockers(self.root, critique)
             require(not waiting, "Independent plan critique must approve this exact packet before implementation, "
                                  "or the owner must decide each blocker: " + "; ".join(waiting))
+        # P3-T3: at focused and full depth every check must fail against its broken variant.
+        from .qa import approval_proof
+        check_proof = approval_proof(self, bundle)
         proof = None
         if "repair" in bundle:
             from .repair import reproduction_record
@@ -416,6 +422,8 @@ class Runner:
                  "completed": [], "active": None, "attempts": [], "estimate": estimate}
         if proof:
             state["repair_reproduction"] = proof
+        if check_proof:
+            state["check_proof"] = check_proof
         state["confirmation"] = {key: confirmation[key] for key in ("digest", "confirmer", "at")}
         if critique:
             from .decisions import accepted_by_approval
@@ -447,10 +455,16 @@ class Runner:
         # Checks added after approval (P2-T6), each verified against its confirmed digest.
         return apply(self, state, reviewed_contract(approval / "plan", bundle["plan"], bundle["checks"]))
 
-    def decide(self, finding_id, *, fix=False, accept=False, reason=None):
-        """The owner's decision on a finding (P2-T7); accepting a risk is a protected action."""
+    def prove_checks(self, against=None, launcher=None):
+        """Prove each check fails against its broken variant (P3-T3); `approve` reads the record."""
+        from .qa import prove
+        return prove(self, against=against, launcher=launcher)
+
+    def decide(self, finding_id, *, fix=False, accept=False, dismiss=False, reason=None):
+        """The owner's decision on a finding (P2-T7); accepting a risk or dismissing a finding
+        (P3-T4) is a protected action."""
         from .decisions import decide
-        return decide(self, finding_id, fix=fix, accept=accept, reason=reason)
+        return decide(self, finding_id, fix=fix, accept=accept, dismiss=dismiss, reason=reason)
 
     def add_check(self, check_id, *, script=None, command=None, jobs=None, reason=None):
         """Add a check after approval (P2-T6): a protected action the owner confirms."""
@@ -523,6 +537,12 @@ class Runner:
                   "completed": state["completed"], "next_job": job and job["id"],
                   "active": state["active"], "attempts": state["attempts"],
                   "retry_grants": state.get("retry_grants", []), "amendments": listed(self, state), **decisions}
+        # P3-T4: a job whose diff passed the 400-line guideline, with the note for the planner.
+        notes = [{"job": item["job"], "attempt": item["id"], "note": item["review"]["size_note"]}
+                 for item in state["attempts"] + ([state["active"]] if state["active"] else [])
+                 if item.get("review", {}).get("size_note")]
+        if notes:
+            result["size_notes"] = notes
         if phase == "complete":
             # P2-T9: once the run's marked readings exist, show how its usage compared with the estimate.
             from .usage import check_run, entries, has_marked_readings
@@ -534,7 +554,7 @@ class Runner:
     def attempt_dir(self, attempt):
         return self.control / "attempts" / attempt["id"]
 
-    def begin(self, state, contract, provider, adapter=None, shell=False):
+    def begin(self, state, contract, provider, adapter=None, shell=False, sandboxed=False):
         from .decisions import open_decisions
         job = self.ready(state, contract)
         previous = self.attempts_for(state, job) if job else []
@@ -583,11 +603,13 @@ class Runner:
                       "keep what works and fix what failed." if carried else
                       "Your workspace starts from the accepted version: no earlier attempt left a checked "
                       "candidate that is still intact.")
+        specialist = state["bundle"].get("team", {}).get("jobs", {}).get(job["id"])
+        folder = self.knowledge_copy(state, directory / "knowledge")
+        knowledge_path = (KNOWLEDGE_MOUNT if sandboxed else str(folder)) if folder else None
         prompt = worker_prompt(contract, job, self.approval(state) / "plan", state["bundle"]["plan"],
-                               attempt_history(previous),
-                               state["bundle"].get("intake"),
-                               state["bundle"].get("team", {}).get("jobs", {}).get(job["id"]),
-                               state["bundle"].get("planning"), shell=shell, gates=gates, origin=origin)
+                               attempt_history(previous), state["bundle"].get("intake"), specialist,
+                               state["bundle"].get("planning"), shell=shell, gates=gates, origin=origin,
+                               knowledge_path=knowledge_path)
         if "repair" in state["bundle"]:
             proof = state["repair_reproduction"]
             incident = state["bundle"]["repair"].get("source_incident")
@@ -598,6 +620,14 @@ class Runner:
         state["active"] = attempt
         self.save(state)
         return job, attempt, workspace, prompt
+
+    @staticmethod
+    def knowledge_copy(state, directory):
+        """Write the run's frozen knowledge packs (team/knowledge/ as approved, P3-T2) read-only into
+        ``directory`` for an agent to read; the sandbox mounts it at /knowledge. None when the run
+        froze no packs (older runs, or no packs at all)."""
+        packs = state["bundle"].get("team", {}).get("knowledge")
+        return write_tree(packs, directory) if packs else None
 
     def carried_candidate(self, state, job, previous, base):
         """The newest earlier candidate of this job that passed the scope check, as
@@ -642,12 +672,17 @@ class Runner:
         return attempt
 
     def abandon(self, attempt_id):
-        from .decisions import open_decisions
+        from .decisions import exploratory_waiting, open_decisions
         state = self.state()
         attempt = state["active"]
         require(attempt and attempt["id"] == attempt_id, "No matching attempt is active")
         require(not open_decisions(attempt), "This candidate awaits the owner's decision; only the owner sends it "
                                              "back, with decide FINDING_ID --fix")
+        # P3-T5: QA's findings that the owner decides join the candidate's decisions at its review;
+        # abandoning it first would leave them undecided.
+        waiting = exploratory_waiting(attempt) if "verdict" not in attempt.get("review", {}) else []
+        require(not waiting, f"The exploratory session's {', '.join(waiting)} wait for the owner: run "
+                             "review-candidate, then decide them; only the owner sends this candidate back")
         return self.finish(state, "interrupted", "Attempt abandoned by the operator")
 
     def submit(self, attempt_id, launcher=None):
@@ -678,6 +713,7 @@ class Runner:
             require(stat.S_IMODE(workspace.stat().st_mode) == mode, "Workspace root mode has changed")
             changed, denied = scope_changes(base, proposed, job["paths"])
             require(not denied, "Changes outside job scope: " + ", ".join(denied))
+            self.calibrate_fix(state, job, proposed)
             directory = self.attempt_dir(attempt) / ("verify-" + uuid4().hex)
             directory.mkdir()
             candidate = directory / "candidate"
@@ -692,7 +728,7 @@ class Runner:
                 return self.stage_review(state, job, candidate, directory, proposed)
             return self.accept_candidate(state, job["id"], candidate, proposed)
         except BuilderError as exc:
-            if any(item["exit_code"] or item.get("evidence_error")
+            if any((item["exit_code"] and item.get("blocking", True)) or item.get("evidence_error")
                    for item in attempt["checks"] + attempt.get("setup", [])):
                 kind = "check"
             elif str(exc).startswith("Changes outside job scope:"):
@@ -772,6 +808,10 @@ class Runner:
             packet["earlier_blockers"] = earlier[-EARLIER_BLOCKERS_LIMIT:]
         if state["bundle"].get("design_review") and job["role"] == "frontend":
             packet["design_review"] = True
+        if "adapter" in attempt:
+            # A launched worker's labelled claims, never a note-shaped section (P3-T1, P3-T1b;
+            # 00-context, "One AI is enough": the reviewer has no access to the worker's reasoning).
+            packet["claims"] = attempt.get("claims", [])
         workspace = directory / "review"
         workspace.mkdir()
         copy_tree(self.snapshot(state), workspace / "base")
@@ -801,6 +841,11 @@ class Runner:
         packet["touched"] = touched_code(workspace / "base", workspace / "candidate", attempt["changed"])
         write_diff(workspace / "diff.patch", workspace / "base", workspace / "candidate", attempt["changed"],
                    packet["touched"])
+        # P3-T4: past 400 changed lines the packet carries a note suggesting smaller jobs; never a refusal.
+        packet["changed_lines"] = changed_line_count(workspace / "base", workspace / "candidate", attempt["changed"])
+        note = size_note(packet["changed_lines"])
+        if note:
+            packet["size_note"] = note
         (workspace / "review.json").write_text(json.dumps(packet, indent=2), encoding="utf-8")
         (workspace / "review.schema.json").write_text(json.dumps(report_schema(packet), indent=2), encoding="utf-8")
         (workspace / "review.md").write_text(review_prompt(profile, packet), encoding="utf-8")
@@ -840,53 +885,37 @@ class Runner:
             require("repair" not in state["bundle"], "A Vesper repair requires a separately launched reviewer")
             require(external_attested, "Attest that the report came from an independent reviewer")
         launched = {"provider": "operator"}
+        reported = None
+        downgraded = 0
         if report is None:
             require(brain, "Provide an independent JSON report or choose a reviewer brain")
-            # Use a fresh copy so a prior reviewer invocation cannot supply a later reviewer's inputs.
-            with tempfile.TemporaryDirectory(prefix="review-session-", dir=directory) as temp:
-                session = Path(temp)
-                view = session / "workspace"
-                copy_tree(workspace, view)
-                require(fingerprint(inventory(view / "base")) == packet["base_digest"]
-                        and fingerprint(inventory(view / "candidate")) == packet["candidate_digest"]
-                        and inventory(view / "plan") == state["bundle"]["plan"],
-                        "Reviewer inputs changed before launch")
-                # Rebuild the prompt and evidence from the frozen role and recorded packet.
-                role_key = "security_reviewer" if packet["reviewer_revision"] == (
-                    state["bundle"]["team"]["security_reviewer"]["revision"]) else "reviewer"
-                profile = state["bundle"]["team"][role_key]
-                (view / "review.json").write_text(json.dumps({key: value for key, value in packet.items()
-                                                           if key not in ("workspace", "directory")}, indent=2))
-                write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"],
-                           packet.get("touched"))
-                schema = report_schema(packet)
-                (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
-                (view / "review.md").write_text(review_prompt(profile, packet))
-                view_digest = fingerprint(inventory(view))
-                response = session / "response.json"
-                log = directory / ("reviewer-" + uuid4().hex + ".log")
-                code = launch(brain, "reviewer", launcher, trust_host, work=view,
-                              input_text=review_prompt(profile, packet), log=log, timeout=review_timeout,
-                              response=response, schema=schema, max_turns=review_max_turns,
-                              ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"})
-                require(code == 0, f"Reviewer exited {code}. Tested candidate remains pending.")
-                require(fingerprint(inventory(view)) == view_digest, "Reviewer modified its read-only input copy")
-                # An adapter whose log is an event stream has no reply without the file (P2-T10).
-                output = reply_path(brain, response, log, launcher)
-                require(output is not None, f"Reviewer brain {brain.name} wrote no reply file. "
-                        "Tested candidate remains pending.")
-                require(not output.is_symlink() and output.stat().st_size <= 256_000,
-                        "Reviewer output was linked or exceeded the report limit")
-                reply = output.read_text(encoding="utf-8")
-                report = parse_result(brain, reply)
-                launched = {"provider": brain.name, "adapter": brain.adapter.name}
-                # The reply carries the usage, or else the call's log does (an event stream, P2-T10).
-                spent = usage(brain, reply) or (usage(brain, read_tail(log, limit=REPLY_LIMIT))
-                                                if output != log and log.is_file() and not log.is_symlink()
-                                                else None)
-                if spent:
-                    launched["usage"] = spent
+            # P3-T4: at full depth four lens reviews, merged deterministically; otherwise one review.
+            lenses = LENSES if state["bundle"].get("planning", {}).get("depth") == "full" else (None,)
+            reports, spent = {}, []
+            for lens in lenses:
+                raw, used = self.launch_review(state, attempt, packet, directory, workspace, brain, launcher,
+                                               trust_host, review_timeout, review_max_turns, lens)
+                validate_report(raw, packet)
+                reports[lens], count = downgrade(raw)
+                downgraded += count
+                spent.append({"lens": lens, "reported_verdict": raw["verdict"], "verdict": reports[lens]["verdict"],
+                              "findings": len(raw["findings"]), **({"usage": used} if used else {})})
+            launched = {"provider": brain.name, "adapter": brain.adapter.name}
+            if lenses == LENSES:
+                report = merge_lenses(reports, packet)
+                reported = "request_changes" if any(item["reported_verdict"] == "request_changes"
+                                                    for item in spent) else "approve"
+                launched["lenses"] = spent
+            else:
+                report, reported = reports[None], spent[0]["reported_verdict"]
+                if "usage" in spent[0]:
+                    launched["usage"] = spent[0]["usage"]
         require(len(json.dumps(report)) <= 256_000, "Reviewer output exceeded the report limit")
+        if reported is None:
+            # An attested report: checked as given, then its blockers without repro downgraded (P3-T4).
+            validate_report(report, packet)
+            reported = report["verdict"]
+            report, downgraded = downgrade(report)
         blockers = validate_report(report, packet)
         attested = None
         if launched["provider"] == "operator":
@@ -906,8 +935,10 @@ class Runner:
                 and stat.S_IMODE(candidate.stat().st_mode) == packet["root_mode"],
                 "Tested candidate changed after verification")
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
-                             **launched}
-        from .decisions import record_review
+                             "reported_verdict": reported, "downgraded": downgraded, **launched}
+        from .decisions import exploratory_waiting, record_review
+        # P3-T5: the exploratory session's blockers and security or data findings wait for the owner too.
+        explored = exploratory_waiting(attempt)
         if blockers:
             result = self.finish(state, "rejected", "Review blockers: " + "; ".join(
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
@@ -917,6 +948,8 @@ class Runner:
             ids, waiting = record_review(self.root, result, report["findings"], rejected=True,
                                          exhausted=len(self.attempts_for(state, job)) >= self.budget_for(state, job))
             result["finding_ids"] = ids
+            self.calibrate_review(result, report["findings"], ids)
+            waiting += explored
             if waiting:
                 result["awaiting_decision"] = waiting
             self.save(state)
@@ -924,6 +957,8 @@ class Runner:
             # P2-T7: a security or data advisory waits for the owner's decision.
             ids, waiting = record_review(self.root, attempt, report["findings"], rejected=False, exhausted=False)
             attempt["finding_ids"] = ids
+            self.calibrate_review(attempt, report["findings"], ids)
+            waiting += explored
             if waiting:
                 attempt["awaiting_decision"] = waiting
                 self.save(state)
@@ -934,6 +969,117 @@ class Runner:
             from .approvals import keep, run_store
             keep(run_store(self.root), attested)
         return result
+
+    def launch_review(self, state, attempt, packet, directory, workspace, brain, launcher, trust_host,
+                      review_timeout, review_max_turns, lens=None):
+        """One launched review of the staged candidate, in a fresh read-only copy of the review
+        workspace, as one lens (P3-T4) or the whole review. Returns (report, usage or None)."""
+        with tempfile.TemporaryDirectory(prefix="review-session-", dir=directory) as temp:
+            session = Path(temp)
+            view = session / "workspace"
+            copy_tree(workspace, view)
+            require(fingerprint(inventory(view / "base")) == packet["base_digest"]
+                    and fingerprint(inventory(view / "candidate")) == packet["candidate_digest"]
+                    and inventory(view / "plan") == state["bundle"]["plan"],
+                    "Reviewer inputs changed before launch")
+            # Rebuild the prompt and evidence from the frozen role and recorded packet.
+            role_key = "security_reviewer" if packet["reviewer_revision"] == (
+                state["bundle"]["team"]["security_reviewer"]["revision"]) else "reviewer"
+            profile = state["bundle"]["team"][role_key]
+            (view / "review.json").write_text(json.dumps({key: value for key, value in packet.items()
+                                                       if key not in ("workspace", "directory")}, indent=2))
+            write_diff(view / "diff.patch", view / "base", view / "candidate", attempt["changed"],
+                       packet.get("touched"))
+            schema = report_schema(packet)
+            (view / "review.schema.json").write_text(json.dumps(schema, indent=2))
+            # The approved packs sit beside the review copy, never inside it (P3-T2).
+            packs = self.knowledge_copy(state, session / "knowledge")
+            sandboxed = isinstance(launcher, Sandbox)
+            knowledge_path = (KNOWLEDGE_MOUNT if sandboxed else str(packs)) if packs else None
+            passages = ()
+            if lens:
+                from .knowledge import search
+                files = state["bundle"].get("team", {}).get("knowledge", {}).get("reviewer")
+                passages = search(files, LENS_FOCUS[lens][1], LENS_PASSAGES) if files else ()
+            # With a sandbox backend the reviewer may run commands to prove a finding (P1-T10, P3-T4).
+            shell = "shell" in brain_tools(brain, "reviewer", None, sandboxed)
+            text = review_prompt(profile, packet, knowledge_path, shell=shell, lens=lens, passages=passages)
+            (view / "review.md").write_text(text)
+            view_digest = fingerprint(inventory(view))
+            response = session / "response.json"
+            log = directory / ("reviewer-" + (lens + "-" if lens else "") + uuid4().hex + ".log")
+            code = launch(brain, "reviewer", launcher, trust_host, work=view,
+                          input_text=text, log=log, timeout=review_timeout,
+                          response=response, schema=schema, max_turns=review_max_turns,
+                          ledger={"run": self.root, "job": attempt["job"], "role": "reviewer"},
+                          knowledge=packs)
+            label = f"Reviewer ({lens} lens)" if lens else "Reviewer"
+            require(code == 0, f"{label} exited {code}. Tested candidate remains pending.")
+            require(fingerprint(inventory(view)) == view_digest, f"{label} modified its read-only input copy")
+            # An adapter whose log is an event stream has no reply without the file (P2-T10).
+            output = reply_path(brain, response, log, launcher)
+            require(output is not None, f"Reviewer brain {brain.name} wrote no reply file. "
+                    "Tested candidate remains pending.")
+            require(not output.is_symlink() and output.stat().st_size <= 256_000,
+                    "Reviewer output was linked or exceeded the report limit")
+            reply = output.read_text(encoding="utf-8")
+            report = parse_result(brain, reply)
+            # The reply carries the usage, or else the call's log does (an event stream, P2-T10).
+            spent = usage(brain, reply) or (usage(brain, read_tail(log, limit=REPLY_LIMIT))
+                                            if output != log and log.is_file() and not log.is_symlink()
+                                            else None)
+            require(isinstance(report, dict) and len(json.dumps(report)) <= 256_000,
+                    "Reviewer output exceeded the report limit")
+            return report, spent
+
+    def calibrate_review(self, attempt, findings, ids):
+        """Record each job-review finding for calibration, its outcome unknown so far (P3-T4)."""
+        from . import calibration
+        calibration.append(self.root, [
+            {"finding": finding_id, "job": attempt["job"], "attempt": attempt["id"],
+             "lens": finding.get("lenses") or ["combined"], "category": finding["category"],
+             "severity": finding["severity"], **({"suspected": True} if finding.get("suspected") else {}),
+             "outcome": "unknown"} for finding, finding_id in zip(findings, ids)])
+
+    def calibrate_fix(self, state, job, proposed):
+        """When a job comes back, each finding that sent it back is confirmed if the new candidate
+        changed that finding's path (P3-T4): a blocker returned automatically, or a finding the
+        owner sent back with decide --fix."""
+        from . import calibration
+        previous = self.attempts_for(state, job)
+        last = previous[-1] if previous else None
+        if not last or last.get("failure_kind") != "review" or not last.get("candidate"):
+            return
+        try:
+            before = inventory(self.root / last["candidate"]["path"])
+        except (BuilderError, OSError):
+            return
+        known = calibration.outcomes(calibration.rows(self.root))
+        decisions = last.get("decisions", {})
+        rows = []
+        for finding, finding_id in zip(last.get("review", {}).get("findings", []), last.get("finding_ids", [])):
+            sent_back = finding["severity"] == "blocking" or (decisions.get(finding_id) or {}).get("kind") == "fix"
+            path = calibration.finding_path(finding.get("path"))
+            if (sent_back and known.get(finding_id, {}).get("outcome") == "unknown"
+                    and before.get(path) != proposed.get(path)):
+                rows.append({**known[finding_id], "attempt": state["active"]["id"], "outcome": "confirmed"})
+        for row in rows:
+            row.pop("at", None)
+        calibration.append(self.root, rows)
+
+    def keep_claims(self, state, job, brain, log):
+        """Keep the labelled claims of a launched worker's hand-off for the reviewer (P3-T1). Workers
+        write no reasoning note (P3-T1b, finding 65), so nothing else is kept and nothing is
+        rejected here: a hand-off with no labelled claim gives the attempt a warning at any depth."""
+        attempt = state["active"]
+        said = brain.adapter.summary(read_tail(log, limit=200_000) if log.is_file() else "")  # may keep no log
+        attempt["claims"] = handoff_claims(said)
+        if not attempt["claims"]:
+            warning = ("The worker's final message labelled no claims ([verified], [inferred] or [assumed]); "
+                       "the reviewer treats everything it says as unverified")
+            attempt.setdefault("warnings", []).append(warning)
+            print(f"{job['id']} | warning: {warning}", file=sys.stderr, flush=True)
+        self.save(state)
 
     def run_gates(self, state, contract, job, candidate, proposed, directory, launcher):
         """The job's gates (every gate on the final job). Build setup runs once, before the
@@ -1005,10 +1151,12 @@ class Runner:
             code, intact = execute_check(check["script"], package, manifest, candidate, inventory(candidate), log,
                                          launcher, timeout=limit, gate_env=gate_env, artifacts=artifacts)
         result = {"id": check["id"], "exit_code": code, "log": str(log.relative_to(self.root))}
+        if check.get("blocking", True) is False:
+            result["blocking"] = False  # recorded only, such as a mutation score (P3-T3)
         state["active"]["checks"].append(result)
         self.save(state)
         require(intact, f"Check {check['id']} modified the candidate or check package")
-        require(code == 0, f"Check {check['id']} exited {code}\n{read_tail(log)}")
+        require(code == 0 or not result.get("blocking", True), f"Check {check['id']} exited {code}\n{read_tail(log)}")
         failure_id = state["bundle"].get("repair", {}).get("failure_id")
         if check["id"] == "VESPER_REPRO" and failure_id:
             from .repair import read_repro_result
@@ -1020,9 +1168,13 @@ class Runner:
                 raise
 
     def run(self, selection, launcher=None, *, trust_host=False, review_timeout=180, review_max_turns=20,
-            start_after=None, clock=None, sleep=None, reserve=None):
+            start_after=None, clock=None, sleep=None, reserve=None, explore=False):
         """Run every ready job unattended. ``selection`` (brains.Selection) picks each job's
         worker brain by role and the reviewer brain (by default the job's worker brain).
+
+        With ``explore`` (P3-T5), a frontend job's candidate that passes its gates at focused or
+        full depth gets an exploratory QA session (the qa brain) before its review; a session
+        that fails is a warning on the attempt, and the review goes on.
 
         Before a job's first attempt the plan limits are checked (P2-T4): a job that would cross
         the reserve is not started and the run returns ``paused_for_limits``; a started job is
@@ -1069,7 +1221,7 @@ class Runner:
             if not self.attempts_for(state, ready):
                 current = ready
                 pause, found = plan_usage.limit_check(
-                    contract, state["bundle"], ready, plan_usage.entries(), reserve=reserve,
+                    contract, state["bundle"], ready, plan_usage.entries(), reserve=reserve, explore=explore,
                     brains=lambda role: reviewer_for(current) if role == "reviewer" else selection.worker(role),
                     now=clock() if clock else datetime.now(timezone.utc))
                 notes += found
@@ -1081,9 +1233,17 @@ class Runner:
             reviewer = reviewer_for(ready) if "team" in state["bundle"] else None
             if reviewer:
                 brain_command(reviewer, "reviewer", launcher, trust_host, max_turns=review_max_turns)
+            explorer = None
+            if explore and reviewer:
+                from .exploratory import why_not
+                if why_not(state["bundle"], ready) is None:
+                    explorer = selection.worker("qa")
+                    brain_command(explorer, "worker", launcher, trust_host)
             # Shell only inside a real sandbox backend (P1-T10); the prompt says so only then.
             shell = "shell" in brain_tools(brain, "worker", ready["role"], isinstance(launcher, Sandbox))
-            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell)
+            job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell,
+                                                         sandboxed=isinstance(launcher, Sandbox))
+            pack_copy = self.attempt_dir(attempt) / "knowledge"
             log = self.attempt_dir(attempt) / "worker.log"
             print(f"{job['id']} | {brain.name} | attempt {attempt['id'][:8]}", file=sys.stderr, flush=True)
 
@@ -1093,18 +1253,36 @@ class Runner:
 
             code = launch(brain, "worker", launcher, trust_host, work=workspace, input_text=prompt, log=log,
                           timeout=job.get("timeout", 180), on_start=record_child, role=job["role"],
-                          ledger={"run": self.root, "job": job["id"], "role": job["role"]})
+                          ledger={"run": self.root, "job": job["id"], "role": job["role"]},
+                          knowledge=pack_copy if pack_copy.is_dir() else None)
             attempt["worker_log"] = str(log.relative_to(self.root))
             if code != 0:
                 said = brain.adapter.summary(read_tail(log, limit=200_000))
                 self.finish(state, "worker_failed",
                             f"Worker brain {brain.name} exited {code}\n{said[-3500:]}", "provider")
             else:
+                self.keep_claims(state, job, brain, log)
                 result = self.verify(state, contract, job, workspace, launcher)
+                if result["outcome"] == "awaiting_review" and explorer:
+                    self.explore_candidate(state, explorer, launcher, trust_host)
                 if result["outcome"] == "awaiting_review":
                     self.review_candidate(brain=reviewer, launcher=launcher, trust_host=trust_host, **limits)
                     state = self.state()
         return {**self.status(), **({"limit_notes": notes} if notes else {})}
+
+    def explore_candidate(self, state, brain, launcher, trust_host):
+        """`run --explore`: one exploratory session on the tested candidate (P3-T5). It never holds
+        the candidate: a session that fails leaves a warning on the attempt."""
+        from .exploratory import explore
+        attempt = state["active"]
+        print(f"{attempt['job']} | {brain.name} | exploratory session", file=sys.stderr, flush=True)
+        try:
+            explore(self, brain, launcher, trust_host, state=state)
+        except (BuilderError, OSError, UnicodeError) as exc:
+            warning = f"The exploratory session did not finish: {str(exc)[:1500]}"
+            attempt.setdefault("warnings", []).append(warning)
+            print(f"{attempt['job']} | warning: {warning}", file=sys.stderr, flush=True)
+            self.save(state)
 
     def export(self, destination):
         state = self.state()

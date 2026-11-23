@@ -163,6 +163,7 @@ class PlanningTests(unittest.TestCase):
         with self.assertRaisesRegex(BuilderError, "plan critique"):
             self.runner.approve(self.runner.review()["digest"])
         review_plan(self.runner, report=self.report(), external_attested=True)
+        self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
         self.runner.approve(self.runner.review()["digest"])
         self.assertEqual(self.runner.state()["bundle"]["plan_critique"]["report"]["reviewer"], "critic-session")
 
@@ -198,6 +199,7 @@ class PlanningTests(unittest.TestCase):
         self.write(data)
         (self.root / "plan/api-contract.md").write_text("Conflict uses the current version envelope.")
         review_plan(self.runner, report=self.report(), external_attested=True)
+        self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
         self.runner.approve(self.runner.review()["digest"])
         self.assertIn("current version envelope", Path(self.runner.prepare()["brief"]).read_text())
 
@@ -227,6 +229,7 @@ class PlanningTests(unittest.TestCase):
                 self.setUp()
                 build()
                 review_plan(self.runner, report=self.report(), external_attested=True)
+                self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
                 self.runner.approve(self.runner.review()["digest"])
 
     def test_version_1_manifests_still_validate_for_version_1_runs_only(self):
@@ -332,4 +335,5 @@ class PlanningTests(unittest.TestCase):
             with self.assertRaisesRegex(BuilderError, "trust-host"):
                 review_plan(self.runner, brain=Brain("codex", ADAPTERS["codex"]))
         review_plan(self.runner, report=self.report(), external_attested=True)
+        self.runner.prove_checks()  # P3-T3: focused and full depth prove the checks
         self.runner.approve(self.runner.review()["digest"])

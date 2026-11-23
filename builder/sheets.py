@@ -73,6 +73,12 @@ def plan_sheet(root, contract, bundle, digest, store):
     if planning:
         lines.append(f"Planning: {planning['depth']} depth, manifest version {manifest.get('version')}")
     lines.append(verdict)
+    from .qa import sheet_lines
+    from .runner import Runner
+    lines += sheet_lines(Runner(Path(root)), bundle)  # P3-T3: which checks are proven to fail
+    recorded = [item["id"] for item in contract["checks"] if item.get("blocking", True) is False]
+    if recorded:
+        lines.append("Recorded only, never blocking (such as mutation scores): " + ", ".join(recorded))
     advisories = [item for item in findings if item.get("severity") == "advisory" and item not in risks]
     for item in blockers + advisories[:TOP_FINDINGS]:
         lines.append(f"  {item['severity']}: {item.get('path', '')}: {one_line(item.get('recommendation', ''))}")
@@ -233,14 +239,20 @@ def risk_sheet(store, subject, item, accepts, reason, digest):
     files = [{"path": f"findings/{item['id']}", "sha256": digest, "size": 0, "lines": None}]
     changed = what_changed_text(changed_since(store, "accept-risk", subject, files)[0])
     kind = f"{item['category']} {'blocker' if item['severity'] == 'blocking' else 'advisory'}"
-    lines = ["Vesper Relay: accept a risk", "", f"Finding {item['id']}: {kind}, from {describe(item)}",
+    if item.get("suspected"):
+        kind = f"{item['category']} suspected blocker (no repro, so it did not block)"  # P3-T4
+    # P3-T4: a dismissal confirms on this sheet too; its text says what is dismissed.
+    title = "Vesper Relay: dismiss a finding" if accepts.startswith("You dismiss") else "Vesper Relay: accept a risk"
+    lines = [title, "", f"Finding {item['id']}: {kind}, from {describe(item)}",
              f"  Where: {item.get('path') or 'not stated'}"]
     if item.get("scenario"):
         lines.append(f"  When: {in_full(item['scenario'])}")
     if item.get("consequence"):
         lines.append(f"  Then: {in_full(item['consequence'])}")
-    lines += [f"  What the reviewer found: {in_full(item.get('evidence', 'not stated'))}",
-              f"  What the reviewer recommends: {in_full(item['recommendation'])}", "",
+    lines += [f"  What the reviewer found: {in_full(item.get('evidence', 'not stated'))}"]
+    if item.get("repro"):
+        lines.append(f"  How to reproduce it: {in_full(item['repro'])}")
+    lines += [f"  What the reviewer recommends: {in_full(item['recommendation'])}", "",
               f"What you accept: {accepts}", f"Your reason: {in_full(reason)}", "",
               "The finding stays on record; only your confirmation accepts it.", "", changed, "",
               f"Digest: {short_digest(digest)}"]

@@ -1,6 +1,6 @@
 # Phase 3 — Agents that verify (shared foundation, QA, reviewer)
 
-**Goal:** every agent thinks in writing before acting and labels its claims; QA owns
+**Goal:** every agent labels its claims and critiques its own work; QA owns
 checks that are proven to fail; the reviewer's blockers come with evidence and nothing
 risky gets lost.
 
@@ -9,12 +9,22 @@ measurable. Phase 4 changes are judged by the tools built here.
 
 **Phase gate (P3-G):** on the Pocket Todo fixture: every check fails against its broken
 variant; reviewing `fixtures/pocket-todo/solution/` (which really shipped without CSRF/Origin
-checks) with the multi-lens review yields a security blocker with a repro; reasoning notes
-are present for every job.
+checks) with the multi-lens review yields a security blocker with a repro; every job runs
+as a launched Claude Code worker in the sandbox, with no safeguard refusal, and its
+hand-off's labelled claims reach its review packet (`claims` in `review.json`).
+
+**P3-G rerun (owner, 23 Nov 2026):** the 23 Nov run passed the first two criteria, and
+they stand. Its third criterion was "reasoning notes are present for every job"; a model
+safeguard refused the note request (appendix B, finding 65), and P3-T1b replaced the note.
+After P3-T1b, the rerun measures the third criterion only, on the same plan and stand-in
+gates as the 23 Nov run G, and runs J_UI with `--explore` (finding 64).
 
 ---
 
 ## P3-T1 — Shared agent foundation
+
+> **Superseded in part by P3-T1b (owner, 23 Nov 2026):** workers no longer write the
+> reasoning note below; claim labels, self-critique and the claims-only review packet stay.
 
 - **Read first:** `team/roles/*.md`, `team/skills/*/SKILL.md`, `builder/team.py`,
   `builder/providers.py` (`worker_prompt`), `builder/review_gate.py` (`prompt`).
@@ -36,8 +46,11 @@ are present for every job.
      - **Self-critique:** before finishing, re-read the diff or output as a hostile
        reviewer would, list what that reviewer would flag, fix it, then hand off.
   2. The runner stores the worker's reasoning note from its final message in
-     `.builder/attempts/<id>/reasoning.md` and copies it into the review packet. Missing
-     note: warning on `skip` and `focused` depth, rejection (`failure_kind: "process"`) on `full`.
+     `.builder/attempts/<id>/reasoning.md`. Missing note: warning on `skip` and `focused`
+     depth, rejection (`failure_kind: "process"`) on `full`. The review packet gets only the
+     labelled claims of the worker's hand-off (`claims` in `review.json`), never the note:
+     reviewer independence includes no access to the worker's reasoning (`00-context.md`,
+     "One AI is enough"; owner, 21 Nov 2026, on the review of PR #56).
   3. Reviewer prompt: check that `[verified]` claims have evidence; an unsupported
      `[verified]` claim is an advisory finding (category `other`).
 - **Acceptance:** tests for note extraction, the depth rule, and that the critical-thinking
@@ -88,10 +101,14 @@ are present for every job.
   3. **Prove-it-fails:** each check may have `checks/_broken/<CHECK_ID>/` holding a small
      patch or replacement files that break the behaviour it guards.
      `vesper --project RUN prove-checks` applies each broken variant to a copy of the seed
-     (or the fixture solution when given) and requires the check to fail. Standard and full
+     (or the fixture solution when given) and requires the check to fail. `focused` and `full`
      depths must pass `prove-checks` before `approve`; results are stored in the approval.
+     (Built in `builder/qa.py`: each check with a variant runs on the unbroken copy first, so
+     a check that fails there too is reported as proving little rather than counted as proven;
+     a variant that passes, or cannot be applied, refuses approval.)
   4. Mutation testing at `full` depth as optional command gates: evaluate Gremlins (Go) and
-     StrykerJS (TypeScript); record the score, don't block on it yet.
+     StrykerJS (TypeScript); record the score, don't block on it yet. (Built as checks with
+     `"blocking": false`, which record and never reject; no requirement may rest on one.)
 - **Acceptance:** tests that `approve` is refused when a check passes against its broken
   variant; that a missing `_broken` entry is reported per check; that the Pocket Todo
   fixture's three checks all fail against their broken variants (add them under
@@ -104,7 +121,9 @@ are present for every job.
 - **Change:**
   1. Schema (from P1-T2) gains `repro` (string) on findings and `confidence`
      (`high | medium | low`). A `blocking` finding without `repro` is downgraded to a
-     `suspected` advisory automatically, and the owner sees it.
+     `suspected` advisory automatically, and the owner sees it. (Built: a suspected advisory
+     waits for the owner's decision, like a security or data advisory, and its sheet says it is
+     suspected; `decide --dismiss` is human-confirmed like `--accept-risk`.)
   2. With a sandbox backend, the reviewer may run commands in its read-only copy (P1-T10) to
      prove a finding; it may write a failing test into its own temp dir and quote it in `repro`.
   3. **Multi-lens at `full` depth:** the runner launches four lens reviews (correctness,
@@ -122,6 +141,40 @@ are present for every job.
   400-line note, and calibration records; a stand-in review of the Pocket Todo solution
   (no CSRF/Origin checks in `server.py`) yields a security blocker with a repro.
 
+## P3-T3b — Fold P2-G's accepted findings into the Pocket Todo gates
+
+- **Why:** during P2-G the plan critiques and job reviews kept raising Pocket Todo hardening
+  gaps outside the fixture's gates, and the owner accepted each as a risk to fold into the
+  gates later (`appendix-b`, findings 60 and 62, and both P2-G "Follow-ups"). Until they are
+  checks, every gate run re-finds them, and reviewers' convergence can't be judged. Added by
+  the owner on 21 Nov 2026, to run after P3-T4.
+- **Read first:** `fixtures/pocket-todo/p2g-accepted-findings.json` (the 169 findings the
+  owner accepted in the four P2-G Pocket Todo runs, exported from their backlogs),
+  `fixtures/pocket-todo/plan/acceptance.md`, `architecture.md`, `decisions.md` (D3, the
+  threat model), `planning.json`, `checks/`, `checks/_broken/`, `reference/`, and P3-T3.
+- **Change:**
+  1. Triage every finding in the export into one of: **check** (a promise the plan makes,
+     or a plausible wrong build, that no assertion catches: add or strengthen an assertion),
+     **covered** (name the existing assertion that already fails on it), or **risk** (outside
+     the threat model or the plan's scope: cite the decision or plan item; it stays an
+     accepted risk). The runs overlap heavily: group duplicates and decide each group once.
+     Record the table in `fixtures/pocket-todo/findings-triage.md`: run and finding ID, group,
+     decision, and the assertion (gate and failure message) or the reason.
+  2. For each **check**: add the assertion to G_API, G_UI or G_BROWSER (prefer extending
+     these over new check IDs), a row in `plan/acceptance.md`, and any list item it changes in
+     `planning.json`; update `reference/` so it passes. (P2-G rerun R2's F1, the `list_id`
+     injection, was in that run's seed, not here: `reference/server.py` already binds every
+     `list_id`; triage it as **covered** or **risk**, not as a change to `reference/`.)
+  3. Keep each gate's broken variant failing; regenerate a patch when `reference/` moves
+     under it. A new check ID gets its own `checks/_broken/` variant.
+- **Do not:** change `solution/` (it stays the app that shipped with the CSRF hole); weaken
+  or remove an existing assertion; add gate dependencies beyond the standard library and
+  Python Playwright; stretch the threat model (D3) to make a finding a check.
+- **Acceptance:** a test that every finding in the export appears exactly once in the triage
+  table; `prove-checks --against reference` in the Docker sandbox reports every check
+  `proven`, and the sandbox and host fixture tests pass; `reference/` passes all three gates
+  in the sandbox; the fixture plan still passes `review`.
+
 ## P3-T5 — Exploratory QA session
 
 - **Change:** after a frontend job passes its gates (`focused` and `full` depth), the runner
@@ -132,3 +185,48 @@ are present for every job.
   additive checks (P2-T6).
 - **Acceptance:** stand-in test that exploratory findings land in the backlog; on the
   Pocket Todo fixture the session produces a report.
+
+## P3-T1b — Worker hand-off without a reasoning note
+
+- **Why:** at P3-G the first launched Claude Code worker on P3-T1's brief was refused by
+  Claude's `reasoning_extraction` safeguard (appendix B, finding 65 and Gate P3-G). The
+  trigger is the request itself: a structured account of the worker's own thinking,
+  written before it acts and kept from the reviewer. The owner's decision (23 Nov 2026):
+  workers write no reasoning note. The design rationale lives in the plan stage, where
+  `full` depth already requires `options` (2–3 approaches with trade-offs and a
+  recommendation, `builder/planning.py`) and the technical lead's architecture handoff. A
+  worker hands off a short summary with labelled claims; self-critique stays.
+- **Read first:** `team/skills/critical-thinking/SKILL.md`, `builder/providers.py`
+  (`REASONING_FIELDS`, `NOTE_MARKER`, `NOTE_PROMPT`, `note_spans`, `reasoning_note`,
+  `handoff_claims`, `worker_prompt`), `builder/runner.py` (`keep_reasoning` and its
+  caller), `builder/review_gate.py` (`prompt`), `tests/test_agent_foundation.py`,
+  `docs/plan/verify-facts.sh` (the P3-T1 check), appendix B finding 65 and
+  "Gate P3-G — 2026-11-23 11:17".
+- **Change:**
+  1. `critical-thinking` skill: remove the reasoning note section and its template. Keep
+     claim labels and self-critique. The skill's description and every role prompt ask for
+     no written account of the model's reasoning or thinking, under any name.
+  2. Brief: replace `NOTE_PROMPT` with a hand-off line: finish with a short summary of
+     what changed, each factual claim labelled `[verified]`, `[inferred]` or `[assumed]`.
+  3. Runner: no note extraction, no `reasoning.md`, no depth rule for a note; remove the
+     `full`-depth rejection. The review packet still gets only the labelled claims of the
+     final message (`claims` in `review.json`). A final message with no labelled claim
+     gives the attempt a warning at every depth; the reviewer's existing "labelled no
+     claims" handling stays.
+  4. Reviewer independence is unchanged: if a worker writes a note-shaped section anyway,
+     none of it reaches the reviewer (keep the `note_spans` exclusion in `handoff_claims`).
+  5. State and evidence from earlier runs still load: an attempt with `reasoning_note` or
+     a `reasoning.md` file is read without error and not migrated.
+  6. Update the P3-T1 line in `verify-facts.sh` and P3-T1's own section to say what
+     P3-T1b replaced.
+- **Do not:** rename the note and keep asking for it (a "decision record" with the same
+  fields is the same request); try wordings against a model's safety filters; weaken the
+  reviewer's no-access rule; drop claim labels or self-critique.
+- **Acceptance:** tests that the skill and the brief name no note (none of "Reasoning
+  note", "Decision record" or the six field labels); a launched stand-in worker at `full`
+  depth with labelled claims and no note is accepted, and its claims reach `review.json`;
+  a note-shaped section in the final message stays out of `review.json` and the reviewer
+  prompt; a final message without labelled claims warns; an old state with
+  `reasoning_note` loads. Live: one launched Claude Code worker on the Pocket Todo J_API
+  brief, in the Docker sandbox, completes without a safeguard refusal. If it is refused,
+  stop and report to the owner; do not reword to get past the filter.

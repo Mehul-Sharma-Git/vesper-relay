@@ -190,12 +190,14 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P2-T9 | Estimates you can check: marked readings and `usage check` (P2-G finding 54) | P2-T3 | M | done |
 | P2-T10 | Codex reports its token counts (P2-G finding 57) | P2-T9 | S | done |
 | P2-G | Phase 2 gate (rerun the two failed criteria; the 20 Nov run's other five stand) | P2-T1..T10 | S | done |
-| P3-T1 | Shared agent foundation (reasoning note, claim labels, self-critique) | P2-G | M | todo |
-| P3-T2 | Knowledge pack structure and `vesper kb` search | P2-G | M | todo |
-| P3-T3 | QA owns checks; prove-it-fails self-test | P3-T1 | L | todo |
-| P3-T4 | Reviewer: evidence-backed, multi-lens, calibration | P3-T1 | L | todo |
-| P3-T5 | Exploratory QA session | P3-T3, P1-T10 | M | todo |
-| P3-G | Phase 3 gate | P3-T1..T5 | S | todo |
+| P3-T1 | Shared agent foundation (reasoning note, claim labels, self-critique) | P2-G | M | done |
+| P3-T2 | Knowledge pack structure and `vesper kb` search | P2-G | M | done |
+| P3-T3 | QA owns checks; prove-it-fails self-test | P3-T1 | L | done |
+| P3-T4 | Reviewer: evidence-backed, multi-lens, calibration | P3-T1 | L | done |
+| P3-T3b | Fold P2-G's accepted findings into the Pocket Todo gates | P3-T3, P3-T4 | L | done |
+| P3-T5 | Exploratory QA session | P3-T3, P1-T10 | M | done |
+| P3-T1b | Worker hand-off without a reasoning note (P3-G finding 65) | P3-T1 | S | done |
+| P3-G | Phase 3 gate (rerun the third criterion after P3-T1b; the 23 Nov run's first two stand) | P3-T1..T5, P3-T3b, P3-T1b | S | todo |
 | P4-T1 | Designer knowledge pack (content) | P3-T2 | L | todo |
 | P4-T2 | Designer tools and design artifacts | P4-T1 | M | todo |
 | P4-T3 | Design gates (tokens, anti-patterns, accessibility, fidelity) | P4-T2 | L | todo |
@@ -204,7 +206,8 @@ Size: S fits easily in one Claude Pro session, M fills one, L may need two (spli
 | P4-T6 | Planner role, templates and estimates | P2-T3, P3-G | M | todo |
 | P4-T7 | Tech lead role, templates and hosting pack | P3-G | M | todo |
 | P4-T8 | Starter seeds: Vite app, Astro site, Go API | P1-T6 | M | todo |
-| P4-G | Phase 4 gate | P4-T1..T8 | M | todo |
+| P4-T9 | Typed worker hand-off over MCP (`submit_handoff`) | P3-G | M | todo |
+| P4-G | Phase 4 gate | P4-T1..T9 | M | todo |
 | P5-T1 | Local connector (MCP server) | P2-T2, P4-G | M | todo |
 | P5-T2 | Packaging: Claude Code plugin, uv/pipx, sandbox image, `vesper open` | P4-G | M | todo |
 | P5-T3 | Automatic repair loop up to a pull request | P2-T2, P4-G | L | todo |

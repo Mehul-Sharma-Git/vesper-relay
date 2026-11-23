@@ -1,0 +1,13 @@
+--- a/server.py
++++ b/server.py
+@@ -284,10 +284,6 @@
+             host = self.headers.get("Host") or ""
+             if not allowed_host(host):
+                 raise ApiError(403, "unknown host")
+-            if method in ("POST", "PATCH", "DELETE"):
+-                origins = self.headers.get_all("Origin") or []
+-                if len(origins) > 1 or (origins and origins[0] != "http://" + host):
+-                    raise ApiError(403, "foreign origin")
+             if "#" in self.path:
+                 raise ApiError(400, "a request target has no fragment")
+             try:

@@ -190,18 +190,26 @@ def spread(values):
     return (min(values), max(values)) if values else None
 
 
-def estimate(contract, bundle, rows, *, brains, reserve=25):
+def estimate(contract, bundle, rows, *, brains, reserve=25, explore=False):
     """Jobs, AI calls, tokens, wall time and % of each account's limits for an approved plan, as
-    low–high bands. ``brains`` maps a role to the Brain that will run it."""
+    low–high bands. ``brains`` maps a role to the Brain that will run it. With ``explore``
+    (`run --explore`, P3-T5) each attempt of a job that gets an exploratory session adds a QA call."""
     team = "team" in bundle
     planning = bundle.get("planning") or {}
     critique = planning.get("depth") not in (None, "skip") and not bundle.get("plan_critique")
     plan = []  # (role, account, model, low calls, high calls)
+    # P3-T4: a full-depth review is four lens reviews.
+    from .review_gate import LENSES
+    reviews = len(LENSES) if planning.get("depth") == "full" else 1
     for job in contract["jobs"]:
         attempts = job.get("max_attempts", 2)
         plan.append(("worker", job["role"], brains(job["role"]), 1, attempts))
         if team:
-            plan.append(("reviewer", "reviewer", brains("reviewer"), 1, attempts))
+            plan.append(("reviewer", "reviewer", brains("reviewer"), reviews, attempts * reviews))
+        if explore and team:
+            from .exploratory import why_not
+            if why_not(bundle, job) is None:
+                plan.append(("worker", "qa", brains("qa"), 1, attempts))
     if critique:
         plan.append(("reviewer", "critic", brains("reviewer"), 1, 1))
     calls = [row for row in rows if row.get("kind") == "call"]
@@ -393,16 +401,20 @@ def wait_until(hhmm, *, clock=None, sleep=None):
     return target
 
 
-def limit_check(contract, bundle, job, rows, *, brains, reserve, now):
+def limit_check(contract, bundle, job, rows, *, brains, reserve, now, explore=False):
     """(pause or None, notes). Pause when the last plan reading, the usage logged since it and the
     high end of this job's estimate would cross 100% minus the reserve, for any account and limit."""
     notes = []
     threshold = 100 - reserve
     result = estimate(dict(contract, jobs=[job]), {**bundle, "plan_critique": True}, rows, brains=brains,
-                      reserve=reserve)
+                      reserve=reserve, explore=explore)
     calibration = calibrate(rows)
     model = {}
-    for role in (job["role"], *(("reviewer",) if "team" in bundle else ())):
+    roles = (job["role"], *(("reviewer",) if "team" in bundle else ()))
+    if explore and "team" in bundle:
+        from .exploratory import why_not
+        roles += ("qa",) if why_not(bundle, job) is None else ()
+    for role in roles:
         brain = brains(role)
         if brain:
             model.setdefault(ACCOUNTS.get(brain.adapter.name, brain.adapter.name), set()).add(brain.model)

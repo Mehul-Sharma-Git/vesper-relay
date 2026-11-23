@@ -51,10 +51,11 @@ def real_report():
 
 
 def approved_report():
-    """The real P1-era report with the category every finding now needs (P2-T7)."""
+    """The real P1-era report with the category every finding now needs (P2-T7), and the repro and
+    confidence the schema asks for (P3-T4)."""
     report = real_report()
     for finding in report["findings"]:
-        finding["category"] = "maintainability"
+        finding.update(category="maintainability", repro="", confidence="medium")
     return report
 
 
@@ -67,10 +68,12 @@ class ReportSchemaTests(unittest.TestCase):
         report = approved_report()
         self.assertIn("design", report["evidence"])
         self.assertEqual(schema_errors(report_schema(packet_for(report, design_review=True)), report), [])
-        # The real reply predates categories (P2-T7): the only errors are the missing categories.
+        # The real reply predates categories (P2-T7) and repro and confidence (P3-T4): those are the
+        # only errors.
         raw = real_report()
         self.assertEqual(schema_errors(report_schema(packet_for(raw, design_review=True)), raw),
-                         [f"$.findings[{index}].category: missing" for index in range(len(raw["findings"]))])
+                         [f"$.findings[{index}].{name}: missing" for index in range(len(raw["findings"]))
+                          for name in ("category", "repro", "confidence")])
 
     def test_rejects_a_missing_evidence_area(self):
         report = approved_report()

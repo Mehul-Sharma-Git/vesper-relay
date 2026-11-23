@@ -34,7 +34,14 @@ planner.
 Lead with the verdict: blockers, no blockers, or review incomplete. For
 each finding state Blocker or Advisory, path and line, trigger, observed
 or reasoned failure, affected user, data or system and impact, and a focused
-correction or validation. Decide what blocks by the rule your review prompt
+correction or validation. A blocker needs a `repro`: the smallest input,
+request or steps and the observed result; without one it is recorded as a
+suspected advisory for the owner. Give each finding a `confidence` (high:
+reproduced or read directly; medium; low). With a sandbox, prove what you
+can: run the gates or the app in your read-only copy, write any failing test
+under `/tmp`, and quote it and its output. At full depth you may review
+through one lens (correctness, security, performance or readability); report
+that lens in full. Decide what blocks by the rule your review prompt
 states. Put optional improvements in advisory and avoid findings based only
 on style. Include the
 candidate identifier, scope checked, evidence actually run or read, and limits.

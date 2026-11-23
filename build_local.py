@@ -112,7 +112,9 @@ def main():
     decision = decide.add_mutually_exclusive_group(required=True)
     decision.add_argument("--fix", action="store_true", help="Send the plan back, or give the job another attempt")
     decision.add_argument("--accept-risk", action="store_true", help="Accept it as a risk (you confirm it)")
-    decide.add_argument("--reason", help="Why (required with --accept-risk)")
+    decision.add_argument("--dismiss", action="store_true",
+                          help="Dismiss a job review finding as not a defect (you confirm it; calibrates the reviewer)")
+    decide.add_argument("--reason", help="Why (required with --accept-risk and --dismiss)")
     add_check = commands.add_parser("add-check", help="Add a check after approval (the owner confirms it)")
     add_check.add_argument("--id", required=True, help="The new check's ID, for example G_X")
     gate = add_check.add_mutually_exclusive_group(required=True)
@@ -120,6 +122,11 @@ def main():
     gate.add_argument("--command", dest="gate_command", help='A command gate, for example "go test ./..."')
     add_check.add_argument("--jobs", help="Comma-separated unfinished jobs that must pass it")
     add_check.add_argument("--reason", help="Why the check is added (shown to the owner and recorded)")
+    prove_checks = commands.add_parser(
+        "prove-checks", help="Prove each check fails against its broken variant in checks/_broken/ (before approval)")
+    prove_checks.add_argument("--against", type=Path, metavar="DIR",
+                              help="A known-good tree to break instead of the seed, such as a fixture solution")
+    boundary_options(prove_checks)
     commands.add_parser("status")
     commands.add_parser("estimate").add_argument("--json", action="store_true", help="Print the estimate as JSON")
     commands.add_parser("export").add_argument("destination", type=Path)
@@ -127,6 +134,9 @@ def main():
     run.add_argument("--start-after", metavar="HH:MM", type=clock_time,
                      help="Wait for this local time first, for example after a plan window resets")
     brain_options(run, reviewer=True)
+    run.add_argument("--explore", action="store_true",
+                     help="Give each frontend candidate that passes its gates (focused and full depth) an "
+                          "exploratory QA session before its review")
     boundary_options(run)
     review_limit_options(run)
     args = parser.parse_args()
@@ -167,12 +177,16 @@ def main():
                         result = engine.review_candidate(brain=brain, launcher=launcher, trust_host=trust_host,
                                                          review_timeout=args.review_timeout,
                                                          review_max_turns=args.review_max_turns)
+                elif args.command == "prove-checks":
+                    # Gates run sandboxed: the config's backend unless a flag chooses (like submit).
+                    result = engine.prove_checks(against=args.against, launcher=resolve_boundary(args)[0])
                 elif args.command == "abandon":
                     result = engine.abandon(args.attempt)
                 elif args.command == "retry":
                     result = engine.retry(args.reason)
                 elif args.command == "decide":
-                    result = engine.decide(args.finding, fix=args.fix, accept=args.accept_risk, reason=args.reason)
+                    result = engine.decide(args.finding, fix=args.fix, accept=args.accept_risk, dismiss=args.dismiss,
+                                           reason=args.reason)
                 elif args.command == "add-check":
                     result = engine.add_check(args.id, script=args.script, command=args.gate_command,
                                               jobs=args.jobs.split(",") if args.jobs is not None else None,
@@ -184,7 +198,8 @@ def main():
                     launcher, trust_host = resolve_boundary(args)
                     result = engine.run(selection, launcher, trust_host=trust_host,
                                         review_timeout=args.review_timeout,
-                                        review_max_turns=args.review_max_turns, start_after=args.start_after)
+                                        review_max_turns=args.review_max_turns, start_after=args.start_after,
+                                        explore=args.explore)
                 else:
                     result = engine.prepare()
                 if args.command in {"submit", "run", "review-candidate", "decide"} and (
@@ -209,6 +224,8 @@ def main():
             print("builder: waiting for the owner's decision on " + ", ".join(result.get("awaiting_decision") or
                   engine.status().get("awaiting_decision", [])) + ": run decide FINDING_ID --fix, or "
                   '--accept-risk --reason "..." (status lists each finding)', file=sys.stderr)
+        if args.command == "prove-checks":
+            return int(not result["passed"])
         return int(result.get("outcome") in ("rejected", "awaiting_decision")
                    or result.get("status") in ("blocked", "awaiting_decision"))
     except (BuilderError, OSError, UnicodeError) as exc:

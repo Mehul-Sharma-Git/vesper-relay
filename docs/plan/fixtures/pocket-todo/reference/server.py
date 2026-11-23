@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pocket Todo server: stdlib HTTP + SQLite. See architecture.md."""
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -68,6 +69,10 @@ def init_db(path):
 def clean_text(value, field, maxlen):
     if not isinstance(value, str):
         raise ApiError(400, f"{field} must be a string")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:  # a lone surrogate SQLite cannot store
+        raise ApiError(400, f"{field} must be valid text")
     value = value.strip()
     if not 1 <= len(value) <= maxlen:
         raise ApiError(400, f"{field} must be 1-{maxlen} characters")
@@ -197,12 +202,40 @@ def delete_todo(conn, todo_id):
 
 # ---------- HTTP ----------
 
+def allowed_host(host):
+    """`localhost`, a dotted IPv4 address or a bracketed IPv6 address, optionally `:` and digits."""
+    m = re.fullmatch(r"(localhost|[0-9.]+|\[([0-9A-Fa-f:.]+)\])(?::[0-9]+)?", host)
+    if not m:
+        return False
+    try:
+        if m.group(2) is not None:
+            ipaddress.IPv6Address(m.group(2))
+        elif m.group(1) != "localhost":
+            ipaddress.IPv4Address(m.group(1))
+    except ValueError:
+        return False
+    return True
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "PocketTodo"
     protocol_version = "HTTP/1.1"
+    # Replies the parser writes before it reads a version still get a status line and headers.
+    default_request_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
         pass
+
+    def __getattr__(self, name):
+        # Every method, even one the app does not use, goes through the same checks (403, then 405).
+        if name.startswith("do_"):
+            return self._handle
+        raise AttributeError(name)
+
+    def send_error(self, code, message=None, explain=None):
+        # The parser's own refusals (bad request line, version, header size) carry the same headers.
+        self.close_connection = True
+        self._send(code, {"error": message or "bad request"})
 
     def _send(self, status, payload=None, ctype="application/json; charset=utf-8", raw=None):
         if raw is None and payload is not None:
@@ -221,39 +254,47 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(raw)
 
     def _body(self):
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
+        if self.headers.get("Transfer-Encoding") is not None:
+            raise ApiError(400, "send the body with a Content-Length")
+        lengths = self.headers.get_all("Content-Length") or ["0"]
+        if len(lengths) != 1 or not re.fullmatch(r"[0-9]+", lengths[0].strip()):
             raise ApiError(400, "invalid Content-Length")
-        if length < 0:
-            raise ApiError(400, "invalid Content-Length")
+        length = int(lengths[0])
         if length > MAX_BODY:
             raise ApiError(413, "body too large")
         data = self.rfile.read(length) if length else b""
+        if len(data) != length:
+            raise ApiError(400, "the body ended early")
         try:
             body = json.loads(data.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, RecursionError):
             raise ApiError(400, "body must be JSON")
         if not isinstance(body, dict):
             raise ApiError(400, "body must be a JSON object")
         return body
 
     def _handle(self):
-        parts = urlsplit(self.path)
-        path, query = parts.path, parse_qs(parts.query)
         method = self.command
         try:
+            # A malformed header line ends the parsed headers early: refuse it, so no Host hides after it.
+            if self.headers.defects or self.headers.get_payload():
+                raise ApiError(400, "malformed headers")
             if len(self.headers.get_all("Host") or []) != 1:
                 raise ApiError(403, "one Host header required")
             host = self.headers.get("Host") or ""
-            hostname = re.sub(r":[0-9]+$", "", host) if not host.startswith("[") else host.split("]")[0] + "]"
-            if not (hostname == "localhost" or re.fullmatch(r"[0-9]{1,3}(\.[0-9]{1,3}){3}", hostname)
-                    or re.fullmatch(r"\[[0-9a-fA-F:.]+\]", hostname)):
+            if not allowed_host(host):
                 raise ApiError(403, "unknown host")
             if method in ("POST", "PATCH", "DELETE"):
-                origin = self.headers.get("Origin")
-                if origin is not None and origin != "http://" + host:
+                origins = self.headers.get_all("Origin") or []
+                if len(origins) > 1 or (origins and origins[0] != "http://" + host):
                     raise ApiError(403, "foreign origin")
+            if "#" in self.path:
+                raise ApiError(400, "a request target has no fragment")
+            try:
+                parts = urlsplit(self.path)
+            except ValueError:
+                raise ApiError(400, "malformed request target")
+            path, query = parts.path, parse_qs(parts.query)
             if method in ("POST", "PATCH"):
                 ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
                 if ctype != "application/json":
@@ -311,6 +352,16 @@ class Handler(BaseHTTPRequestHandler):
     do_GET = do_HEAD = do_POST = do_PATCH = do_DELETE = do_PUT = _handle
 
 
+class LocalServer(ThreadingHTTPServer):
+    """Binds without HTTPServer's reverse-DNS lookup (socket.getfqdn), which can hold startup past
+    the gates' 8 s readiness wait on some macOS hosts (found on GitHub's macOS runner, P3-T3)."""
+
+    def server_bind(self):
+        import socketserver
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
@@ -318,8 +369,12 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8080)
     args = ap.parse_args(argv)
     os.umask(0o077)
+    # The mask covers new files only: an existing database or journal is made owner-only too (A10).
+    for name in (args.db, args.db + "-journal", args.db + "-wal", args.db + "-shm"):
+        if os.path.isfile(name):
+            os.chmod(name, 0o600)
     init_db(args.db)
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    httpd = LocalServer((args.host, args.port), Handler)
     httpd.daemon_threads = True
     httpd.db_path = args.db
     print(f"READY http://{args.host}:{httpd.server_address[1]}", flush=True)

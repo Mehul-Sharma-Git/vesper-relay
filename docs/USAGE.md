@@ -81,11 +81,38 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   plain-language approval sheet (`review --json` gives the raw bundle for tools). Run
   `vesper --project PATH approve --digest DIGEST` only after authorization; the owner
   then confirms it (see Approvals).
+- **QA owns the checks.** Before approval, `vesper --project PATH draft-checks --brain NAME`
+  runs QA as a writer over a copy of `plan/` and `checks/` (the seed is read-only): it writes
+  every acceptance check, `checks/test-strategy.md` and a broken variant per check. What it
+  changed reaches the run like any plan change, so `review` shows it and the critique and
+  proof run again. Each check may have `checks/_broken/<CHECK_ID>/` (`change.patch` in Git's
+  diff format, or `files/` replacements, plus `note.md`). `vesper --project PATH prove-checks
+  [--against DIR]` runs each such check on a copy of the seed (or of a known-good tree such as
+  a fixture solution) and on the same copy broken: `proven` passes then fails;
+  `passes_broken` and `unusable` refuse approval; `fails_on_base` and `missing` are reported
+  per check. It exits 1 when the proof does not pass. At `focused` and `full` depth `approve`
+  needs a passing proof of the exact plan and stores it in the approval. A check with
+  `"blocking": false` (a mutation score) records its result and never rejects a job; no
+  requirement may rest on one.
 - **Execute.** Run `vesper --project PATH prepare`, read the returned job brief,
   and edit only its work copy within the assigned scope. Run
   `vesper --project PATH submit ATTEMPT_ID` to run the approved checks, then
   `review-candidate` with a reviewer brain (`--brain NAME`) or an attested independent report.
   Repeat for ready jobs. Resume with `status` and the existing run.
+- **Exploratory QA session.** Once a frontend job's candidate passes its gates, at `focused`
+  and `full` depth, `vesper --project PATH explore --brain NAME` (or `run --explore`, which
+  does it before each such review) runs QA over a throwaway copy of the candidate and the
+  approved plan. With a sandbox QA runs the app with Playwright and tries empty input, very
+  long text, emoji, double clicks, the back button, a slow network, two tabs and keyboard
+  only. It writes `exploratory.md` (each bug's repro steps) and `exploratory.json`, kept
+  under `.builder/attempts/<attempt>/exploratory/<session>/`. Its findings enter the backlog
+  with category, severity and probe: an advisory is `noted`; a blocker, or a security or data
+  finding, waits for you once the candidate's review finishes (`decide` it as any job finding;
+  QA's findings never send the job back without you). The session runs before the review,
+  never after it. A bug that matters may come with a proposed gate script and the
+  `add-check` command for it, which only the owner runs and confirms. A session that fails
+  under `run --explore` is a warning on the attempt, and the review goes on; `run --explore`
+  counts each session's QA call against your reserve.
 - **Add a check after approval.** `vesper --project PATH add-check --id G_X --script x.py
   --jobs J_X[,J_Y] --reason "..."` (or `--command "go test ./..."` in place of `--script`)
   adds a new gate without a full re-approval. It may only add: a new check ID, a new script
@@ -110,7 +137,20 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   risk sheet (see Approvals). Once every plan blocker is accepted, `approve` can proceed and
   the plan sheet lists each acceptance; security and data advisories from the critique are
   listed under the risks you accept by approving. A run never reaches `complete` while a
-  finding still waits for you.
+  finding still waits for you. `decide F3 --dismiss --reason "..."` dismisses a job-review
+  finding as not a defect (you confirm it on the same kind of sheet); the candidate goes on as
+  with an accepted risk, and the reviewer's calibration counts it as a false alarm.
+- **Job reviews.** A review blocker needs a `repro` (the input or steps and the observed
+  result); a blocker without one becomes a suspected advisory that waits for your decision.
+  Each finding has a `confidence` (high, medium, low). With a sandbox the reviewer may run
+  commands in its read-only copy and write a failing test under `/tmp` to prove a finding. At
+  `full` depth a launched review is four lens reviews (correctness, security, performance,
+  readability), each with its passages from the reviewer knowledge pack, merged into one:
+  every finding once (same path, category and recommendation), the strongest severity kept,
+  `request_changes` while a blocker remains. A job whose diff passes 400 changed lines gets a
+  note in its review packet and in `status` (`size_notes`) suggesting smaller jobs; it is
+  never refused. Each finding's outcome goes to `.builder/calibration.jsonl`: `unknown`,
+  `confirmed` (the job came back and the fix changed that path) or `dismissed`.
 - **Approvals.** Approving a plan, applying a patch, committing a repair,
   attesting that a report came from an independent reviewer, adding a check after
   approval and accepting a risk are human-only. Each
@@ -160,7 +200,9 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   reset, and continues from the accepted work when you run it again.
   `run --start-after HH:MM` waits for that local time first.
 - **Learn.** Verified Vesper runs record typed local signals automatically.
-  Use `vesper learn` to see proposals and `vesper --project PATH incidents` to
+  Use `vesper learn` to see proposals and each review lens's precision
+  (`reviewer_precision`: confirmed ÷ (confirmed + dismissed) over your runs), and
+  `vesper --project PATH incidents` to
   triage failures. Use `vesper repair` for a confirmed Vesper source defect and
   `vesper maintain` for other planned changes to Vesper.
 
@@ -188,12 +230,22 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `~/.config/vesper/secrets.env` (mode 600).
 - **Sandbox.** Brains, gates and reviewers run in a container: `sandbox.backend` in the
   personal config (`docker` by default) or `--sandbox docker|podman|none` on `run`,
-  `submit`, `review-candidate`, `consult`, `review-plan`, `repair-reproduce` and `repair-run`. `vesper sandbox build`
+  `submit`, `review-candidate`, `consult`, `review-plan`, `explore`, `repair-reproduce` and `repair-run`. `vesper sandbox build`
   builds the image from `sandbox/Dockerfile`; `vesper sandbox selftest` (or
   `sh sandbox/selftest.sh`) tries to escape from every operation and passes only when every
   attempt fails. `none` and `--trust-host` run on the host and warn every time; `--launcher
   PATH` keeps a custom launcher. Sandboxed brains log in from the macOS Keychain (service
   `vesper-relay`) or `~/.config/vesper/secrets.env` (mode 600); see START-HERE.md.
+- **Knowledge packs.** Each role can have a pack of checklists, failure catalogues and
+  guides in `team/knowledge/<role>/*.md` (QA and reviewer so far). Every file starts with
+  front matter: `title`, `tags`, `last_checked` (a date), `sources` (URLs) and `licence`.
+  `vesper kb search --role ROLE "query"` prints the best-matching paragraphs (BM25), each
+  with its file and heading (`--limit N`, default 5). A pack is part of its role's revision,
+  and approval freezes the whole `team/knowledge/` tree, so a run keeps the exact packs it
+  was approved with. A launched worker's brief carries the top 5 passages of its role's pack
+  for its job goal; the sandbox mounts the frozen tree read-only at `/knowledge` for workers
+  and reviewers, and their prompts say so. The tests warn about any pack file not rechecked
+  in 180 days.
 - **Gate evidence.** A gate can save evidence (screenshots, traces) in the folder named
   by `VESPER_ARTIFACTS`. The independent reviewer's copy holds the approved gate scripts
   (`checks/`), each gate's log (`logs/<ID>.log`, the last 256 KB when longer) and what

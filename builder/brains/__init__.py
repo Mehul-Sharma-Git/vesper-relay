@@ -171,7 +171,7 @@ def arguments(brain, operation, *, response=None, schema=None, max_turns=20, pro
     return adapter.consult_command(response=response, **choice)
 
 
-def job(brain, operation, work, *, out=None, schema=None, max_turns=20, role=None):
+def job(brain, operation, work, *, out=None, schema=None, max_turns=20, role=None, knowledge=None):
     """The sandbox job for one brain process: its CLI by bare name, the reply in /out, and the
     role's tools with shell (a real sandbox backend runs every job)."""
     from ..providers import review_limits
@@ -183,7 +183,8 @@ def job(brain, operation, work, *, out=None, schema=None, max_turns=20, role=Non
                      schema=schema, max_turns=max_turns, program=adapter.binary,
                      tools=tools(brain, operation, role, sandboxed=True))
     return agent_job(operation, argv, work, out=out, login=adapter.capabilities.sandbox_login,
-                     hosts=adapter.sandbox_hosts, env=adapter.sandbox_env, login_help=adapter.login_help)
+                     hosts=adapter.sandbox_hosts, env=adapter.sandbox_env, login_help=adapter.login_help,
+                     knowledge=knowledge)
 
 
 def command(brain, operation, launcher, trust_host, *, response=None, schema=None, max_turns=20, role=None):
@@ -206,15 +207,15 @@ def command(brain, operation, launcher, trust_host, *, response=None, schema=Non
 
 
 def launch(brain, operation, launcher, trust_host, *, work, input_text, log, timeout, response=None, schema=None,
-           max_turns=20, on_start=None, role=None, ledger=None):
+           max_turns=20, on_start=None, role=None, ledger=None, knowledge=None):
     """Run one brain process in ``work`` and return its exit status. A reply the brain writes to a
-    file arrives at ``response``. ``ledger`` ({run, job, role}) adds the call to the usage ledger
+    file arrives at ``response``; a sandbox mounts ``knowledge`` (a frozen pack folder) at /knowledge. ``ledger`` ({run, job, role}) adds the call to the usage ledger
     (P2-T3) with its start, end and, when the adapter reports them, its tokens."""
     from ..usage import now
     start = now()
     code = run_brain(brain, operation, launcher, trust_host, work=work, input_text=input_text, log=log,
                      timeout=timeout, response=response, schema=schema, max_turns=max_turns,
-                     on_start=on_start, role=role)
+                     on_start=on_start, role=role, knowledge=knowledge)
     # Only a process that ran and returned is a call: a launch refused before it started (no
     # login, no sandbox) raises above and leaves no row to skew later estimates.
     if ledger is not None:
@@ -262,7 +263,7 @@ def note_call(brain, ledger, start, response, log):
 
 
 def run_brain(brain, operation, launcher, trust_host, *, work, input_text, log, timeout, response=None,
-              schema=None, max_turns=20, on_start=None, role=None):
+              schema=None, max_turns=20, on_start=None, role=None, knowledge=None):
     from ..process import run_process
     from ..sandbox import Sandbox
     if not isinstance(launcher, Sandbox):
@@ -275,7 +276,8 @@ def run_brain(brain, operation, launcher, trust_host, *, work, input_text, log, 
         out = Path(response).parent / ("out-" + uuid4().hex)
         out.mkdir()
     try:
-        code = launcher.run(job(brain, operation, work, out=out, schema=schema, max_turns=max_turns, role=role),
+        code = launcher.run(job(brain, operation, work, out=out, schema=schema, max_turns=max_turns, role=role,
+                                knowledge=knowledge),
                             input_text=input_text, log=log, timeout=timeout, on_start=on_start)
         reply = out / "response.json" if out else None
         if reply and reply.is_file() and not reply.is_symlink():

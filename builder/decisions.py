@@ -1,15 +1,21 @@
 """Advisory backlog and decision gate (P2-T7): reviewers find and explain, the owner decides.
 
-Every finding of a plan critique or a job review is listed in `<run>/.builder/backlog.json` with an
-ID (F1, F2, ...) and shown in `status`. A finding's status says what happens to it:
+Every finding of a plan critique, a job review or an exploratory QA session (P3-T5) is listed in
+`<run>/.builder/backlog.json` with an ID (F1, F2, ...) and shown in `status`. A finding's status says
+what happens to it:
 
     noted              an advisory the owner can read; nothing waits for it
     returned           a blocker the runner sent back to the worker automatically (attempts remained)
     awaiting_decision  the owner decides: a plan-critique blocker; a security or data advisory (also
-                       on a rejected candidate); the blockers of a job whose attempts are used up
+                       on a rejected candidate); the blockers of a job whose attempts are used up; an
+                       exploratory blocker or security or data finding, which joins the candidate's
+                       decisions when its review finishes (P3-T5; never returned without the owner)
     fix                the owner sent the plan or the job back for correction
     accepted           the owner accepted it as a risk, with a reason (a protected action), or the
                        owner's confirmed plan approval accepted it from the plan sheet
+    dismissed          the owner dismissed a job finding as not a defect, with a reason (a protected
+                       action; P3-T4): the candidate goes on as with an accepted risk, and reviewer
+                       calibration counts the finding as a false alarm
     superseded         the plan it was about was revised before a decision
 
 The backlog is a view for people. What the gates trust is digest-bound: a plan finding's text comes
@@ -18,7 +24,9 @@ the run's state, where each attempt also records which findings wait and the own
 acceptance counts only when its digest, recomputed from that text, matches a human confirmation on
 record. `decide FINDING_ID --fix` sends the plan back, returns the job for correction (counts as a
 retry) or grants a job out of attempts one more; `decide FINDING_ID --accept-risk --reason "..."`
-is human-only: the confirmer shows the risk sheet first.
+is human-only: the confirmer shows the risk sheet first. `decide FINDING_ID --dismiss --reason "..."`
+is the same for a job finding the owner judges wrong. A job-review blocker without a repro is a
+suspected advisory (P3-T4) and waits for the owner too.
 """
 from pathlib import Path
 
@@ -27,8 +35,8 @@ from .review_gate import DECISION_CATEGORIES
 
 FILE = "backlog.json"
 RISK = "Accepted risk: owner must confirm"
-TEXT = ("scenario", "consequence", "evidence", "recommendation")
-FIELDS = ("severity", "category", "path", *TEXT)
+TEXT = ("scenario", "consequence", "evidence", "recommendation", "repro")
+FIELDS = ("severity", "category", "path", *TEXT, "suspected")
 
 
 def store(root):
@@ -58,7 +66,7 @@ def awaiting(root):
 def owner_decides(finding):
     """A blocker, a security or data advisory, or a risk the critic says only the owner can accept."""
     return (finding["severity"] == "blocking" or finding.get("category") in DECISION_CATEGORIES
-            or str(finding.get("recommendation", "")).startswith(RISK))
+            or str(finding.get("recommendation", "")).startswith(RISK) or bool(finding.get("suspected")))
 
 
 def sync(data, key, finding, status, **where):
@@ -233,6 +241,32 @@ def record_review(root, attempt, findings, *, rejected, exhausted):
     return ids, waiting
 
 
+# Exploratory sessions ------------------------------------------------------------------------------
+
+def record_exploratory(root, attempt, session, findings):
+    """List an exploratory QA session's findings (P3-T5) with their category, severity, probe and
+    repro; return (their IDs in report order, the IDs the owner decides). P2-T7's rule applies: a
+    blocker or a security or data finding awaits the owner. The attempt in the run's state keeps both."""
+    data = load(root)
+    ids, waiting = [], []
+    for index, finding in enumerate(findings):
+        decides = owner_decides(finding)
+        item = sync(data, f"explore:{session}:{index}", finding, "awaiting_decision" if decides else "noted",
+                    source="exploratory", job=attempt["job"], attempt=attempt["id"], session=session,
+                    probe=finding["probe"],
+                    **({"proposed_check": finding["proposed_check"]} if "proposed_check" in finding else {}))
+        ids.append(item["id"])
+        if decides:
+            waiting.append(item["id"])
+    save(root, data)
+    return ids, waiting
+
+
+def exploratory_waiting(attempt):
+    """The exploratory findings on this attempt that the owner decides (from the run's state)."""
+    return [name for session in attempt.get("exploratory", []) for name in session.get("awaiting", [])]
+
+
 def open_decisions(attempt):
     """The findings on this attempt that still wait for the owner (from the run's state)."""
     decided = attempt.get("decisions", {})
@@ -240,9 +274,14 @@ def open_decisions(attempt):
 
 
 def job_item(attempt, finding_id):
-    """A job finding as the state's review recorded it."""
-    finding = attempt["review"]["findings"][attempt["finding_ids"].index(finding_id)]
-    return {"id": finding_id, "source": "job-review", "job": attempt["job"], "attempt": attempt["id"],
+    """A job finding as the state recorded it: from the review, or from an exploratory session (P3-T5)."""
+    if finding_id in attempt.get("finding_ids", []):
+        finding, source = attempt["review"]["findings"][attempt["finding_ids"].index(finding_id)], "job-review"
+    else:
+        finding = next(session["items"][session["findings"].index(finding_id)]
+                       for session in attempt.get("exploratory", []) if finding_id in session["findings"])
+        source = "exploratory"
+    return {"id": finding_id, "source": source, "job": attempt["job"], "attempt": attempt["id"],
             **{name: finding[name] for name in FIELDS if name in finding}}
 
 
@@ -258,7 +297,7 @@ def sent_back(attempt, ids):
                     for name in ids for item in [job_item(attempt, name)])
 
 
-def decide_job(runner, state, attempt, finding_id, fix, reason):
+def decide_job(runner, state, attempt, finding_id, fix, reason, dismiss=False):
     from .runner import stamp
     contract = runner.frozen_contract(state)
     job = next(job for job in contract["jobs"] if job["id"] == attempt["job"])
@@ -299,11 +338,23 @@ def decide_job(runner, state, attempt, finding_id, fix, reason):
     others = [name for name in waiting if name != finding_id]
     if others:
         accepts += f", once you have also decided {', '.join(others)}"
+    if dismiss:
+        # The text the owner confirms says it is a dismissal, so the digest binds that too.
+        accepts = f"You dismiss this {what} as not a defect. " + accepts
     decision, keep = accept_risk(runner.root, item, reason, accepts + ".")
+    if dismiss:
+        decision["dismissed"] = True
     decisions[finding_id] = decision
     runner.save(state)
-    mark(runner.root, {finding_id}, "accepted", decisions)
+    mark(runner.root, {finding_id}, "dismissed" if dismiss else "accepted", decisions)
     keep()
+    if dismiss and item["source"] == "job-review":
+        # Calibration measures the reviewer; an exploratory finding is QA's (P3-T5).
+        from . import calibration
+        found = calibration.outcomes(calibration.rows(runner.root)).get(finding_id)
+        calibration.append(runner.root, [{**{key: value for key, value in (found or {}).items() if key != "at"},
+                                          "finding": finding_id, "job": attempt["job"], "attempt": attempt["id"],
+                                          "outcome": "dismissed"}])
     if not others and (pending or exhausted):
         require(all_accepted(runner.root, attempt), "An accepted finding has no matching human confirmation on record")
         accepted = list(attempt["awaiting_decision"])
@@ -316,11 +367,12 @@ def decide_job(runner, state, attempt, finding_id, fix, reason):
 
 # Deciding ------------------------------------------------------------------------------------------
 
-def decide(runner, finding_id, *, fix=False, accept=False, reason=None):
+def decide(runner, finding_id, *, fix=False, accept=False, dismiss=False, reason=None):
     """The owner's decision on one finding. Run under the runner's lock."""
-    require(fix != accept, "Choose one decision: --fix or --accept-risk")
+    require(fix + accept + dismiss == 1, "Choose one decision: --fix, --accept-risk or --dismiss")
     reason = reason.strip() if isinstance(reason, str) else ""
-    require(fix or reason, "--accept-risk needs --reason: say why the risk is acceptable")
+    require(fix or reason, ("--dismiss needs --reason: say why it is not a defect" if dismiss
+                            else "--accept-risk needs --reason: say why the risk is acceptable"))
     if runner.state_file.exists():
         state = runner.state()
         attempts = ([state["active"]] if state["active"] else []) + state["attempts"]
@@ -328,8 +380,13 @@ def decide(runner, finding_id, *, fix=False, accept=False, reason=None):
         if attempt is None:
             listed = next((item for item in load(runner.root)["items"] if item["id"] == finding_id), None)
             require(listed, f"Unknown finding {finding_id}; `status` lists the backlog")
+            require(not (listed["source"] == "exploratory" and listed["status"] == "awaiting_decision"),
+                    f"{finding_id} joins the candidate's decisions when its review finishes: run review-candidate "
+                    "first, then decide it")
             raise_not_waiting(finding_id, listed)
-        return decide_job(runner, state, attempt, finding_id, fix, reason)
+        return decide_job(runner, state, attempt, finding_id, fix, reason, dismiss)
+    require(not dismiss, "--dismiss is for job review findings; decide a plan critique finding with --fix or "
+                         "--accept-risk")
     return decide_plan(runner, finding_id, fix, reason)
 
 
@@ -341,4 +398,6 @@ def describe(item):
     """Where a finding came from, in plain words."""
     if item["source"] == "plan-critique":
         return "the independent plan critique"
+    if item["source"] == "exploratory":
+        return f"the exploratory QA session on job {item['job']}"
     return f"the independent review of job {item['job']}"
