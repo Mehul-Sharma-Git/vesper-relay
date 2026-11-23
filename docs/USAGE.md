@@ -99,6 +99,20 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `vesper --project PATH submit ATTEMPT_ID` to run the approved checks, then
   `review-candidate` with a reviewer brain (`--brain NAME`) or an attested independent report.
   Repeat for ready jobs. Resume with `status` and the existing run.
+- **Exploratory QA session.** Once a frontend job's candidate passes its gates, at `focused`
+  and `full` depth, `vesper --project PATH explore --brain NAME` (or `run --explore`, which
+  does it before each such review) runs QA over a throwaway copy of the candidate and the
+  approved plan. With a sandbox QA runs the app with Playwright and tries empty input, very
+  long text, emoji, double clicks, the back button, a slow network, two tabs and keyboard
+  only. It writes `exploratory.md` (each bug's repro steps) and `exploratory.json`, kept
+  under `.builder/attempts/<attempt>/exploratory/<session>/`. Its findings enter the backlog
+  with category, severity and probe: an advisory is `noted`; a blocker, or a security or data
+  finding, waits for you once the candidate's review finishes (`decide` it as any job finding;
+  QA's findings never send the job back without you). The session runs before the review,
+  never after it. A bug that matters may come with a proposed gate script and the
+  `add-check` command for it, which only the owner runs and confirms. A session that fails
+  under `run --explore` is a warning on the attempt, and the review goes on; `run --explore`
+  counts each session's QA call against your reserve.
 - **Add a check after approval.** `vesper --project PATH add-check --id G_X --script x.py
   --jobs J_X[,J_Y] --reason "..."` (or `--command "go test ./..."` in place of `--script`)
   adds a new gate without a full re-approval. It may only add: a new check ID, a new script
@@ -216,7 +230,7 @@ Use `~/.local/bin/vesper` if `vesper` is not on PATH.
   `~/.config/vesper/secrets.env` (mode 600).
 - **Sandbox.** Brains, gates and reviewers run in a container: `sandbox.backend` in the
   personal config (`docker` by default) or `--sandbox docker|podman|none` on `run`,
-  `submit`, `review-candidate`, `consult`, `review-plan`, `repair-reproduce` and `repair-run`. `vesper sandbox build`
+  `submit`, `review-candidate`, `consult`, `review-plan`, `explore`, `repair-reproduce` and `repair-run`. `vesper sandbox build`
   builds the image from `sandbox/Dockerfile`; `vesper sandbox selftest` (or
   `sh sandbox/selftest.sh`) tries to escape from every operation and passes only when every
   attempt fails. `none` and `--trust-host` run on the host and warn every time; `--launcher

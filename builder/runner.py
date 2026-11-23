@@ -672,12 +672,17 @@ class Runner:
         return attempt
 
     def abandon(self, attempt_id):
-        from .decisions import open_decisions
+        from .decisions import exploratory_waiting, open_decisions
         state = self.state()
         attempt = state["active"]
         require(attempt and attempt["id"] == attempt_id, "No matching attempt is active")
         require(not open_decisions(attempt), "This candidate awaits the owner's decision; only the owner sends it "
                                              "back, with decide FINDING_ID --fix")
+        # P3-T5: QA's findings that the owner decides join the candidate's decisions at its review;
+        # abandoning it first would leave them undecided.
+        waiting = exploratory_waiting(attempt) if "verdict" not in attempt.get("review", {}) else []
+        require(not waiting, f"The exploratory session's {', '.join(waiting)} wait for the owner: run "
+                             "review-candidate, then decide them; only the owner sends this candidate back")
         return self.finish(state, "interrupted", "Attempt abandoned by the operator")
 
     def submit(self, attempt_id, launcher=None):
@@ -931,7 +936,9 @@ class Runner:
                 "Tested candidate changed after verification")
         attempt["review"] = {**packet, **{key: report[key] for key in ("verdict", "summary", "evidence", "findings")},
                              "reported_verdict": reported, "downgraded": downgraded, **launched}
-        from .decisions import record_review
+        from .decisions import exploratory_waiting, record_review
+        # P3-T5: the exploratory session's blockers and security or data findings wait for the owner too.
+        explored = exploratory_waiting(attempt)
         if blockers:
             result = self.finish(state, "rejected", "Review blockers: " + "; ".join(
                 f"{item['path']}: {item['recommendation']}" for item in blockers), "review")
@@ -942,6 +949,7 @@ class Runner:
                                          exhausted=len(self.attempts_for(state, job)) >= self.budget_for(state, job))
             result["finding_ids"] = ids
             self.calibrate_review(result, report["findings"], ids)
+            waiting += explored
             if waiting:
                 result["awaiting_decision"] = waiting
             self.save(state)
@@ -950,6 +958,7 @@ class Runner:
             ids, waiting = record_review(self.root, attempt, report["findings"], rejected=False, exhausted=False)
             attempt["finding_ids"] = ids
             self.calibrate_review(attempt, report["findings"], ids)
+            waiting += explored
             if waiting:
                 attempt["awaiting_decision"] = waiting
                 self.save(state)
@@ -1172,9 +1181,13 @@ class Runner:
                 raise
 
     def run(self, selection, launcher=None, *, trust_host=False, review_timeout=180, review_max_turns=20,
-            start_after=None, clock=None, sleep=None, reserve=None):
+            start_after=None, clock=None, sleep=None, reserve=None, explore=False):
         """Run every ready job unattended. ``selection`` (brains.Selection) picks each job's
         worker brain by role and the reviewer brain (by default the job's worker brain).
+
+        With ``explore`` (P3-T5), a frontend job's candidate that passes its gates at focused or
+        full depth gets an exploratory QA session (the qa brain) before its review; a session
+        that fails is a warning on the attempt, and the review goes on.
 
         Before a job's first attempt the plan limits are checked (P2-T4): a job that would cross
         the reserve is not started and the run returns ``paused_for_limits``; a started job is
@@ -1221,7 +1234,7 @@ class Runner:
             if not self.attempts_for(state, ready):
                 current = ready
                 pause, found = plan_usage.limit_check(
-                    contract, state["bundle"], ready, plan_usage.entries(), reserve=reserve,
+                    contract, state["bundle"], ready, plan_usage.entries(), reserve=reserve, explore=explore,
                     brains=lambda role: reviewer_for(current) if role == "reviewer" else selection.worker(role),
                     now=clock() if clock else datetime.now(timezone.utc))
                 notes += found
@@ -1233,6 +1246,12 @@ class Runner:
             reviewer = reviewer_for(ready) if "team" in state["bundle"] else None
             if reviewer:
                 brain_command(reviewer, "reviewer", launcher, trust_host, max_turns=review_max_turns)
+            explorer = None
+            if explore and reviewer:
+                from .exploratory import why_not
+                if why_not(state["bundle"], ready) is None:
+                    explorer = selection.worker("qa")
+                    brain_command(explorer, "worker", launcher, trust_host)
             # Shell only inside a real sandbox backend (P1-T10); the prompt says so only then.
             shell = "shell" in brain_tools(brain, "worker", ready["role"], isinstance(launcher, Sandbox))
             job, attempt, workspace, prompt = self.begin(state, contract, brain.name, brain.adapter.name, shell,
@@ -1256,10 +1275,26 @@ class Runner:
                             f"Worker brain {brain.name} exited {code}\n{said[-3500:]}", "provider")
             elif self.keep_reasoning(state, job, brain, log):
                 result = self.verify(state, contract, job, workspace, launcher)
+                if result["outcome"] == "awaiting_review" and explorer:
+                    self.explore_candidate(state, explorer, launcher, trust_host)
                 if result["outcome"] == "awaiting_review":
                     self.review_candidate(brain=reviewer, launcher=launcher, trust_host=trust_host, **limits)
                     state = self.state()
         return {**self.status(), **({"limit_notes": notes} if notes else {})}
+
+    def explore_candidate(self, state, brain, launcher, trust_host):
+        """`run --explore`: one exploratory session on the tested candidate (P3-T5). It never holds
+        the candidate: a session that fails leaves a warning on the attempt."""
+        from .exploratory import explore
+        attempt = state["active"]
+        print(f"{attempt['job']} | {brain.name} | exploratory session", file=sys.stderr, flush=True)
+        try:
+            explore(self, brain, launcher, trust_host, state=state)
+        except (BuilderError, OSError, UnicodeError) as exc:
+            warning = f"The exploratory session did not finish: {str(exc)[:1500]}"
+            attempt.setdefault("warnings", []).append(warning)
+            print(f"{attempt['job']} | warning: {warning}", file=sys.stderr, flush=True)
+            self.save(state)
 
     def export(self, destination):
         state = self.state()

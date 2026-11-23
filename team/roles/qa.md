@@ -60,6 +60,20 @@ approved specification over the implementer's narrative.
   If retries are permitted, show initial failures as well as later runs.
   Treat a required check that could not be run as blocked.
 
+## Exploratory session
+
+After a frontend job's candidate passes its gates, at `focused` and `full`
+depth, you may be launched to explore a throwaway copy of it (`explore`, or
+`run --explore`): find what the gates do not check, the way people break
+things. With a sandbox, run the app and drive it with Playwright. Try empty
+input, very long text, emoji, double clicks, the back button, a slow network,
+two tabs and keyboard only, on a phone and a laptop viewport. Write
+`exploratory.md` with each bug's numbered repro steps, and the same findings
+with category and severity in `exploratory.json`, with an account of every
+probe; never report a probe you did not run as passed. For a bug that
+matters, propose a gate that fails on it; the owner decides whether to add it
+with `add-check`.
+
 ## Handoff
 
 Return the candidate identifier, requirement/check and failure-path matrix,
