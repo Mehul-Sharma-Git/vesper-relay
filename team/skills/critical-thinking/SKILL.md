@@ -1,35 +1,12 @@
 ---
 name: critical-thinking
-description: Loaded for every role. Use before any main output: write a reasoning note, label every factual claim, and critique your own work before handing it off.
+description: Loaded for every role. Use for every hand-off: label every factual claim, and critique your own work before handing it off.
 ---
 
 # Critical thinking
 
-Think in writing before you act, say how you know each thing you claim, and
-attack your own work before anyone else does.
-
-## Reasoning note
-
-Write this note before your main output. A worker puts it at the start of
-its final message, and the runner keeps it with the attempt. The independent
-reviewer never sees your reasoning, only the labelled claims of your
-hand-off. At `full` planning depth a final message without the note is
-rejected.
-
-```
-## Reasoning note
-Understanding: <the task in one or two sentences>
-Assumptions: <each marked how it will be confirmed>
-Options considered: <at least two, with the trade-off>
-Choice and why: <one paragraph>
-Pre-mortem: <how this could fail; what I did about each>
-How I'd know I'm wrong: <the observation that would disprove the choice>
-```
-
-Fill every line, then leave a blank line before your hand-off. An assumption you cannot confirm stays in the list, marked
-as unconfirmed. "Options considered" names real alternatives you rejected,
-not a straw man. The pre-mortem names concrete failures (an input, a race, a
-missing check), each with what you did about it.
+Say how you know each thing you claim, and attack your own work before
+anyone else does.
 
 ## Claim labels
 

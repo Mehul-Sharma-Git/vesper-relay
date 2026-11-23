@@ -53,7 +53,7 @@ def spec(findings=(), proposed=None, markdown="# Exploratory session\n\n## F1\nR
 
 
 # A stand-in `claude` CLI that plays the three roles it is launched as: the worker ships
-# server.py with a reasoning note; QA (its folder has report/) writes the report spec.json asks
+# server.py with a note-shaped section (kept from the reviewer, P3-T1b); QA (its folder has report/) writes the report spec.json asks
 # for; the reviewer approves. It logs each role it played.
 STAND_IN = r'''
 import json, sys

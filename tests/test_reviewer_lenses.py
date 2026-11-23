@@ -268,7 +268,7 @@ class EstimateTests(unittest.TestCase):
 
 
 # A stand-in `claude` CLI. As a worker it ships the Pocket Todo solution's server.py (which has no
-# Origin check) with a reasoning note. As a reviewer it reads its lens from the prompt; the security
+# Origin check) with a note-shaped section (kept from the reviewer, P3-T1b). As a reviewer it reads its lens from the prompt; the security
 # lens proves the CSRF hole by starting the candidate and sending a cross-origin write, and quotes
 # the result in its repro.
 LENS_STAND_IN = r'''

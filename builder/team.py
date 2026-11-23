@@ -13,7 +13,7 @@ TOOLS = ("read", "edit", "write", "search", "shell")
 WRITER_TOOLS = TOOLS
 REVIEWER_TOOLS = ("read", "search", "shell")
 CONSULT_TOOLS = ("read", "search")
-# Core skills every role loads ahead of its own default (P3-T1): reasoning note, claim labels,
+# Core skills every role loads ahead of its own default (P3-T1, P3-T1b): claim labels and
 # self-critique. They are part of each role's revision, so a frozen run keeps the version it had.
 SHARED_SKILLS = ("critical-thinking",)
 PROFILES = {
